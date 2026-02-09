@@ -1,0 +1,23 @@
+## X-Flavor: retail
+## X-Expansion: TWW
+## Interface: 120000, 120001
+
+## Title: Chatify
+## Notes: Clean chat, spam filters, copy & paste.
+
+## Version: v1.0
+## Author: melles1991
+## DefaultState: Enabled
+## OptionalDeps: Ace3
+## SavedVariables: ChatifyDB, ChatifyHistoryDB
+## LoadSavedVariablesFirst: true
+## Category-enUS: Chat
+## X-Website: https://legacy.curseforge.com/wow/addons/chatify-chat-enhancer
+## X-Curse-Project-ID: 1458193
+
+Config.lua
+Settings.lua
+ChatCopy.lua
+ChatVisuals.lua
+ChatFilters.lua
+ChatHistory.lua

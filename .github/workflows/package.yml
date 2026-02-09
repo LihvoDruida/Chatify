@@ -1,0 +1,95 @@
+name: Continuous Integration
+
+on:
+  push:
+    tags:
+      - "*"           # Запускати на будь-який тег
+      - "!**-alpha**" # Ігнорувати теги з суфіксом -alpha
+      - "!**-beta**"  # Ігнорувати теги з суфіксом -beta
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    outputs:
+      changeLogText: ${{ steps.readChanglog.outputs.text }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - name: Get Latest Tag or use TOC version
+        id: get_latest_tag
+        run: |
+          # 1. Шукаємо файл .toc (беремо перший знайдений, щоб не хардкодити назву)
+          TOC_FILE=$(find . -maxdepth 1 -name "*.toc" | head -n 1)
+          echo "📂 Знайдено TOC файл: $TOC_FILE"
+
+          # 2. Витягуємо версію з TOC
+          if [ -f "$TOC_FILE" ]; then
+            TOC_VERSION=$(grep -oP '^## Version: \K.*' "$TOC_FILE" | tr -d '\r')
+          else
+            TOC_VERSION="1.0"
+          fi
+          
+          TOC_FALLBACK="v${TOC_VERSION}"
+
+          # 3. Перевіряємо теги
+          TAGS=$(git tag -l)
+          if [ -z "$TAGS" ]; then
+            LATEST_TAG="$TOC_FALLBACK"
+            echo "⚠️ Теги не знайдено, використовується версія з TOC: $LATEST_TAG"
+          else
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "🧷 Знайдено останній тег: $LATEST_TAG"
+          fi
+
+          # 4. Зберігаємо змінні
+          echo "FINAL_VERSION=$LATEST_TAG" >> $GITHUB_ENV
+          echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Print Debug Info
+        run: |
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Використана версія: $FINAL_VERSION"
+
+      - name: Update Version in .toc Files
+        run: |
+          # Оновлює поле Version у всіх .toc файлах репозиторію на поточний тег
+          # Видаляє літеру 'v' якщо вона є (наприклад v1.2 -> 1.2), бо WoW любить чисті цифри
+          CLEAN_VERSION=$(echo "${FINAL_VERSION}" | sed 's/^v//')
+          
+          find . -type f -name "*.toc" | while read toc_file; do
+            echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
+            sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
+          done
+
+      # Генеруємо changelog (потрібен файл cliff.toml у корені)
+      - name: Generate CHANGELOG.md
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header --output CHANGELOG.md
+
+      - name: Verify Changelog
+        run: cat CHANGELOG.md || echo "Changelog not generated"
+
+      # Пакування та відправка на CurseForge / GitHub Releases
+      - name: Create and Upload Package
+        uses: BigWigsMods/packager@v2
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}  # Токен CurseForge
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }} # Токен GitHub (автоматичний)
+
+      - name: Add Summary
+        run: |
+          echo "## ✅ CI завершено успішно для версії $FINAL_VERSION" >> $GITHUB_STEP_SUMMARY

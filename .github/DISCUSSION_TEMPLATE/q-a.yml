@@ -1,0 +1,17 @@
+name: ❓ Question
+description: Ask a question about how to use Chatify.
+title: "[Q&A]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the FAQ or search previous discussions before asking!
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What do you need help with?
+      placeholder: How do I change the font size or disable the spam filter?
+    validations:
+      required: true

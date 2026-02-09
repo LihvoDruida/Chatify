@@ -1,0 +1,20 @@
+package-as: Chatify
+
+enable-nolib-creation: no
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - README.md
+  - .releaserc
+  - .vscode
+  - .git
+  - .github
+  - screenshots
+  - package.json
+  - package-lock.json
+  - release.sh
+  - cliff.toml
+  - .DS_Store

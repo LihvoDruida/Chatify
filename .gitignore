@@ -1,0 +1,19 @@
+# Mac OS system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# VS Code settings
+.vscode/
+
+# IntelliJ / JetBrains settings
+.idea/
+
+# Lua build/temp files
+*.luacheckrc
+*.bak
+*.tmp
+*.log

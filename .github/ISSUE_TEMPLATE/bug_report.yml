@@ -1,0 +1,82 @@
+name: 🐛 Bug Report
+description: Create a report to help us improve Chatify.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Please verify that you are using the latest version of Chatify before submitting.
+
+  - type: dropdown
+    id: game_version
+    attributes:
+      label: Game Version
+      description: Which version of World of Warcraft are you playing?
+      options:
+        - Retail (The War Within 11.x)
+        - Cataclysm Classic
+        - Classic Era / SoD
+    validations:
+      required: true
+
+  - type: input
+    id: addon_version
+    attributes:
+      label: Addon Version
+      description: Which version of Chatify are you using? (e.g., v1.2)
+      placeholder: v1.2
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: When I click on a timestamp, the copy window does not appear...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Please list the steps required to see the issue.
+      placeholder: |
+        1. Login to the game.
+        2. Receive a whisper from a player.
+        3. Click the timestamp [12:00].
+        4. See Lua error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: A window with the message text should open for copying.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Lua Error Logs
+      description: Please copy and paste any Lua errors here.
+      render: lua
+      placeholder: |
+        Message: Interface/AddOns/Chatify/ChatHistory.lua:69: bad argument #1 to 'ipairs'
+        Stack: ...
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Troubleshooting Checklist
+      options:
+        - label: I have updated Chatify to the latest available version.
+          required: true
+        - label: I have disabled other addons to verify this is not a conflict.
+          required: false
