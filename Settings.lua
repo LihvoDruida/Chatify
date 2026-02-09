@@ -4,6 +4,61 @@ local addonName, ns = ...
 ns.ApplyVisuals = ns.ApplyVisuals or function() end
 
 -- =========================================================
+-- 0. ЛОГІКА "KILLER FEATURE" (АВТО-ВКЛАДКИ)
+-- =========================================================
+local function SetupDefaultTabs()
+    -- Перевірка, чи можна створювати вікна (в бою не можна)
+    if InCombatLockdown() then 
+        print("|cff33ff99Chatify:|r Неможливо налаштувати чат під час бою!") 
+        return 
+    end
+
+    local tabs = {
+        { 
+            name = "Whisper", 
+            groups = { "WHISPER", "BN_WHISPER" } 
+        },
+        { 
+            name = "Guild",   
+            groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } 
+        },
+        { 
+            name = "Party",   
+            groups = { "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER" } 
+        }
+    }
+
+    local createdCount = 0
+
+    for _, tabInfo in ipairs(tabs) do
+        -- 1. Створюємо нове вікно
+        local frame = FCF_OpenNewWindow(tabInfo.name)
+        
+        if frame then
+            createdCount = createdCount + 1
+            
+            -- 2. Очищаємо всі стандартні канали та групи
+            ChatFrame_RemoveAllMessageGroups(frame)
+            ChatFrame_RemoveAllChannels(frame)
+            
+            -- 3. Додаємо лише потрібні групи
+            for _, group in ipairs(tabInfo.groups) do
+                ChatFrame_AddMessageGroup(frame, group)
+            end
+            
+            -- 4. Активуємо вкладку (щоб вона засвітилася)
+            FCF_SelectDockFrame(frame)
+        end
+    end
+
+    if createdCount > 0 then
+        print("|cff33ff99Chatify:|r Успішно створено вкладок: " .. createdCount .. ". (Whisper, Guild, Party)")
+    else
+        print("|cff33ff99Chatify:|r Не вдалося створити вкладки (можливо, ліміт вікон досягнуто).")
+    end
+end
+
+-- =========================================================
 -- 1. MAIN PANEL
 -- =========================================================
 local panel = CreateFrame("Frame", "MyChatModsOptions", UIParent)
@@ -305,6 +360,16 @@ panel:SetScript("OnShow", function()
     -- Checkbox 2: Sound Alerts
     local cbSound = CreateCheckbox(s1, "Sound Alerts", "enableSoundAlerts", 300, -25, "Play sound on Whisper or name mention")
     CreateDescription(s1, "Plays a sound when you get a Whisper or your name is mentioned in raid.", cbSound, 0, -5, 250)
+
+    -- [NEW] BUTTON: AUTO SETUP TABS
+    local setupBtn = CreateFrame("Button", nil, s1, "UIPanelButtonTemplate")
+    setupBtn:SetSize(140, 30)
+    setupBtn:SetPoint("RIGHT", -20, 0) -- Праворуч у блоці
+    setupBtn:SetText("Create Chat Tabs")
+    AddTooltip(setupBtn, "Automatically creates: Whisper, Guild, Party tabs.")
+    setupBtn:SetScript("OnClick", function()
+        SetupDefaultTabs()
+    end)
     
     -- === SECTION 2: VISUALS (Height 135px) ===
     local s2 = CreateSection(content, "Fonts & Time", s1, 135)
