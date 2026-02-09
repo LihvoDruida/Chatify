@@ -1,118 +1,188 @@
 local addonName, ns = ...
 
-local function ChatFilter(self, event, msg, author, ...)
-    local db = ns.db
-    if not db then return false, msg, author, ... end 
-    
-    -- Отримуємо ім'я та оригінальний текст НА ПОЧАТКУ
-    local myName = UnitName("player")
-    local originalMsg = msg -- Зберігаємо "чистий" текст для перевірки звуку
+-- ===============================
+-- Utility: Strip WoW Color Codes (для пошуку, не для зміни msg)
+-- ===============================
+local function stripColors(text)
+    return text:gsub("|[cC]%x%x%x%x%x%x%x%x", ""):gsub("|[rR]", "")
+end
 
-    -- 1. SPAM FILTER (Фільтр слів)
+-- ===============================
+-- URL Wrapper
+-- ===============================
+local function wrapURL(url)
+    local cleanUrl = url:gsub("[%.,:;!'\"]+$", "")
+    return "|cff33ffcc|Hurl:" .. cleanUrl .. "|h[" .. cleanUrl .. "]|h|r"
+end
+
+-- ===============================
+-- Get WoW links positions
+-- ===============================
+local function getLinkPositions(msg)
+    local positions = {}
+    for startPos, endPos in msg:gmatch("()|H.-|h.-|h()") do
+        table.insert(positions, {startPos, endPos-1})
+    end
+    return positions
+end
+
+local function isInsideLink(pos, linkPositions)
+    for _, range in ipairs(linkPositions) do
+        if pos >= range[1] and pos <= range[2] then
+            return true
+        end
+    end
+    return false
+end
+
+-- ===============================
+-- Main Chat Filter
+-- ===============================
+local function ChatFilter(self, event, msg, author, ...)
+
+    local db = ns.db
+    if not db then
+        return false, msg, author, ...
+    end
+
+    local myName = UnitName("player")
+    local originalMsg = msg
+
+    -- ===============================
+    -- 1. SPAM FILTER
+    -- ===============================
     if db.enableSpamFilter and db.spamKeywords then
         local msgUpper = msg:upper()
         for _, word in ipairs(db.spamKeywords) do
-            if word and word ~= "" then
-                if msgUpper:find(word:upper(), 1, true) then 
-                    return true 
-                end
+            if word and word ~= "" and msgUpper:find(word:upper(), 1, true) then
+                return true
             end
         end
     end
 
-    -- 2. HIGHLIGHT KEYWORDS (Підсвітка слів зі списку)
+    -- ===============================
+    -- Get WoW link positions once
+    -- ===============================
+    local linkPositions = getLinkPositions(msg)
+    local searchMsg = stripColors(originalMsg)
+
+    -- ===============================
+    -- 2 & 3: Highlight keywords & URLs (одне проходження)
+    -- ===============================
+    local patterns = {}
+
+    -- додати highlight keywords
     if db.highlightKeywords then
         for _, word in ipairs(db.highlightKeywords) do
             if word and word ~= "" then
-                if msg:find(word) then
-                    msg = msg:gsub(word, "|cff" .. (db.myHighlightColor or "ff0000") .. word .. "|r")
-                end
+                table.insert(patterns, {word=word, type="highlight"})
             end
         end
     end
 
-    -- 2.5. ПІДСВІТКА ІМЕНІ ПЕРСОНАЖА (Золотий колір)
+    -- додати гугл-подібні URL
+    for url in searchMsg:gmatch("(https?://[%w-_%.%?%.:/%+=&%%#]+)") do
+        table.insert(patterns, {word=url, type="url"})
+    end
+    for url in searchMsg:gmatch("(%f[%w]www%.[%w-_%.%?%.:/%+=&%%#]+)") do
+        table.insert(patterns, {word=url, type="url"})
+    end
+    for url in searchMsg:gmatch("(%f[%w]discord%.gg/[%w-_]+)") do
+        table.insert(patterns, {word=url, type="url"})
+    end
+
+    -- одне проходження gsub
+    for _, p in ipairs(patterns) do
+        msg = msg:gsub("()"..p.word.."()", function(startPos, endPos)
+            if not isInsideLink(startPos, linkPositions) then
+                if p.type=="highlight" then
+                    return "|cff" .. (db.myHighlightColor or "ff0000") .. p.word .. "|r"
+                elseif p.type=="url" then
+                    return wrapURL(p.word)
+                end
+            end
+            return p.word
+        end)
+    end
+
+    -- ===============================
+    -- 2.5 Highlight Player Name (поза лінками)
+    -- ===============================
     if myName and myName ~= "" then
-        if msg:lower():find(myName:lower()) then
-            -- Замінюємо ім'я на золоте (fffd700)
-            msg = msg:gsub(myName, "|cffffd700" .. myName .. "|r")
+        msg = msg:gsub("()"..myName.."()", function(startPos, endPos)
+            if not isInsideLink(startPos, linkPositions) then
+                return "|cffffd700" .. myName .. "|r"
+            else
+                return myName
+            end
+        end)
+    end
+
+    -- ===============================
+    -- 4. TIMESTAMP
+    -- ===============================
+    if ns.Lists and ns.Lists.TimeFormats then
+        local formatList = ns.Lists.TimeFormats
+        local timeData = formatList[db.timestampID] or formatList[1]
+        if timeData then
+            local timeString = date(timeData.format)
+            local link = string.format("|cff%s|Hchatcopy|h[%s]|h|r",
+                (db.timestampColor or "68ccef"), timeString)
+            msg = link .. " " .. msg
         end
     end
 
-    -- 3. URL LINKS (Клікабельні посилання)
-    local function wrapURL(url)
-        return "|cff33ffcc|Hurl:" .. url .. "|h[" .. url .. "]|h|r"
-    end
-    msg = msg:gsub("(https?://%S+)", wrapURL)
-    msg = msg:gsub("(%s)(www%.%S+)", function(space, url)
-        return space .. wrapURL(url)
-    end)
-    msg = msg:gsub("^(www%.%S+)", wrapURL)
-    msg = msg:gsub("(%s)(discord%.gg/%S+)", function(space, url)
-         return space .. wrapURL(url)
-    end)
-    msg = msg:gsub("^(discord%.gg/%S+)", wrapURL)
-
-
-    -- 4. ADD TIMESTAMP (Час повідомлення)
-    local formatList = ns.Lists.TimeFormats
-    local timeData = formatList[db.timestampID] or formatList[1]
-    
-    if timeData then
-        local timeString = date(timeData.format)
-        local link = string.format("|cff%s|Hchatcopy|h[%s]|h|r", (db.timestampColor or "68ccef"), timeString)
-        msg = link .. " " .. msg
-    end
-
-    -- 5. SOUND ALERTS (Звукові сповіщення)
+    -- ===============================
+    -- 5. SOUND ALERTS
+    -- ===============================
     if db.enableSoundAlerts then
         local playSound = false
-        
-        -- А) Приватні повідомлення
-        if event == "CHAT_MSG_WHISPER" then
-            playSound = true
-        end
-
-        -- Б) Згадка імені (Група, Рейд, Гільдія, Інстанс)
-        if myName and myName ~= "" then
-            local isGroupChat = (event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER")
-            local isRaidChat  = (event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER")
-            local isGuildChat = (event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_OFFICER")
-            local isInstance  = (event == "CHAT_MSG_INSTANCE_CHAT" or event == "CHAT_MSG_INSTANCE_CHAT_LEADER")
-
-            if (isGroupChat or isRaidChat or isGuildChat or isInstance) then
-                -- Перевіряємо originalMsg, щоб уникнути проблем із кольоровими кодами
-                if originalMsg:lower():find(myName:lower(), 1, true) then
-                    playSound = true
+        if author and not author:find(myName, 1, true) then
+            if event == "CHAT_MSG_WHISPER" then
+                playSound = true
+            else
+                local groupEvents = {
+                    CHAT_MSG_PARTY=true, CHAT_MSG_PARTY_LEADER=true,
+                    CHAT_MSG_RAID=true, CHAT_MSG_RAID_LEADER=true,
+                    CHAT_MSG_GUILD=true, CHAT_MSG_OFFICER=true,
+                    CHAT_MSG_INSTANCE_CHAT=true, CHAT_MSG_INSTANCE_CHAT_LEADER=true,
+                    CHAT_MSG_CHANNEL=true,
+                }
+                if groupEvents[event] then
+                    local cleanSearch = stripColors(originalMsg):lower()
+                    if cleanSearch:find(myName:lower(), 1, true) then
+                        playSound = true
+                    end
                 end
             end
         end
-
         if playSound then
-            PlaySoundFile("Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg", "Master")
+            PlaySound(SOUNDKIT.TELL_MESSAGE)
         end
     end
 
     return false, msg, author, ...
 end
 
--- Реєстрація подій
+-- ===============================
+-- Event Registration
+-- ===============================
 local loader = CreateFrame("Frame")
-loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function()
+loader:RegisterEvent("ADDON_LOADED")
+loader:SetScript("OnEvent", function(self, event, name)
+    if name ~= addonName then return end
+
     local events = {
-        "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
-        "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
-        "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
-        "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
-        "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
-        "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM",
-        "CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM", 
-        "CHAT_MSG_CHANNEL",
-        "CHAT_MSG_SYSTEM", "CHAT_MSG_ACHIEVEMENT", "CHAT_MSG_GUILD_ACHIEVEMENT" 
+        "CHAT_MSG_SAY","CHAT_MSG_YELL","CHAT_MSG_EMOTE","CHAT_MSG_TEXT_EMOTE",
+        "CHAT_MSG_GUILD","CHAT_MSG_GUILD_MOTD","CHAT_MSG_OFFICER",
+        "CHAT_MSG_PARTY","CHAT_MSG_PARTY_LEADER","CHAT_MSG_RAID","CHAT_MSG_RAID_LEADER",
+        "CHAT_MSG_RAID_WARNING","CHAT_MSG_INSTANCE_CHAT","CHAT_MSG_INSTANCE_CHAT_LEADER",
+        "CHAT_MSG_WHISPER","CHAT_MSG_WHISPER_INFORM","CHAT_MSG_BN_WHISPER",
+        "CHAT_MSG_BN_WHISPER_INFORM","CHAT_MSG_CHANNEL","CHAT_MSG_SYSTEM",
+        "CHAT_MSG_ACHIEVEMENT","CHAT_MSG_GUILD_ACHIEVEMENT"
     }
-    
-    for _, event in ipairs(events) do
-        ChatFrame_AddMessageEventFilter(event, ChatFilter)
+
+    for _, eventName in ipairs(events) do
+        ChatFrame_AddMessageEventFilter(eventName, ChatFilter)
     end
 end)
