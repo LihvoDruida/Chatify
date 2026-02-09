@@ -7,7 +7,7 @@ local msgCache = {}
 local msgIndex = 0
 local CACHE_SIZE = 500
 
--- [ВАЖЛИВО] Функція тепер доступна для інших файлів через ns.
+-- Функція доступна для ChatFilters.lua
 function ns.SaveToCache(text)
     msgIndex = msgIndex + 1
     msgCache[msgIndex] = text
@@ -97,16 +97,17 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
 -- =========================================================
 local OldSetItemRef = SetItemRef
 function SetItemRef(link, text, button, chatFrame)
+    -- Click on TIMESTAMP (chatcopy:ID)
     if link:sub(1, 9) == "chatcopy:" then
         local id = tonumber(link:sub(10))
+
         if id and msgCache[id] then
             ShowCopyWindow(msgCache[id])
-        else
-            ShowCopyWindow(text) 
         end
         return
     end
 
+    -- Click on URL (url:LINK)
     if link:sub(1, 4) == "url:" then
         local currentLink = link:sub(5)
         StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, currentLink)
