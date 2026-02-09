@@ -1,7 +1,7 @@
 local addonName, ns = ...
 
 -- ===============================
--- Utility: Strip WoW Color Codes (для пошуку, не для зміни msg)
+-- Utility: Strip WoW Color Codes
 -- ===============================
 local function stripColors(text)
     return text:gsub("|[cC]%x%x%x%x%x%x%x%x", ""):gsub("|[rR]", "")
@@ -36,21 +36,17 @@ local function isInsideLink(pos, linkPositions)
 end
 
 -- ===============================
--- Main Chat Filter
+-- MAIN CHAT FILTER
 -- ===============================
 local function ChatFilter(self, event, msg, author, ...)
 
     local db = ns.db
-    if not db then
-        return false, msg, author, ...
-    end
+    if not db then return false, msg, author, ... end
 
     local myName = UnitName("player")
     local originalMsg = msg
 
-    -- ===============================
     -- 1. SPAM FILTER
-    -- ===============================
     if db.enableSpamFilter and db.spamKeywords then
         local msgUpper = msg:upper()
         for _, word in ipairs(db.spamKeywords) do
@@ -60,18 +56,13 @@ local function ChatFilter(self, event, msg, author, ...)
         end
     end
 
-    -- ===============================
-    -- Get WoW link positions once
-    -- ===============================
+    -- PROTECT WOW LINKS
     local linkPositions = getLinkPositions(msg)
     local searchMsg = stripColors(originalMsg)
 
-    -- ===============================
-    -- 2 & 3: Highlight keywords & URLs (одне проходження)
-    -- ===============================
+    -- 2 & 3: Highlight keywords & URLs
     local patterns = {}
-
-    -- додати highlight keywords
+    
     if db.highlightKeywords then
         for _, word in ipairs(db.highlightKeywords) do
             if word and word ~= "" then
@@ -80,18 +71,17 @@ local function ChatFilter(self, event, msg, author, ...)
         end
     end
 
-    -- додати гугл-подібні URL
-    for url in searchMsg:gmatch("(https?://[%w-_%.%?%.:/%+=&%%#]+)") do
+    local urlPattern = "[%w%.%:%/%-%_%?%=%&%%%+%#%~]+"
+    for url in searchMsg:gmatch("(https?://" .. urlPattern .. ")") do
         table.insert(patterns, {word=url, type="url"})
     end
-    for url in searchMsg:gmatch("(%f[%w]www%.[%w-_%.%?%.:/%+=&%%#]+)") do
+    for url in searchMsg:gmatch("(%f[%w]www%." .. urlPattern .. ")") do
         table.insert(patterns, {word=url, type="url"})
     end
-    for url in searchMsg:gmatch("(%f[%w]discord%.gg/[%w-_]+)") do
+    for url in searchMsg:gmatch("(%f[%w]discord%.gg/" .. urlPattern .. ")") do
         table.insert(patterns, {word=url, type="url"})
     end
 
-    -- одне проходження gsub
     for _, p in ipairs(patterns) do
         msg = msg:gsub("()"..p.word.."()", function(startPos, endPos)
             if not isInsideLink(startPos, linkPositions) then
@@ -105,9 +95,7 @@ local function ChatFilter(self, event, msg, author, ...)
         end)
     end
 
-    -- ===============================
-    -- 2.5 Highlight Player Name (поза лінками)
-    -- ===============================
+    -- 2.5 Highlight Player Name
     if myName and myName ~= "" then
         msg = msg:gsub("()"..myName.."()", function(startPos, endPos)
             if not isInsideLink(startPos, linkPositions) then
@@ -118,23 +106,32 @@ local function ChatFilter(self, event, msg, author, ...)
         end)
     end
 
-    -- ===============================
-    -- 4. TIMESTAMP
-    -- ===============================
+    -- 4. TIMESTAMP & COPY PREPARATION
     if ns.Lists and ns.Lists.TimeFormats then
         local formatList = ns.Lists.TimeFormats
         local timeData = formatList[db.timestampID] or formatList[1]
+        
         if timeData then
             local timeString = date(timeData.format)
-            local link = string.format("|cff%s|Hchatcopy|h[%s]|h|r",
-                (db.timestampColor or "68ccef"), timeString)
-            msg = link .. " " .. msg
+            local cleanContent = stripColors(originalMsg)
+            local copyText = string.format("[%s] %s: %s", timeString, (author or "System"), cleanContent)
+            
+            -- [ВАЖЛИВО] Викликаємо функцію з ChatCopy.lua через ns.
+            if ns.SaveToCache then
+                local msgID = ns.SaveToCache(copyText)
+                local link = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r", 
+                    (db.timestampColor or "68ccef"), msgID, timeString)
+                msg = link .. " " .. msg
+            else
+                -- Fallback (якщо ChatCopy.lua не завантажився)
+                local link = string.format("|cff%s|Hchatcopy|h[%s]|h|r", 
+                    (db.timestampColor or "68ccef"), timeString)
+                msg = link .. " " .. msg
+            end
         end
     end
 
-    -- ===============================
     -- 5. SOUND ALERTS
-    -- ===============================
     if db.enableSoundAlerts then
         local playSound = false
         if author and not author:find(myName, 1, true) then
@@ -144,7 +141,7 @@ local function ChatFilter(self, event, msg, author, ...)
                 local groupEvents = {
                     CHAT_MSG_PARTY=true, CHAT_MSG_PARTY_LEADER=true,
                     CHAT_MSG_RAID=true, CHAT_MSG_RAID_LEADER=true,
-                    CHAT_MSG_GUILD=true, CHAT_MSG_OFFICER=true,
+                    CHAT_MSG_GUILD=true, CHAT_MSG_OFFICER=true, CHAT_MSG_GUILD_MOTD=true,
                     CHAT_MSG_INSTANCE_CHAT=true, CHAT_MSG_INSTANCE_CHAT_LEADER=true,
                     CHAT_MSG_CHANNEL=true,
                 }
@@ -157,7 +154,7 @@ local function ChatFilter(self, event, msg, author, ...)
             end
         end
         if playSound then
-            PlaySound(SOUNDKIT.TELL_MESSAGE)
+            PlaySoundFile("Interface\\AddOns\\Chatify\\Assets\\Alert\\notification-0.ogg", "Master")
         end
     end
 

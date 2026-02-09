@@ -1,8 +1,28 @@
 local addonName, ns = ...
 
-----------------------------------------------------------------------
--- 1. Create Window for COPYING LARGE TEXT (History/Msg)
-----------------------------------------------------------------------
+-- =========================================================
+-- 0. CACHE SYSTEM
+-- =========================================================
+local msgCache = {}
+local msgIndex = 0
+local CACHE_SIZE = 500
+
+-- [ВАЖЛИВО] Функція тепер доступна для інших файлів через ns.
+function ns.SaveToCache(text)
+    msgIndex = msgIndex + 1
+    msgCache[msgIndex] = text
+    
+    if msgIndex > CACHE_SIZE + 50 then
+        for i = msgIndex - CACHE_SIZE - 50, msgIndex - CACHE_SIZE do
+            msgCache[i] = nil
+        end
+    end
+    return msgIndex
+end
+
+-- =========================================================
+-- 1. WINDOW FOR COPYING TEXT
+-- =========================================================
 local f = CreateFrame("Frame", "MyChatCopyFrame", UIParent, "BackdropTemplate")
 
 f:SetBackdrop({
@@ -17,13 +37,15 @@ f:SetPoint("CENTER")
 f:SetFrameStrata("DIALOG")
 f:Hide()
 f:EnableMouse(true)
+f:SetMovable(true)
+f:RegisterForDrag("LeftButton")
+f:SetScript("OnDragStart", f.StartMoving)
+f:SetScript("OnDragStop", f.StopMovingOrSizing)
 
--- Scroll Area
 local scrollArea = CreateFrame("ScrollFrame", "MyChatCopyScroll", f, "UIPanelScrollFrameTemplate")
 scrollArea:SetPoint("TOPLEFT", 10, -30)
 scrollArea:SetPoint("BOTTOMRIGHT", -30, 10)
 
--- Main EditBox
 local editBox = CreateFrame("EditBox", nil, scrollArea)
 editBox:SetMultiLine(true)
 editBox:SetMaxLetters(99999)
@@ -36,37 +58,32 @@ editBox:SetScript("OnEscapePressed", function() f:Hide() end)
 
 scrollArea:SetScrollChild(editBox)
 
--- Close Button
 local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", 0, 0)
 
--- Global function to show the window
-function ns.ShowCopyWindow(text)
+local function ShowCopyWindow(text)
     f:Show()
     editBox:SetText(text)
     editBox:HighlightText()
     editBox:SetFocus()
 end
 
-----------------------------------------------------------------------
--- 2. Create Window for COPYING URL (Small Dialog)
-----------------------------------------------------------------------
+-- =========================================================
+-- 2. POPUP FOR URLS
+-- =========================================================
 StaticPopupDialogs["CHATIFY_COPY_URL"] = {
     text = "Press Ctrl+C to copy the link:",
     button1 = "OK",
     hasEditBox = true,
     editBoxWidth = 350,
-    
     OnShow = function(self, data)
-        -- Modern WoW uses self.EditBox (Capitalized)
-        local editBox = self.EditBox
-        if editBox then
-            editBox:SetText(data)
-            editBox:SetFocus()
-            editBox:HighlightText() -- Auto-highlight text
+        local eb = self.EditBox
+        if eb then
+            eb:SetText(data)
+            eb:SetFocus()
+            eb:HighlightText()
         end
     end,
-    
     EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
     EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
     timeout = 0,
@@ -75,21 +92,23 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
     preferredIndex = 3, 
 }
 
-----------------------------------------------------------------------
--- 3. Click Handler (SetItemRef Hook)
-----------------------------------------------------------------------
+-- =========================================================
+-- 3. CLICK HANDLER
+-- =========================================================
 local OldSetItemRef = SetItemRef
 function SetItemRef(link, text, button, chatFrame)
-    
-    -- Click on TIMESTAMP
-    if link == "chatcopy" then
-        ns.ShowCopyWindow(text) 
+    if link:sub(1, 9) == "chatcopy:" then
+        local id = tonumber(link:sub(10))
+        if id and msgCache[id] then
+            ShowCopyWindow(msgCache[id])
+        else
+            ShowCopyWindow(text) 
+        end
         return
     end
 
-    -- Click on URL
     if link:sub(1, 4) == "url:" then
-        local currentLink = link:sub(5) -- Cut off "url:" prefix
+        local currentLink = link:sub(5)
         StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, currentLink)
         return
     end
