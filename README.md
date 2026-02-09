@@ -1,6 +1,9 @@
 # Chatify (World of Warcraft Addon)
-
-![WoW Version](https://img.shields.io/badge/WoW-11.0.7-blue.svg) ![Language](https://img.shields.io/badge/Language-Lua-000080.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
+[![WoW Version](https://img.shields.io/badge/WoW-retail-%231488DB?style=for-the-badge&logo=worldofwarcraft&logoColor=white)](https://worldofwarcraft.blizzard.com/)
+[![CurseForge](https://img.shields.io/badge/CurseForge-Download-%23F16436?style=for-the-badge&logo=curseforge&logoColor=white)](https://www.curseforge.com/wow/addons/chatify-chat-enhancer)
+[![GitHub Release](https://img.shields.io/github/v/release/LihvoDruida/Chatify?include_prereleases&style=for-the-badge&label=Release&logo=github&logoColor=white)](https://github.com/LihvoDruida/Chatify/releases)
+![Language](https://img.shields.io/badge/Language-Lua-%232C2D72?style=for-the-badge&logo=lua&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-%23A6E22E?style=for-the-badge)
 
 **Chatify** is a lightweight, modular addon for World of Warcraft (Retail) written in Lua. It cleans up the standard chat interface, adds message history, URL copying, spam filtering, and sound alerts.
 
