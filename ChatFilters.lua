@@ -4,7 +4,7 @@ local function ChatFilter(self, event, msg, author, ...)
     local db = ns.db
     if not db then return false, msg, author, ... end 
     
-    -- 1. СПАМ ФІЛЬТР 
+    -- 1. SPAM FILTER (Фільтр слів)
     if db.enableSpamFilter and db.spamKeywords then
         local msgUpper = msg:upper()
         for _, word in ipairs(db.spamKeywords) do
@@ -16,7 +16,7 @@ local function ChatFilter(self, event, msg, author, ...)
         end
     end
 
-    -- 2. ПІДСВІТКА НІКІВ/СЛІВ
+    -- 2. HIGHLIGHT KEYWORDS (Підсвітка слів)
     if db.highlightKeywords then
         for _, word in ipairs(db.highlightKeywords) do
             if word and word ~= "" then
@@ -27,7 +27,22 @@ local function ChatFilter(self, event, msg, author, ...)
         end
     end
 
-    -- 4. ДОДАВАННЯ ЧАСУ
+    -- 3. URL LINKS (Клікабельні посилання)
+    local function wrapURL(url)
+        return "|cff33ffcc|Hurl:" .. url .. "|h[" .. url .. "]|h|r"
+    end
+    msg = msg:gsub("(https?://%S+)", wrapURL)
+    msg = msg:gsub("(%s)(www%.%S+)", function(space, url)
+        return space .. wrapURL(url)
+    end)
+    msg = msg:gsub("^(www%.%S+)", wrapURL)
+    msg = msg:gsub("(%s)(discord%.gg/%S+)", function(space, url)
+         return space .. wrapURL(url)
+    end)
+    msg = msg:gsub("^(discord%.gg/%S+)", wrapURL)
+
+
+    -- 4. ADD TIMESTAMP (Час повідомлення)
     local formatList = ns.Lists.TimeFormats
     local timeData = formatList[db.timestampID] or formatList[1]
     
@@ -37,19 +52,18 @@ local function ChatFilter(self, event, msg, author, ...)
         msg = link .. " " .. msg
     end
 
-    -- [НОВЕ] 5. ЗВУКОВІ СПОВІЩЕННЯ (Sound Alerts)
+    -- 5. SOUND ALERTS (Звукові сповіщення)
     if db.enableSoundAlerts then
         local playSound = false
         
-        -- А. Якщо це приватне повідомлення (Whisper)
+        -- Приватні повідомлення
         if event == "CHAT_MSG_WHISPER" then
             playSound = true
         end
 
-        -- Б. Якщо згадують ваше ім'я в рейді або групі
-        local myName = UnitName("player") -- Отримуємо ім'я нашого персонажа
+        -- Згадка імені в групі/рейді
+        local myName = UnitName("player") 
         if myName and (event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER" or event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER") then
-            -- Шукаємо ім'я в повідомленні (case insensitive не обов'язково, але бажано)
             if msg:find(myName) then
                 playSound = true
             end
@@ -63,7 +77,7 @@ local function ChatFilter(self, event, msg, author, ...)
     return false, msg, author, ...
 end
 
--- Реєстрація подій (БЕЗ ЗМІН)
+-- Реєстрація подій
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function()
