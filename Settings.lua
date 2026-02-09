@@ -344,11 +344,27 @@ panel:SetScript("OnShow", function()
     subTitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
     subTitle:SetText("v" .. version .. "  |cffaaaaaa•  Powerful Chat Manager|r")
 
+    -- RELOAD BUTTON (Right side)
     local reloadBtn = CreateFrame("Button", nil, infoBox, "UIPanelButtonTemplate")
     reloadBtn:SetSize(120, 25)
     reloadBtn:SetPoint("RIGHT", -15, 0)
     reloadBtn:SetText("Reload UI")
     reloadBtn:SetScript("OnClick", ReloadUI)
+
+    -- [NEW] BUTTON: AUTO SETUP TABS (Left of Reload Button)
+    local setupBtn = CreateFrame("Button", nil, infoBox, "UIPanelButtonTemplate")
+    setupBtn:SetSize(140, 25)
+    setupBtn:SetPoint("RIGHT", reloadBtn, "LEFT", -10, 0) -- Placed to the left of Reload UI
+    setupBtn:SetText("Create Chat Tabs")
+    
+    -- Make button red
+    setupBtn:SetNormalFontObject("GameFontNormal")
+    setupBtn:SetHighlightFontObject("GameFontHighlight")
+    
+    setupBtn:SetScript("OnClick", function()
+        SetupDefaultTabs()
+    end)
+    AddTooltip(setupBtn, "Automatically creates Whisper, Guild, and Party tabs.")
 
     -- === SECTION 1: GENERAL (Height 90px) ===
     local s1 = CreateSection(content, "General Settings", infoBox, 90, -20)
@@ -360,16 +376,6 @@ panel:SetScript("OnShow", function()
     -- Checkbox 2: Sound Alerts
     local cbSound = CreateCheckbox(s1, "Sound Alerts", "enableSoundAlerts", 300, -25, "Play sound on Whisper or name mention")
     CreateDescription(s1, "Plays a sound when you get a Whisper or your name is mentioned in raid.", cbSound, 0, -5, 250)
-
-    -- [NEW] BUTTON: AUTO SETUP TABS
-    local setupBtn = CreateFrame("Button", nil, s1, "UIPanelButtonTemplate")
-    setupBtn:SetSize(140, 30)
-    setupBtn:SetPoint("RIGHT", -20, 0) -- Праворуч у блоці
-    setupBtn:SetText("Create Chat Tabs")
-    AddTooltip(setupBtn, "Automatically creates: Whisper, Guild, Party tabs.")
-    setupBtn:SetScript("OnClick", function()
-        SetupDefaultTabs()
-    end)
     
     -- === SECTION 2: VISUALS (Height 135px) ===
     local s2 = CreateSection(content, "Fonts & Time", s1, 135)
