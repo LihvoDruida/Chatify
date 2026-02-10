@@ -1,64 +1,48 @@
 local addonName, ns = ...
+local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
+
+-- !!! ВИПРАВЛЕННЯ ТУТ: Додано "AceHook-3.0" !!!
+local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 
 -- =========================================================
 -- 1. ДОПОМІЖНІ ФУНКЦІЇ
 -- =========================================================
-
--- Очищує розмір шрифту (захист від значень типу 14.00001 або -1)
 local function NormalizeFontSize(size)
-    if type(size) ~= "number" or size <= 0 then
-        return nil
-    end
+    if type(size) ~= "number" or size <= 0 then return 14 end
     local rounded = math.floor(size + 0.5)
-    if rounded <= 0 or rounded > 64 then
-        return nil
-    end
+    if rounded <= 0 or rounded > 64 then return 14 end
     return rounded
 end
 
--- "Розумний" пошук поля вводу (EditBox)
 function ns.GetEditBox(chatFrame)
     if not chatFrame then return nil end
     if chatFrame.editBox then return chatFrame.editBox end
-    if chatFrame.GetName then
-        local name = chatFrame:GetName()
-        if name then
-            local suffixBox = _G[name .. "EditBox"]
-            if suffixBox then return suffixBox end
-        end
+    
+    local name = chatFrame:GetName()
+    if name then
+        local suffixBox = _G[name .. "EditBox"]
+        if suffixBox then return suffixBox end
     end
+    
     local id = chatFrame:GetID()
     if id then
         local idBox = _G["ChatFrame" .. id .. "EditBox"]
         if idBox then return idBox end
     end
+    
     return ChatFrame1EditBox
-end
-
--- Примусове збереження налаштувань
-local function ForceSaveSettings()
-    if FCF_SavePositionAndDimensions then FCF_SavePositionAndDimensions(ChatFrame1) end
-    if FCF_SaveChatWindow then FCF_SaveChatWindow(ChatFrame1) end
-    if FCF_SaveDock then FCF_SaveDock() end
-    if FCF_SaveChatWindows then FCF_SaveChatWindows() end
 end
 
 -- =========================================================
 -- 2. СТИЛІЗАЦІЯ
 -- =========================================================
-
 local function StyleFrame(frame)
     if not frame then return end
-    local db = ns.db
+    local db = ns.db or Chatify.db.profile
     if not db then return end 
 
-    -- 1. ОТРИМУЄМО СТАНДАРТНИЙ ШРИФТ ГРИ
-    -- Беремо те, що зараз використовує WoW (або ElvUI, якщо він стоїть)
-    local standardFont, standardSize, standardFlags = ChatFontNormal:GetFont()
-    local fontPath = standardFont 
-
-    -- 2. ЯКЩО КОРИСТУВАЧ ВИБРАВ КАСТОМНИЙ ШРИФТ
-    -- Перевіряємо, чи є список і чи вибрано щось відмінне від дефолту
+    local fontPath, _, _ = ChatFontNormal:GetFont()
+    
     if ns.Lists and ns.Lists.Fonts and db.fontID then
         local selectedFont = ns.Lists.Fonts[db.fontID]
         if selectedFont and selectedFont.path then
@@ -66,43 +50,26 @@ local function StyleFrame(frame)
         end
     end
     
-    -- 3. ВИЗНАЧЕННЯ РОЗМІРУ (Безпечне)
     local _, currentSize = frame:GetFont()
-    local size = NormalizeFontSize(currentSize) or 14
+    local size = NormalizeFontSize(currentSize)
     local outline = db.fontOutline or "" 
 
-    -- 4. ЗАСТОСУВАННЯ ШРИФТУ ДО ЧАТУ
-    -- Встановлюємо шлях, розмір та контур
     frame:SetFont(fontPath, size, outline)
-    frame:SetShadowOffset(db.shadowX or 1, db.shadowY or -1)
+    frame:SetShadowOffset(1, -1)
 
-    -- 5. ЗАСТОСУВАННЯ ДО EDITBOX
     local editBox = ns.GetEditBox(frame)
-    if editBox then
+    if editBox and editBox.SetFont then
         editBox:SetFont(fontPath, size, outline)
     end
 end
 
--- Глобальна функція для оновлення всього
 function ns.ApplyVisuals()
     for i = 1, NUM_CHAT_WINDOWS do
-        StyleFrame(_G["ChatFrame" .. i])
+        local frame = _G["ChatFrame" .. i]
+        if frame then StyleFrame(frame) end
     end
-    ForceSaveSettings()
-end
-
--- =========================================================
--- 3. ІНІЦІАЛІЗАЦІЯ ТА ПОДІЇ
--- =========================================================
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:SetScript("OnEvent", function()
     
-    if ns.LoadConfig then ns.LoadConfig() end
-    local db = ns.db
-
-    -- Скорочення каналів
-    if db and db.shortChannels then
+    if ns.db and ns.db.shortChannels then
         _G.CHAT_GUILD_GET             = "|Hchannel:GUILD|h[G]|h %s:\32"
         _G.CHAT_OFFICER_GET           = "|Hchannel:OFFICER|h[O]|h %s:\32"
         _G.CHAT_PARTY_GET             = "|Hchannel:PARTY|h[P]|h %s:\32"
@@ -111,27 +78,34 @@ eventFrame:SetScript("OnEvent", function()
         _G.CHAT_RAID_LEADER_GET       = "|Hchannel:RAID|h[RL]|h %s:\32"
         _G.CHAT_INSTANCE_CHAT_GET     = "|Hchannel:INSTANCE|h[I]|h %s:\32"
         _G.CHAT_INSTANCE_CHAT_LEADER_GET = "|Hchannel:INSTANCE|h[IL]|h %s:\32"
-        _G.CHAT_WHISPER_GET           = "from %s:\32"
-        _G.CHAT_WHISPER_INFORM_GET    = "to %s:\32"
-        _G.CHAT_SAY_GET               = "%s:\32"
-        _G.CHAT_YELL_GET              = "%s:\32"
+        _G.CHAT_WHISPER_GET           = "[W] %s:\32"
+        _G.CHAT_WHISPER_INFORM_GET    = "[TO] %s:\32"
     end
+end
 
-    ns.ApplyVisuals()
-
+-- =========================================================
+-- 3. ПОДІЇ ТА ХУКИ
+-- =========================================================
+function VisualsModule:OnEnable()
+    self:RegisterEvent("PLAYER_LOGIN")
+    
+    -- Тепер SecureHook працюватиме, бо ми підключили AceHook-3.0
+    self:SecureHook("FCF_OpenTemporaryWindow", ns.ApplyVisuals)
+    self:SecureHook("FCF_OpenNewWindow", ns.ApplyVisuals)
+    
+    if FCF_SetChatWindowFontSize then
+        self:SecureHook("FCF_SetChatWindowFontSize", function(chatFrame)
+            StyleFrame(chatFrame)
+        end)
+    end
+    
     for _, info in pairs(ChatTypeInfo) do
-        info.colorNameByClass = true
+        if type(info) == "table" then
+            info.colorNameByClass = true
+        end
     end
-end)
+end
 
--- =========================================================
--- 4. ХУКИ
--- =========================================================
-hooksecurefunc("FCF_OpenTemporaryWindow", ns.ApplyVisuals)
-hooksecurefunc("FCF_OpenNewWindow", ns.ApplyVisuals)
-hooksecurefunc("FCF_Tab_OnClick", ns.ApplyVisuals)
-
-hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame, frame, size)
-    StyleFrame(chatFrame) 
-    ForceSaveSettings()
-end)
+function VisualsModule:PLAYER_LOGIN()
+    ns.ApplyVisuals()
+end

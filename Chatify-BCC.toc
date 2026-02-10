@@ -5,7 +5,7 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.3
+## Version: 0.4
 ## Author: melles1991
 ## DefaultState: Enabled
 ## SavedVariables: ChatifyDB, ChatifyHistoryDB
@@ -13,6 +13,10 @@
 ## Category-enUS: Chat
 ## X-Website: https://legacy.curseforge.com/wow/addons/chatify-chat-enhancer
 ## X-Curse-Project-ID: 1458193
+
+## OptionalDeps: Ace3
+
+libs\_manifest.xml
 
 Config.lua
 Settings.lua

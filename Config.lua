@@ -1,64 +1,72 @@
 local addonName, ns = ...
 
--- 1. ГЛОБАЛЬНІ СПИСКИ (Джерело правди)
+-- =========================================================
+-- 1. GLOBAL LISTS (CONSTANTS)
+-- This section defines options for the settings menu.
+-- =========================================================
 ns.Lists = {}
 
+-- Font List
 ns.Lists.Fonts = {
-    [1] = { name = "Exo 2 (Ваш вибір)",    path = "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf" },
+    [1] = { name = "Exo 2 (Addon Font)",   path = "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf" },
     [2] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
     [3] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
     [4] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
     [5] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
 }
 
+-- Time Format List
 ns.Lists.TimeFormats = {
-    [1] = { name = "ГГ:ХВ (12:30)",            format = "%H:%M" },
-    [2] = { name = "ГГ:ХВ:С (12:30:45)",       format = "%H:%M:%S" },
-    [3] = { name = "Д.М-ГГ:ХВ (08.02-12:30)",  format = "%d.%m-%H:%M" },
+    [1] = { name = "HH:MM (12:30)",            format = "%H:%M" },
+    [2] = { name = "HH:MM:SS (12:30:45)",      format = "%H:%M:%S" },
+    [3] = { name = "D.M-HH:MM (08.02-12:30)",  format = "%d.%m-%H:%M" },
 }
 
--- 2. ДЕФОЛТНІ НАЛАШТУВАННЯ (Зберігаємо тільки ID!)
-local defaults = {
-    -- ВІЗУАЛ (ID)
-    fontID = 1,             -- Посилається на Exo 2
-    fontOutline = "",       -- "NONE", "OUTLINE", "THICKOUTLINE"
-    
-    enableSoundAlerts = true, -- або false, як забажаєш
+-- =========================================================
+-- 2. DEFAULT SETTINGS
+-- These values are used upon the first addon load.
+-- IMPORTANT: The profile = { ... } structure is required for AceDB.
+-- =========================================================
+ns.defaults = {
+    profile = {
+        -- === VISUALS ===
+        fontID = 1,              -- Refers to Exo 2 (index 1 in ns.Lists.Fonts)
+        fontOutline = "",        -- Variants: "NONE", "OUTLINE", "THICKOUTLINE"
+        enableSoundAlerts = true, -- Sound on whisper or name mention
 
-    -- ІСТОРІЯ ЧАТУ
-    enableHistory = true,      -- Увімкнути історію
-    historyLimit = 50,         -- Кількість повідомлень для збереження
-    historyAlpha = true,       -- Робити історію трохи прозорою/сірою
-    
-    -- ФІЛЬТРИ
-    enableSpamFilter = true,
-    spamKeywords = { "BOOST", "CARRY", "GOLD", "CHEAP" },
+        -- === CHAT HISTORY ===
+        enableHistory = true,    -- Save chat history after reload/relog
+        historyLimit = 50,       -- Number of lines to save
+        historyAlpha = true,     -- Gray out old history messages
 
-    -- ФОРМАТУВАННЯ
-    shortChannels = true, 
-    channelMap = {
-        ["Guild"] = "[G]", ["Party"] = "[P]", ["Raid"] = "[R]",
-        ["Officer"] = "[O]", ["General"] = "[Gen]", ["Trade"] = "[T]",
-        ["Services"] = "[S]", ["LocalDefense"] = "[LD]"
-    },
+        -- === SPAM FILTERS ===
+        enableSpamFilter = true,
+        spamKeywords = { 
+            "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES" 
+        },
 
-    -- КОЛЬОРИ
-    myHighlightColor = "ff0000",
-    highlightKeywords = {"Dmytro", "Khayen"},
-    urlColor = "0099FF",
+        -- === FORMATTING ===
+        shortChannels = true,    -- Shorten channel names (e.g., [Party] -> [P])
+        channelMap = {
+            ["Guild"] = "[G]", 
+            ["Party"] = "[P]", 
+            ["Raid"] = "[R]",
+            ["Officer"] = "[O]", 
+            ["General"] = "[Gen]", 
+            ["Trade"] = "[T]",
+            ["Services"] = "[S]", 
+            ["LocalDefense"] = "[LD]",
+            ["LookingForGroup"] = "[LFG]",
+            ["Instance Chat"] = "[I]"
+        },
 
-    -- ЧАС (ID)
-    timestampID = 1,        -- Посилається на %H:%M
-    timestampColor = "68ccef"
+        -- === COLORS (HEX codes without #) ===
+        myHighlightColor = "ff0000", -- Red for highlighting keywords
+        highlightKeywords = { "Dmytro", "Khayen" }, -- Words to highlight (e.g., your name)
+        urlColor = "0099FF",         -- Color for clickable links
+
+        -- === TIME ===
+        timestampID = 1,         -- Refers to %H:%M
+        timestampColor = "68ccef"
+    }
 }
-
-function ns.LoadConfig()
-    if not ChatifyDB then
-        ChatifyDB = CopyTable(defaults)
-    else
-        for key, value in pairs(defaults) do
-            if ChatifyDB[key] == nil then ChatifyDB[key] = value end
-        end
-    end
-    ns.db = ChatifyDB
-end
