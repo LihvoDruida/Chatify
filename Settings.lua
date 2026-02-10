@@ -32,6 +32,7 @@ local function SetupDefaultTabs()
 
     for _, tabInfo in ipairs(tabs) do
         -- 1. Створюємо нове вікно
+        -- FCF_OpenNewWindow існує у всіх версіях WoW (Vanilla -> Retail)
         local frame = FCF_OpenNewWindow(tabInfo.name)
         
         if frame then
@@ -47,7 +48,9 @@ local function SetupDefaultTabs()
             end
             
             -- 4. Активуємо вкладку (щоб вона засвітилася)
-            FCF_SelectDockFrame(frame)
+            if FCF_SelectDockFrame then
+                FCF_SelectDockFrame(frame)
+            end
         end
     end
 
@@ -59,12 +62,21 @@ local function SetupDefaultTabs()
 end
 
 -- =========================================================
--- 1. MAIN PANEL
+-- 1. MAIN PANEL (COMPATIBILITY MODE)
 -- =========================================================
 local panel = CreateFrame("Frame", "MyChatModsOptions", UIParent)
 panel.name = "Chatify"
-local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-Settings.RegisterAddOnCategory(category)
+
+-- API Check: Retail/Modern Classic vs Old Classic/MIST
+if Settings and Settings.RegisterCanvasLayoutCategory then
+    -- Modern API (Dragonflight, War Within, Cata Classic)
+    local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+    Settings.RegisterAddOnCategory(category)
+    ns.SettingsCategoryID = category:GetID() -- Зберігаємо ID для слеш-команди
+else
+    -- Legacy API (TBC, WotLK, MoP, Vanilla)
+    InterfaceOptions_AddCategory(panel)
+end
 
 -- Scroll frame for the entire panel
 local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
@@ -87,6 +99,24 @@ local function AddTooltip(widget, text)
     widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+-- Helper for Backdrops across versions
+local function ApplyBackdrop(frame)
+    local backdropInfo = {
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    }
+    
+    if frame.SetBackdrop then
+        frame:SetBackdrop(backdropInfo)
+    else
+        -- Fallback for very specific client versions if mixin is missing
+        Mixin(frame, BackdropTemplateMixin)
+        frame:SetBackdrop(backdropInfo)
+    end
+end
+
 local function CreateSection(parent, titleText, relativeTo, height, yOffset)
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     if type(relativeTo) == "table" then
@@ -97,17 +127,14 @@ local function CreateSection(parent, titleText, relativeTo, height, yOffset)
     header:SetText(titleText)
     header:SetTextColor(1, 0.82, 0)
 
+    -- "BackdropTemplate" is safe to use in CreateFrame for almost all versions.
+    -- Older clients ignore it, newer clients require it.
     local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     container:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
     container:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
     container:SetHeight(height)
     
-    container:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 }
-    })
+    ApplyBackdrop(container)
     container:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
     container:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
 
@@ -128,7 +155,10 @@ end
 local function CreateCheckbox(parent, label, dbKey, x, y, tooltip)
     local cb = CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate")
     cb:SetPoint("TOPLEFT", x, y)
-    cb.Text:SetText(label)
+    -- Compatibility fix for CheckButton text access
+    local textRegion = cb.Text or _G[cb:GetName().."Text"]
+    if textRegion then textRegion:SetText(label) end
+    
     local val = ns.db and ns.db[dbKey]
     cb:SetChecked(val == true)
     cb:SetScript("OnClick", function(self)
@@ -159,6 +189,7 @@ local function CreateDropdown(parent, label, listTable, dbKeyID, x, y, tooltip)
     listFrame:SetPoint("TOPLEFT", dropButton, "BOTTOMLEFT", 0, -2)
     listFrame:SetSize(220, #listTable * 22 + 10)
     listFrame:SetFrameStrata("DIALOG")
+    
     listFrame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -226,12 +257,8 @@ local function CreateSpamEditor(parent, x, y)
     local listBg = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     listBg:SetPoint("TOPLEFT", scrollFrame, -5, 5)
     listBg:SetPoint("BOTTOMRIGHT", scrollFrame, 25, -5)
-    listBg:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 }
-    })
+    
+    ApplyBackdrop(listBg)
     listBg:SetBackdropColor(0, 0, 0, 0.3)
     listBg:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
@@ -323,17 +350,18 @@ panel:SetScript("OnShow", function()
     infoBox:SetPoint("TOPLEFT", 10, -10)
     infoBox:SetPoint("RIGHT", -10, 0)
     infoBox:SetHeight(65)
-    infoBox:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 }
-    })
+    
+    ApplyBackdrop(infoBox)
     infoBox:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
     infoBox:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-    -- Dynamic Version Fetch
-    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0"
+    -- Dynamic Version Fetch (Compatible API check)
+    local version = "1.0"
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        version = C_AddOns.GetAddOnMetadata(addonName, "Version") or version
+    elseif GetAddOnMetadata then
+        version = GetAddOnMetadata(addonName, "Version") or version
+    end
 
     local title = infoBox:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge")
     title:SetPoint("LEFT", 16, 5)
@@ -354,12 +382,14 @@ panel:SetScript("OnShow", function()
     -- [NEW] BUTTON: AUTO SETUP TABS (Left of Reload Button)
     local setupBtn = CreateFrame("Button", nil, infoBox, "UIPanelButtonTemplate")
     setupBtn:SetSize(140, 25)
-    setupBtn:SetPoint("RIGHT", reloadBtn, "LEFT", -10, 0) -- Placed to the left of Reload UI
+    setupBtn:SetPoint("RIGHT", reloadBtn, "LEFT", -10, 0) 
     setupBtn:SetText("Create Chat Tabs")
     
-    -- Make button red
-    setupBtn:SetNormalFontObject("GameFontNormal")
-    setupBtn:SetHighlightFontObject("GameFontHighlight")
+    -- Classic API Compatibility for FontObjects
+    if setupBtn.SetNormalFontObject then
+        setupBtn:SetNormalFontObject("GameFontNormal")
+        setupBtn:SetHighlightFontObject("GameFontHighlight")
+    end
     
     setupBtn:SetScript("OnClick", function()
         SetupDefaultTabs()
@@ -448,9 +478,17 @@ end)
 SLASH_MYCHATMODS1 = "/chatify"
 SLASH_MYCHATMODS2 = "/mcm"
 SlashCmdList["MYCHATMODS"] = function()
+    -- Compatibility Check for opening the panel
     if Settings and Settings.OpenToCategory then
-        Settings.OpenToCategory(category:GetID())
+        -- Modern Retail
+        if ns.SettingsCategoryID then
+            Settings.OpenToCategory(ns.SettingsCategoryID)
+        else
+            -- Fallback attempt
+            Settings.OpenToCategory(panel.name) 
+        end
     else
+        -- Classic / Legacy
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
 end

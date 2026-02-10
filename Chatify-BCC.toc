@@ -1,6 +1,6 @@
-## X-Flavor: retail
-## X-Expansion: TWW
-## Interface: 120000, 120001
+## Interface: 20505
+## X-Flavor: classic
+## X-Expansion: BCC
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
