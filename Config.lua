@@ -25,19 +25,18 @@ ns.Lists.TimeFormats = {
 -- =========================================================
 -- 2. DEFAULT SETTINGS
 -- These values are used upon the first addon load.
--- IMPORTANT: The profile = { ... } structure is required for AceDB.
 -- =========================================================
 ns.defaults = {
     profile = {
         -- === VISUALS ===
-        fontID = 1,              -- Refers to Exo 2 (index 1 in ns.Lists.Fonts)
-        fontOutline = "",        -- Variants: "NONE", "OUTLINE", "THICKOUTLINE"
-        enableSoundAlerts = true, -- Sound on whisper or name mention
+        fontID = 1,                      -- Refers to Exo 2
+        fontOutline = "",                -- Variants: "NONE", "OUTLINE", "THICKOUTLINE"
+        enableSoundAlerts = true,        -- Sound on whisper or name mention
 
         -- === CHAT HISTORY ===
-        enableHistory = true,    -- Save chat history after reload/relog
-        historyLimit = 50,       -- Number of lines to save
-        historyAlpha = true,     -- Gray out old history messages
+        enableHistory = true,            -- Save chat history after reload/relog
+        historyLimit = 50,               -- Number of lines to save
+        historyAlpha = true,             -- Gray out old history messages
 
         -- === SPAM FILTERS ===
         enableSpamFilter = true,
@@ -46,7 +45,7 @@ ns.defaults = {
         },
 
         -- === FORMATTING ===
-        shortChannels = true,    -- Shorten channel names (e.g., [Party] -> [P])
+        shortChannels = true,            -- Shorten channel names
         channelMap = {
             ["Guild"] = "[G]", 
             ["Party"] = "[P]", 
@@ -60,13 +59,15 @@ ns.defaults = {
             ["Instance Chat"] = "[I]"
         },
 
-        -- === COLORS (HEX codes without #) ===
-        myHighlightColor = "ff0000", -- Red for highlighting keywords
-        highlightKeywords = { "Dmytro", "Khayen" }, -- Words to highlight (e.g., your name)
-        urlColor = "0099FF",         -- Color for clickable links
+        -- === COLORS ===
+        myHighlightColor = "ff0000",     -- Red for highlighting keywords
+        highlightKeywords = { UnitName("player") }, -- Auto-add player name
+        urlColor = "0099FF",             -- Color for clickable links
 
-        -- === TIME ===
-        timestampID = 1,         -- Refers to %H:%M
-        timestampColor = "68ccef"
+        -- === TIME (UPDATED) ===
+        timestampID = 1,                 -- Refers to %H:%M
+        timestampColor = "68ccef",
+        useServerTime = false,           -- [NEW] Use Realm Time
+        timestampPost = false,           -- [NEW] Show at end of message
     }
 }

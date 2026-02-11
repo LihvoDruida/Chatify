@@ -80,8 +80,11 @@ local function IsProtected(text, pos)
     local prefix = text:sub(1, pos)
     local _, openCount = prefix:gsub("|H", "")
     local _, closeCount = prefix:gsub("|h", "")
-    -- Якщо кількість відкриттів не дорівнює закриттям, ми всередині тегу
-    return (openCount % 2) ~= (closeCount % 2)
+    
+    -- !!! ВИПРАВЛЕННЯ ТУТ !!!
+    -- Посилання WoW має структуру |H...|h...|h (1 H, 2 h)
+    -- Якщо кількість |H більша за половину кількості |h, значить тег ще не закритий
+    return openCount > (closeCount / 2)
 end
 
 -- =========================================================

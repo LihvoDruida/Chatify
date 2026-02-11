@@ -1,10 +1,9 @@
 local addonName, ns = ...
 
--- Create Addon Object
 local Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify", "AceConsole-3.0")
 
 -- =========================================================
--- 1. SETTINGS TABLE (ACE CONFIG)
+-- 3. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
 function Chatify:GetOptions()
     local options = {
@@ -56,9 +55,9 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- 2. VISUALS
+            -- 2. VISUALS & TIME
             groupVisuals = {
-                name = "Visuals",
+                name = "Visuals & Time",
                 type = "group",
                 order = 20,
                 inline = true,
@@ -94,6 +93,23 @@ function Chatify:GetOptions()
                         end,
                         set = function(info, val) self.db.profile.timestampID = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.timestampID end,
+                    },
+                    -- [NEW OPTIONS]
+                    useServerTime = {
+                        order = 3,
+                        name = "Server Time",
+                        desc = "Use Realm time instead of Local computer time",
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.useServerTime = val end,
+                        get = function(info) return self.db.profile.useServerTime end,
+                    },
+                    timestampPost = {
+                        order = 4,
+                        name = "Time at End",
+                        desc = "Show timestamp at the end of the message (Post-timestamp)",
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.timestampPost = val end,
+                        get = function(info) return self.db.profile.timestampPost end,
                     }
                 }
             },
@@ -200,38 +216,30 @@ function Chatify:GetOptions()
 end
 
 -- =========================================================
--- 2. INITIALIZATION LOGIC
+-- 4. INITIALIZATION LOGIC
 -- =========================================================
 function Chatify:OnInitialize()
-    -- Перевірка дефолтних налаштувань
     if not ns.defaults then
-        ns.defaults = { profile = { spamKeywords = {} } } -- Fallback
+        ns.defaults = { profile = { spamKeywords = {} } }
     end
 
-    -- Ініціалізація бази даних
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)
     
-    -- Колбеки для зміни профілю
     self.db.RegisterCallback(self, "OnProfileChanged", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileCopied", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
 
-    -- Прив'язка до ns.db
     ns.db = self.db.profile 
 
-    -- Реєстрація меню
     LibStub("AceConfig-3.0"):RegisterOptionsTable("Chatify", self:GetOptions())
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("Chatify", "Chatify")
 
-    -- Реєстрація команд
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("mcm", "OpenConfig")
     
-    -- Хук для візуалізації
     ns.ApplyVisuals = ns.ApplyVisuals or function() end
 end
 
--- Функція оновлення конфігу при зміні профілю
 function Chatify:RefreshConfig()
     ns.db = self.db.profile
     if ns.ApplyVisuals then ns.ApplyVisuals() end
@@ -242,7 +250,6 @@ function Chatify:OnEnable()
 end
 
 function Chatify:OpenConfig()
-    -- Відкриття налаштувань (нове API vs старе API)
     if Settings and Settings.OpenToCategory then
         Settings.OpenToCategory(self.optionsFrame.name)
     else
@@ -251,7 +258,7 @@ function Chatify:OpenConfig()
 end
 
 -- =========================================================
--- 3. AUTO TABS FUNCTION
+-- 5. AUTO TABS FUNCTION
 -- =========================================================
 function Chatify:SetupDefaultTabs()
     if InCombatLockdown() then return end

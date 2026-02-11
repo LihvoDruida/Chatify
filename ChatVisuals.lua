@@ -1,9 +1,6 @@
 local addonName, ns = ...
 local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 
-local addonName, ns = ...
-local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
-
 -- Підключаємо AceHook-3.0 та AceEvent-3.0
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 
@@ -47,14 +44,13 @@ end
 local function StyleFrame(frame)
     if not frame then return end
     
-    -- Отримуємо налаштування (безпечно)
     local db = nil
     if ns.db then db = ns.db
     elseif Chatify.db then db = Chatify.db.profile end
     
     if not db then return end 
 
-    -- Вибір шрифту
+    -- Шрифт
     local fontPath, _, _ = ChatFontNormal:GetFont()
     if ns.Lists and ns.Lists.Fonts and db.fontID then
         local selectedFont = ns.Lists.Fonts[db.fontID]
@@ -63,18 +59,15 @@ local function StyleFrame(frame)
         end
     end
     
-    -- Розмір шрифту
+    -- Розмір та стиль
     local _, currentSize = frame:GetFont()
     local size = NormalizeFontSize(currentSize)
-    
-    -- Обводка (Outline)
     local outline = db.fontOutline or "" 
 
-    -- Застосування
     frame:SetFont(fontPath, size, outline)
-    frame:SetShadowOffset(1, -1) -- Легка тінь для читабельності
+    frame:SetShadowOffset(1, -1)
 
-    -- Стилізація поля вводу
+    -- EditBox
     local editBox = ns.GetEditBox(frame)
     if editBox and editBox.SetFont then
         editBox:SetFont(fontPath, size, outline)
@@ -130,7 +123,7 @@ function ns.ApplyVisuals()
 end
 
 -- =========================================================
--- 4. TIMESTAMPS (Перенесено з Filters)
+-- 4. TIMESTAMPS (Advanced)
 -- =========================================================
 local function TimestampFilter(self, event, msg, author, ...)
     local db = ns.db
@@ -140,21 +133,31 @@ local function TimestampFilter(self, event, msg, author, ...)
         local formatData = ns.Lists.TimeFormats[db.timestampID] or ns.Lists.TimeFormats[1]
         
         if formatData then
-            local timeStr = date(formatData.format)
-            local cleanContent = CleanTextTags(msg)
+            -- Вибір між Серверним та Локальним часом
+            -- Якщо db.useServerTime не задано, використовуємо локальний (time())
+            local timestamp = db.useServerTime and GetServerTime() or time()
+            local timeStr = date(formatData.format, timestamp)
             
-            -- Формуємо текст для копіювання (Час + Автор + Текст)
+            local cleanContent = CleanTextTags(msg)
             local copyText = string.format("[%s] %s: %s", timeStr, (author or "System"), cleanContent)
             local tsColor = db.timestampColor or "68ccef"
+            local styledTime
             
-            -- Якщо модуль Copy активний і є функція кешування
+            -- Створення клікабельного елементу
             if ns.SaveToCache then
                 local id = ns.SaveToCache(copyText)
-                -- Додаємо лінк |Hchatcopy:ID|h
-                msg = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r %s", tsColor, id, timeStr, msg)
+                styledTime = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r", tsColor, id, timeStr)
             else
-                -- Просто кольоровий час без можливості копіювання
-                msg = string.format("|cff%s|Hchatcopy|h[%s]|h|r %s", tsColor, timeStr, msg)
+                styledTime = string.format("|cff%s|Hchatcopy|h[%s]|h|r", tsColor, timeStr)
+            end
+            
+            -- Позиціонування (Pre/Post)
+            if db.timestampPost then
+                -- Час в кінці
+                msg = msg .. " " .. styledTime
+            else
+                -- Час на початку (стандарт)
+                msg = styledTime .. " " .. msg
             end
         end
     end
@@ -169,7 +172,7 @@ function VisualsModule:OnEnable()
     self:RegisterEvent("PLAYER_LOGIN")
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
     
-    -- Хуки для шрифтів та каналів
+    -- Хуки для оновлення візуалу
     self:SecureHook("FCF_OpenTemporaryWindow", ns.ApplyVisuals)
     self:SecureHook("FCF_OpenNewWindow", ns.ApplyVisuals)
     
@@ -179,14 +182,14 @@ function VisualsModule:OnEnable()
         end)
     end
     
-    -- Увімкнення кольорів класів
+    -- Кольори класів
     for _, info in pairs(ChatTypeInfo) do
         if type(info) == "table" then
             info.colorNameByClass = true
         end
     end
     
-    -- Реєстрація фільтра для TIMESTAMPS
+    -- Реєстрація подій для TimestampFilter
     local events = {
         "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
         "CHAT_MSG_GUILD", "CHAT_MSG_GUILD_MOTD", "CHAT_MSG_OFFICER",
