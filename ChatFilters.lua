@@ -193,26 +193,7 @@ local function MessageProcessor(self, event, msg, author, ...)
     -- 2. Форматування тексту
     msg = ns.FormatMessage(msg)
 
-    -- 3. Timestamp
-    if ns.Lists and ns.Lists.TimeFormats then
-        local formatData = ns.Lists.TimeFormats[db.timestampID] or ns.Lists.TimeFormats[1]
-        if formatData then
-            local timeStr = date(formatData.format)
-            local cleanContent = CleanTextTags(msg)
-            local copyText = string.format("[%s] %s: %s", timeStr, (author or "System"), cleanContent)
-            
-            local tsColor = db.timestampColor or "68ccef"
-            
-            if ns.SaveToCache then
-                local id = ns.SaveToCache(copyText)
-                msg = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r %s", tsColor, id, timeStr, msg)
-            else
-                msg = string.format("|cff%s|Hchatcopy|h[%s]|h|r %s", tsColor, timeStr, msg)
-            end
-        end
-    end
-
-    -- 4. Звук
+    -- 3. Звук
     if db.enableSoundAlerts and author and not author:find(myName, 1, true) then
         local play = false
         if event == "CHAT_MSG_WHISPER" then play = true
