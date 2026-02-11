@@ -1,14 +1,20 @@
 local addonName, ns = ...
 
 -- =========================================================
--- 1. GLOBAL LISTS (CONSTANTS)
--- This section defines options for the settings menu.
+-- 1. LIBS & MEDIA REGISTRATION
+-- =========================================================
+local LSM = LibStub("LibSharedMedia-3.0")
+
+LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\Assets\\Alert\\notification-0.ogg")
+
+-- =========================================================
+-- 2. GLOBAL LISTS (CONSTANTS)
 -- =========================================================
 ns.Lists = {}
 
 -- Font List
 ns.Lists.Fonts = {
-    [1] = { name = "Exo 2 (Addon Font)",   path = "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf" },
+    [1] = { name = "Exo 2 (Addon Font)",   path = "Interface\\AddOns\\Chatify\\Assets\\Fonts\\Exo2.ttf" },
     [2] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
     [3] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
     [4] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
@@ -23,51 +29,54 @@ ns.Lists.TimeFormats = {
 }
 
 -- =========================================================
--- 2. DEFAULT SETTINGS
--- These values are used upon the first addon load.
+-- 3. DEFAULT SETTINGS
 -- =========================================================
 ns.defaults = {
     profile = {
         -- === VISUALS ===
-        fontID = 1,                      -- Refers to Exo 2
-        fontOutline = "",                -- Variants: "NONE", "OUTLINE", "THICKOUTLINE"
-        enableSoundAlerts = true,        -- Sound on whisper or name mention
+        fontID = 1,
+        fontOutline = "",
+        
+        -- === TIME ===
+        timestampID = 1,
+        timestampColor = "68ccef",
+        useServerTime = false,
+        timestampPost = false,
 
-        -- === CHAT HISTORY ===
-        enableHistory = true,            -- Save chat history after reload/relog
-        historyLimit = 50,               -- Number of lines to save
-        historyAlpha = true,             -- Gray out old history messages
+        -- === HISTORY ===
+        enableHistory = true,
+        historyLimit = 50,
+        historyAlpha = true,
 
         -- === SPAM FILTERS ===
         enableSpamFilter = true,
-        spamKeywords = { 
-            "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES" 
-        },
+        spamKeywords = { "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES" },
 
         -- === FORMATTING ===
-        shortChannels = true,            -- Shorten channel names
+        shortChannels = true,
         channelMap = {
-            ["Guild"] = "[G]", 
-            ["Party"] = "[P]", 
-            ["Raid"] = "[R]",
-            ["Officer"] = "[O]", 
-            ["General"] = "[Gen]", 
-            ["Trade"] = "[T]",
-            ["Services"] = "[S]", 
-            ["LocalDefense"] = "[LD]",
-            ["LookingForGroup"] = "[LFG]",
-            ["Instance Chat"] = "[I]"
+            ["Guild"] = "[G]", ["Party"] = "[P]", ["Raid"] = "[R]",
+            ["Officer"] = "[O]", ["General"] = "[Gen]", ["Trade"] = "[T]",
+            ["Services"] = "[S]", ["LocalDefense"] = "[LD]",
+            ["LookingForGroup"] = "[LFG]", ["Instance Chat"] = "[I]"
         },
 
         -- === COLORS ===
-        myHighlightColor = "ff0000",     -- Red for highlighting keywords
-        highlightKeywords = { UnitName("player") }, -- Auto-add player name
-        urlColor = "0099FF",             -- Color for clickable links
+        myHighlightColor = "ff0000",
+        highlightKeywords = { UnitName("player") },
+        urlColor = "0099FF",
 
-        -- === TIME (UPDATED) ===
-        timestampID = 1,                 -- Refers to %H:%M
-        timestampColor = "68ccef",
-        useServerTime = false,           -- [NEW] Use Realm Time
-        timestampPost = false,           -- [NEW] Show at end of message
+        -- === SOUNDS (NEW) ===
+        sounds = {
+            enable = true,
+            masterVolume = true, -- Use Master channel instead of SFX
+            events = {
+                ["WHISPER"] = "Chatify Default",
+                ["GUILD"]   = "None",
+                ["PARTY"]   = "None",
+                ["RAID"]    = "None",
+                ["MENTION"] = "Chatify Default", -- Custom sound for name highlight
+            }
+        }
     }
 }

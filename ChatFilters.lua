@@ -19,7 +19,6 @@ TT TW TZ UG UY UZ VA VC VE VG VI VN VU WS ZA ZM ZW PP KR JP CN ID
 ]]
 for tld in TLD_STRING:gmatch("%S+") do ValidTopLevelDomains[tld] = true end
 
--- verifyDomain: вимагає, щоб друга група захвату (TLD) була в списку ValidTopLevelDomains
 local LinkRegexRules = {
     -- 1. Протоколи (http://...)
     { exp = "^(%a[%w+.-]+://%S+)", verifyDomain = false },
@@ -31,23 +30,23 @@ local LinkRegexRules = {
     { exp = "(%S+@[%w_.-%%]+%.(%a%a+))", verifyDomain = true },
     
     -- 3. IP (IPv4)
-    { exp = "^([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d[:/]%S+)", verifyDomain = false }, -- з портом/шляхом
+    { exp = "^([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d[:/]%S+)", verifyDomain = false },
     { exp = "%f[%S]([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d[:/]%S+)", verifyDomain = false },
-    { exp = "^([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d)%f[%D]", verifyDomain = false }, -- чистий IP
+    { exp = "^([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d)%f[%D]", verifyDomain = false },
     { exp = "%f[%S]([0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d%.[0-2]?%d?%d)%f[%D]", verifyDomain = false },
 
     -- 4. Домени (www...)
     { exp = "^(www%.[-%w_%%]+%.(%a%a+))", verifyDomain = true },
     { exp = "%f[%S](www%.[-%w_%%]+%.(%a%a+))", verifyDomain = true },
     
-    -- 5. Загальні домени (google.com) - найскладніше, бо може сплутати з текстом
-    { exp = "^([%w_.-%%]+[%w_-%%]%.(%a%a+):%d+)", verifyDomain = true }, -- з портом
+    -- 5. Загальні домени
+    { exp = "^([%w_.-%%]+[%w_-%%]%.(%a%a+):%d+)", verifyDomain = true },
     { exp = "%f[%S]([%w_.-%%]+[%w_-%%]%.(%a%a+):%d+)", verifyDomain = true },
-    { exp = "^([%w_.-%%]+[%w_-%%]%.(%a%a+)/%S+)", verifyDomain = true }, -- зі шляхом
+    { exp = "^([%w_.-%%]+[%w_-%%]%.(%a%a+)/%S+)", verifyDomain = true },
     { exp = "%f[%S]([%w_.-%%]+[%w_-%%]%.(%a%a+)/%S+)", verifyDomain = true },
-    { exp = "^([-%w_%%]+%.[-%w_%%]+%.(%a%a+))", verifyDomain = true }, -- sub.domain.com
+    { exp = "^([-%w_%%]+%.[-%w_%%]+%.(%a%a+))", verifyDomain = true },
     { exp = "%f[%S]([-%w_%%]+%.[-%w_%%]+%.(%a%a+))", verifyDomain = true },
-    { exp = "^([-%w_%%]+%.(%a%a+))", verifyDomain = true }, -- domain.com
+    { exp = "^([-%w_%%]+%.(%a%a+))", verifyDomain = true },
     { exp = "%f[%S]([-%w_%%]+%.(%a%a+))", verifyDomain = true },
 }
 
@@ -55,54 +54,36 @@ local LinkRegexRules = {
 -- 2. HELPER FUNCTIONS
 -- =========================================================
 
-local function CleanTextTags(text)
-    return text:gsub("|[cC]%x%x%x%x%x%x%x%x", ""):gsub("|[rR]", "")
-end
-
--- Створює клікабельне посилання
 local function DecorateLink(url)
     local db = ns.db
     if not db then return url end
     
-    -- Очистка хвостів (коми, крапки в кінці речення)
     local cleanUrl = url:gsub("[%.,:;!'\"%)%]]+$", "")
     local color = db.urlColor or "0099FF"
     
-    -- !!! ВАЖЛИВО !!!
-    -- Формат: |cCOLOR|Hurl:LINK|h[LINK]|h|r
-    -- Цей формат розпізнається ChatCopy.lua
     return string.format("|cff%s|Hurl:%s|h[%s]|h|r", color, cleanUrl, cleanUrl)
 end
 
--- Перевіряє, чи позиція знаходиться всередині існуючого посилання WoW (|H...|h)
--- Це запобігає ламанню лінків на предмети/квести
 local function IsProtected(text, pos)
     local prefix = text:sub(1, pos)
     local _, openCount = prefix:gsub("|H", "")
     local _, closeCount = prefix:gsub("|h", "")
-    
-    -- !!! ВИПРАВЛЕННЯ ТУТ !!!
-    -- Посилання WoW має структуру |H...|h...|h (1 H, 2 h)
-    -- Якщо кількість |H більша за половину кількості |h, значить тег ще не закритий
     return openCount > (closeCount / 2)
 end
 
 -- =========================================================
--- 3. FORMATTING LOGIC (MAIN)
+-- 3. FORMATTING LOGIC
 -- =========================================================
 function ns.FormatMessage(msg)
     local db = ns.db 
     if not db then return msg end
 
-    -- 1. ХАЙЛАЙТИ (Ключові слова)
-    -- Робимо їх першими, але обережно
+    -- 1. ХАЙЛАЙТИ
     if db.highlightKeywords then
         for _, word in ipairs(db.highlightKeywords) do
             if word and word ~= "" then
                 local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-                -- Замінюємо тільки якщо це не частина посилання
                 msg = msg:gsub("("..escaped..")", function(match)
-                    -- Отримуємо позицію через string.find (трохи "брудно", але працює для gsub)
                     local s = msg:find(match, 1, true) 
                     if s and IsProtected(msg, s) then return match end
                     return "|cff" .. (db.myHighlightColor or "ff0000") .. match .. "|r"
@@ -112,42 +93,31 @@ function ns.FormatMessage(msg)
     end
 
     -- 2. URL ПОСИЛАННЯ
-    -- Проходимо по кожному правилу
     for _, rule in ipairs(LinkRegexRules) do
         local startIdx = 1
-        
-        -- Цикл пошуку всіх входжень для конкретного правила
         while true do
-            -- Знаходимо збіг. string.find повертає: start, end, capture1, capture2...
             local s, e, cap1, cap2 = msg:find(rule.exp, startIdx)
-            if not s then break end -- Немає більше збігів
+            if not s then break end
             
-            local url = cap1 -- Перша група завжди URL
-            local tld = cap2 -- Друга група (якщо є) - TLD
+            local url = cap1
+            local tld = cap2
             local isValid = true
 
-            -- Перевірка 1: TLD
             if rule.verifyDomain and tld then
                 if not ValidTopLevelDomains[tld:upper()] then
                     isValid = false
                 end
             end
 
-            -- Перевірка 2: Чи ми не всередині вже створеного нами лінка (або лінка гри)
             if isValid and IsProtected(msg, s) then
                 isValid = false
             end
 
             if isValid then
                 local newLink = DecorateLink(url)
-                -- Замінюємо шматок тексту
                 msg = msg:sub(1, s-1) .. newLink .. msg:sub(e+1)
-                
-                -- Зсуваємо індекс пошуку, щоб перестрибнути через новий лінк
-                -- startIdx = start + довжина нового лінка
                 startIdx = s + #newLink
             else
-                -- Якщо не валідно, просто йдемо далі
                 startIdx = e + 1
             end
         end
@@ -170,20 +140,11 @@ end
 -- =========================================================
 -- 4. CHAT EVENT FILTER
 -- =========================================================
-local SoundEvents = {
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
-    CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true,
-    CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
-    CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
-}
-
 local function MessageProcessor(self, event, msg, author, ...)
     local db = ns.db
     if not db then return false, msg, author, ... end
-    local myName = UnitName("player")
 
-    -- 1. Спам фільтр
+    -- Спам фільтр
     if db.enableSpamFilter and db.spamKeywords then
         local upperMsg = msg:upper()
         for _, keyword in ipairs(db.spamKeywords) do
@@ -193,19 +154,8 @@ local function MessageProcessor(self, event, msg, author, ...)
         end
     end
 
-    -- 2. Форматування тексту
+    -- Форматування тексту
     msg = ns.FormatMessage(msg)
-
-    -- 3. Звук
-    if db.enableSoundAlerts and author and not author:find(myName, 1, true) then
-        local play = false
-        if event == "CHAT_MSG_WHISPER" then play = true
-        elseif SoundEvents[event] and CleanTextTags(msg):lower():find(myName:lower(), 1, true) then play = true end
-        
-        if play then 
-            PlaySoundFile("Interface\\AddOns\\Chatify\\Assets\\Alert\\notification-0.ogg", "Master") 
-        end
-    end
 
     return false, msg, author, ...
 end

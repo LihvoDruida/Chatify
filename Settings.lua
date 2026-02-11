@@ -1,9 +1,10 @@
 local addonName, ns = ...
 
+-- Create Addon Object
 local Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify", "AceConsole-3.0")
 
 -- =========================================================
--- 3. SETTINGS TABLE (ACE CONFIG)
+-- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
 function Chatify:GetOptions()
     local options = {
@@ -43,14 +44,6 @@ function Chatify:GetOptions()
                         type = "toggle",
                         set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.shortChannels end,
-                    },
-                    enableSoundAlerts = {
-                        order = 2,
-                        name = "Sound Alerts",
-                        desc = "Play sound on Whisper or name mention",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.enableSoundAlerts = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.enableSoundAlerts end,
                     },
                 }
             },
@@ -94,7 +87,6 @@ function Chatify:GetOptions()
                         set = function(info, val) self.db.profile.timestampID = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.timestampID end,
                     },
-                    -- [NEW OPTIONS]
                     useServerTime = {
                         order = 3,
                         name = "Server Time",
@@ -106,7 +98,7 @@ function Chatify:GetOptions()
                     timestampPost = {
                         order = 4,
                         name = "Time at End",
-                        desc = "Show timestamp at the end of the message (Post-timestamp)",
+                        desc = "Show timestamp at the end of the message",
                         type = "toggle",
                         set = function(info, val) self.db.profile.timestampPost = val end,
                         get = function(info) return self.db.profile.timestampPost end,
@@ -114,7 +106,7 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- 3. SPAM FILTER (Order 30)
+            -- 3. SPAM FILTER
             groupSpam = {
                 name = "Spam Filter",
                 type = "group",
@@ -124,7 +116,7 @@ function Chatify:GetOptions()
                         order = 1,
                         name = "Enable Filter",
                         type = "toggle",
-                        set = function(info, val) self.db.profile.enableSpamFilter = val; ns.ApplyVisuals() end,
+                        set = function(info, val) self.db.profile.enableSpamFilter = val end,
                         get = function(info) return self.db.profile.enableSpamFilter end,
                     },
                     addKeyword = {
@@ -135,7 +127,6 @@ function Chatify:GetOptions()
                         set = function(info, val)
                             if val and val ~= "" then
                                 table.insert(self.db.profile.spamKeywords, val)
-                                ns.ApplyVisuals()
                             end
                         end,
                         get = function(info) return "" end,
@@ -147,15 +138,10 @@ function Chatify:GetOptions()
                         style = "dropdown",
                         values = function()
                             local t = {}
-                            for i, word in ipairs(self.db.profile.spamKeywords) do
-                                t[i] = word
-                            end
+                            for i, word in ipairs(self.db.profile.spamKeywords) do t[i] = word end
                             return t
                         end,
-                        set = function(info, key)
-                            table.remove(self.db.profile.spamKeywords, key)
-                            ns.ApplyVisuals()
-                        end,
+                        set = function(info, key) table.remove(self.db.profile.spamKeywords, key) end,
                         get = function(info) return nil end,
                         confirm = true,
                         confirmText = "Delete this keyword?",
@@ -168,7 +154,7 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- 4. CHAT HISTORY (Order 40)
+            -- 4. CHAT HISTORY
             groupHistory = {
                 name = "Chat History",
                 type = "group",
@@ -178,36 +164,96 @@ function Chatify:GetOptions()
                     enableHistory = {
                         order = 1,
                         name = "Save History",
-                        desc = "Restores chat messages after reload or relog",
                         type = "toggle",
-                        set = function(info, val) 
-                            self.db.profile.enableHistory = val 
-                        end,
+                        set = function(info, val) self.db.profile.enableHistory = val end,
                         get = function(info) return self.db.profile.enableHistory end,
                     },
                     historyAlpha = {
                         order = 2,
                         name = "Gray History",
-                        desc = "Makes restored messages gray to distinguish them from new ones",
                         type = "toggle",
-                        set = function(info, val) 
-                            self.db.profile.historyAlpha = val 
-                        end,
+                        set = function(info, val) self.db.profile.historyAlpha = val end,
                         get = function(info) return self.db.profile.historyAlpha end,
                     },
                     historyLimit = {
                         order = 3,
                         name = "Line Limit",
-                        desc = "Number of lines to save per chat window",
                         type = "range",
-                        min = 10, 
-                        max = 100, 
-                        step = 10,
-                        set = function(info, val) 
-                            self.db.profile.historyLimit = val 
-                        end,
+                        min = 10, max = 100, step = 10,
+                        set = function(info, val) self.db.profile.historyLimit = val end,
                         get = function(info) return self.db.profile.historyLimit end,
                     }
+                }
+            },
+
+            -- 5. SOUNDS (LSM INTEGRATION)
+            groupSounds = {
+                name = "Sounds",
+                type = "group",
+                order = 50,
+                args = {
+                    enable = {
+                        order = 1,
+                        name = "Enable Sounds",
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.sounds.enable = val end,
+                        get = function(info) return self.db.profile.sounds.enable end,
+                    },
+                    masterChannel = {
+                        order = 2,
+                        name = "Use Master Channel",
+                        desc = "Play sounds even if SFX is muted",
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.sounds.masterVolume = val end,
+                        get = function(info) return self.db.profile.sounds.masterVolume end,
+                    },
+                    headerEvents = { order = 10, type = "header", name = "Events" },
+                    
+                    soundWhisper = {
+                        order = 11,
+                        type = "select",
+                        dialogControl = "LSM30_Sound",
+                        name = "Whisper",
+                        values = AceGUIWidgetLSMlists.sound,
+                        set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
+                        get = function(info) return self.db.profile.sounds.events["WHISPER"] end,
+                    },
+                    soundMention = {
+                        order = 12,
+                        type = "select",
+                        dialogControl = "LSM30_Sound",
+                        name = "Name Mention",
+                        values = AceGUIWidgetLSMlists.sound,
+                        set = function(info, val) self.db.profile.sounds.events["MENTION"] = val end,
+                        get = function(info) return self.db.profile.sounds.events["MENTION"] end,
+                    },
+                    soundGuild = {
+                        order = 13,
+                        type = "select",
+                        dialogControl = "LSM30_Sound",
+                        name = "Guild / Officer",
+                        values = AceGUIWidgetLSMlists.sound,
+                        set = function(info, val) self.db.profile.sounds.events["GUILD"] = val end,
+                        get = function(info) return self.db.profile.sounds.events["GUILD"] end,
+                    },
+                    soundParty = {
+                        order = 14,
+                        type = "select",
+                        dialogControl = "LSM30_Sound",
+                        name = "Party",
+                        values = AceGUIWidgetLSMlists.sound,
+                        set = function(info, val) self.db.profile.sounds.events["PARTY"] = val end,
+                        get = function(info) return self.db.profile.sounds.events["PARTY"] end,
+                    },
+                    soundRaid = {
+                        order = 15,
+                        type = "select",
+                        dialogControl = "LSM30_Sound",
+                        name = "Raid",
+                        values = AceGUIWidgetLSMlists.sound,
+                        set = function(info, val) self.db.profile.sounds.events["RAID"] = val end,
+                        get = function(info) return self.db.profile.sounds.events["RAID"] end,
+                    },
                 }
             }
         }
@@ -216,12 +262,10 @@ function Chatify:GetOptions()
 end
 
 -- =========================================================
--- 4. INITIALIZATION LOGIC
+-- 5. INITIALIZATION LOGIC
 -- =========================================================
 function Chatify:OnInitialize()
-    if not ns.defaults then
-        ns.defaults = { profile = { spamKeywords = {} } }
-    end
+    if not ns.defaults then ns.defaults = { profile = { spamKeywords = {} } } end
 
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)
     
@@ -237,7 +281,7 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("mcm", "OpenConfig")
     
-    ns.ApplyVisuals = ns.ApplyVisuals or function() end
+    if ns.ApplyVisuals then ns.ApplyVisuals() end
 end
 
 function Chatify:RefreshConfig()
@@ -246,7 +290,7 @@ function Chatify:RefreshConfig()
 end
 
 function Chatify:OnEnable()
-    ns.ApplyVisuals()
+    if ns.ApplyVisuals then ns.ApplyVisuals() end
 end
 
 function Chatify:OpenConfig()
@@ -258,7 +302,7 @@ function Chatify:OpenConfig()
 end
 
 -- =========================================================
--- 5. AUTO TABS FUNCTION
+-- 6. AUTO TABS FUNCTION
 -- =========================================================
 function Chatify:SetupDefaultTabs()
     if InCombatLockdown() then return end
