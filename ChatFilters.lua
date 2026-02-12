@@ -1,5 +1,5 @@
 local addonName, ns = ...
-local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
+local Chatify = ns.Chatify
 local Filters = Chatify:NewModule("Filters", "AceEvent-3.0", "AceHook-3.0")
 
 -- =========================================================

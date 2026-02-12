@@ -5,7 +5,7 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.4
+## Version: 0.6
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\Assets\icon
 ## DefaultState: Enabled
@@ -25,3 +25,4 @@ ChatCopy.lua
 ChatVisuals.lua
 ChatFilters.lua
 ChatHistory.lua
+ChatSounds.lua

@@ -3,68 +3,110 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Sounds = Chatify:NewModule("Sounds", "AceEvent-3.0")
 local LSM = LibStub("LibSharedMedia-3.0")
 
+-- Локалізація функцій для швидкодії (micro-optimization)
+local strfind = string.find
+local strlower = string.lower
+local PlaySoundFile = PlaySoundFile
+local GetTime = GetTime
+
+-- Змінні модуля
+local myName = nil
+local myNameLower = nil
+local lastSoundTime = 0
+local THROTTLE_INTERVAL = 0.5 -- Мінімальний інтервал між звуками (секунди)
+
+-- Таблиця мапінгу подій на типи звуків
+-- Це замінює довгий блок if/elseif
+local eventMap = {
+    -- Whispers
+    ["CHAT_MSG_WHISPER"]    = "WHISPER",
+    ["CHAT_MSG_BN_WHISPER"] = "WHISPER",
+    
+    -- Guild/Officer
+    ["CHAT_MSG_GUILD"]      = "GUILD",
+    ["CHAT_MSG_OFFICER"]    = "GUILD",
+    
+    -- Party
+    ["CHAT_MSG_PARTY"]        = "PARTY",
+    ["CHAT_MSG_PARTY_LEADER"] = "PARTY",
+    
+    -- Raid / Instance
+    ["CHAT_MSG_RAID"]                 = "RAID",
+    ["CHAT_MSG_RAID_LEADER"]          = "RAID",
+    ["CHAT_MSG_RAID_WARNING"]         = "RAID",
+    ["CHAT_MSG_INSTANCE_CHAT"]        = "RAID", -- Можна змінити на окрему категорію, якщо потрібно
+    ["CHAT_MSG_INSTANCE_CHAT_LEADER"] = "RAID",
+    
+    -- Channel (тільки для пошуку Mentions, тому тут nil або спец. тип)
+    ["CHAT_MSG_CHANNEL"] = nil 
+}
+
+function Sounds:OnInitialize()
+    -- Кешуємо ім'я гравця один раз при завантаженні
+    myName = UnitName("player")
+    if myName then
+        myNameLower = strlower(myName)
+    end
+end
+
 function Sounds:OnEnable()
-    -- Реєструємо події чату, на які хочемо реагувати
-    self:RegisterEvent("CHAT_MSG_WHISPER")
-    self:RegisterEvent("CHAT_MSG_BN_WHISPER")
-    
-    self:RegisterEvent("CHAT_MSG_GUILD")
-    self:RegisterEvent("CHAT_MSG_OFFICER")
-    
-    self:RegisterEvent("CHAT_MSG_PARTY")
-    self:RegisterEvent("CHAT_MSG_PARTY_LEADER")
-    
-    self:RegisterEvent("CHAT_MSG_RAID")
-    self:RegisterEvent("CHAT_MSG_RAID_LEADER")
-    self:RegisterEvent("CHAT_MSG_RAID_WARNING")
-    
-    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT")
-    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT_LEADER")
-    
-    self:RegisterEvent("CHAT_MSG_CHANNEL") -- Для пошуку по ніку в загальних чатах
+    -- Реєструємо всі події з таблиці eventMap
+    for event in pairs(eventMap) do
+        self:RegisterEvent(event, "OnEvent")
+    end
+    -- CHAT_MSG_CHANNEL є в таблиці як ключ, тому він теж зареєструється
 end
 
--- Основна функція обробки подій (Dispatcher)
-function Sounds:OnEvent(event, msg, author, ...)
+-- Основна функція обробки подій
+function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceID)
     local db = ns.db.sounds
-    if not db.enable then return end
+    if not db or not db.enable then return end
+    local now = GetTime()
 
-    local myName = UnitName("player")
-    -- Ігноруємо свої повідомлення
-    if author == myName then return end
+    -- =====================================================
+    -- THROTTLE
+    -- =====================================================
+    if (now - lastSoundTime) < THROTTLE_INTERVAL then return end
 
-    local soundToPlay = nil
-    local eventType = nil
-
-    -- 1. Логіка нормалізації подій (як у Prat)
-    if event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_BN_WHISPER" then
-        eventType = "WHISPER"
-    elseif event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_OFFICER" then
-        eventType = "GUILD"
-    elseif event:find("PARTY") then
-        eventType = "PARTY"
-    elseif event:find("RAID") or event:find("INSTANCE") then
-        -- Визначаємо пріоритет (Рейд важливіше)
-        eventType = "RAID"
+    local isSelf = false
+    if author and myName and author == myName then
+        isSelf = true
+    end
+    if event == "CHAT_MSG_BN_WHISPER" and presenceID then
+        local accountInfo = C_BattleNet.GetAccountInfoByID(presenceID)
+        if accountInfo and accountInfo.isSelf then
+            isSelf = true
+        end
     end
 
-    -- 2. Перевірка на згадування ніку (MENTION)
-    -- Це має вищий пріоритет, ніж канал
-    if msg and myName and msg:lower():find(myName:lower(), 1, true) then
-        soundToPlay = db.events["MENTION"]
+    -- =====================================================
+    -- MENTION PRIORITY
+    -- =====================================================
+    if author and myName and author == myName then return end
+    if msg and myNameLower and strfind(strlower(msg), myNameLower, 1, true) then
+        self:Play(db.events["MENTION"])
+        lastSoundTime = now
+        return
     end
 
-    -- 3. Якщо нік не згадали, беремо звук каналу
-    if not soundToPlay and eventType then
-        soundToPlay = db.events[eventType]
+    -- =====================================================
+    -- Звук для каналу / категорії
+    -- =====================================================
+    local eventType = eventMap[event]
+    if eventType and (not isSelf or (isSelf and not ignoreSelf)) then
+        self:Play(db.events[eventType])
+        lastSoundTime = now
     end
-
-    -- 4. Програвання звуку
-    self:Play(soundToPlay)
 end
+
+
 
 function Sounds:Play(soundName)
     if not soundName or soundName == "None" then return end
+
+    -- Anti-Spam: не грати звуки надто часто
+    local now = GetTime()
+    if (now - lastSoundTime) < THROTTLE_INTERVAL then return end
 
     -- Отримуємо файл через LSM
     local soundFile = LSM:Fetch("sound", soundName)
@@ -72,22 +114,6 @@ function Sounds:Play(soundName)
     if soundFile then
         local channel = ns.db.sounds.masterVolume and "Master" or "SFX"
         PlaySoundFile(soundFile, channel)
-    end
-end
-
--- Динамічна прив'язка подій до єдиного обробника
--- Це дозволяє не писати окрему функцію для кожної події
-local events = {
-    "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER",
-    "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
-    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
-    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
-    "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
-    "CHAT_MSG_CHANNEL"
-}
-
-function Sounds:OnEnable()
-    for _, event in ipairs(events) do
-        self:RegisterEvent(event, "OnEvent")
+        lastSoundTime = now
     end
 end

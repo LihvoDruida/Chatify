@@ -1,6 +1,6 @@
 local addonName, ns = ...
 -- Отримуємо головний об'єкт аддону
-local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
+local Chatify = ns.Chatify
 -- Створюємо модуль "Copy" та підключаємо бібліотеку хуків
 local CopyModule = Chatify:NewModule("Copy", "AceHook-3.0")
 

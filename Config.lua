@@ -1,5 +1,10 @@
 local addonName, ns = ...
 
+ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
+    "AceConsole-3.0",
+    "AceEvent-3.0"
+)
+
 -- =========================================================
 -- 1. LIBS & MEDIA REGISTRATION
 -- =========================================================

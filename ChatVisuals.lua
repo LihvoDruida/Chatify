@@ -1,5 +1,5 @@
 local addonName, ns = ...
-local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
+local Chatify = ns.Chatify
 
 -- Підключаємо AceHook-3.0 та AceEvent-3.0
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")

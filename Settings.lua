@@ -1,8 +1,5 @@
 local addonName, ns = ...
-
--- Create Addon Object
-local Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify", "AceConsole-3.0")
-
+local Chatify = ns.Chatify
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
