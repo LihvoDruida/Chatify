@@ -3,61 +3,55 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Sounds = Chatify:NewModule("Sounds", "AceEvent-3.0")
 local LSM = LibStub("LibSharedMedia-3.0")
 
--- Локалізація функцій для швидкодії (micro-optimization)
+-- Локалізація для швидкодії
 local strfind = string.find
 local strlower = string.lower
 local PlaySoundFile = PlaySoundFile
 local GetTime = GetTime
+local tostring = tostring
 
 -- Змінні модуля
-local myName = nil
-local myNameLower = nil
+local myName = UnitName("player")
+local myNameLower = myName and strlower(myName)
 local lastSoundTime = 0
-local THROTTLE_INTERVAL = 0.5 -- Мінімальний інтервал між звуками (секунди)
+local THROTTLE_INTERVAL = 0.5
+local ignoreSelf = true
 
--- Таблиця мапінгу подій на типи звуків
--- Це замінює довгий блок if/elseif
+-- Мапінг подій на типи звуків
 local eventMap = {
-    -- Whispers
     ["CHAT_MSG_WHISPER"]    = "WHISPER",
     ["CHAT_MSG_BN_WHISPER"] = "WHISPER",
-    
-    -- Guild/Officer
     ["CHAT_MSG_GUILD"]      = "GUILD",
     ["CHAT_MSG_OFFICER"]    = "GUILD",
-    
-    -- Party
     ["CHAT_MSG_PARTY"]        = "PARTY",
     ["CHAT_MSG_PARTY_LEADER"] = "PARTY",
-    
-    -- Raid / Instance
     ["CHAT_MSG_RAID"]                 = "RAID",
     ["CHAT_MSG_RAID_LEADER"]          = "RAID",
     ["CHAT_MSG_RAID_WARNING"]         = "RAID",
-    ["CHAT_MSG_INSTANCE_CHAT"]        = "RAID", -- Можна змінити на окрему категорію, якщо потрібно
+    ["CHAT_MSG_INSTANCE_CHAT"]        = "RAID",
     ["CHAT_MSG_INSTANCE_CHAT_LEADER"] = "RAID",
-    
-    -- Channel (тільки для пошуку Mentions, тому тут nil або спец. тип)
-    ["CHAT_MSG_CHANNEL"] = nil 
+    ["CHAT_MSG_CHANNEL"] = nil, -- тільки для mentions
 }
 
-function Sounds:OnInitialize()
-    -- Кешуємо ім'я гравця один раз при завантаженні
-    myName = UnitName("player")
-    if myName then
-        myNameLower = strlower(myName)
-    end
-end
-
 function Sounds:OnEnable()
-    -- Реєструємо всі події з таблиці eventMap
     for event in pairs(eventMap) do
         self:RegisterEvent(event, "OnEvent")
     end
-    -- CHAT_MSG_CHANNEL є в таблиці як ключ, тому він теж зареєструється
 end
 
--- Основна функція обробки подій
+function Sounds:Play(soundName)
+    if not soundName or soundName == "None" then return end
+    local now = GetTime()
+    if (now - lastSoundTime) < THROTTLE_INTERVAL then return end
+
+    local soundFile = LSM:Fetch("sound", soundName)
+    if soundFile then
+        local channel = ns.db.sounds.masterVolume and "Master" or "SFX"
+        PlaySoundFile(soundFile, channel)
+        lastSoundTime = now
+    end
+end
+
 function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceID)
     local db = ns.db.sounds
     if not db or not db.enable then return end
@@ -68,13 +62,24 @@ function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceI
     -- =====================================================
     if (now - lastSoundTime) < THROTTLE_INTERVAL then return end
 
+    -- =====================================================
+    -- БЕЗПЕЧНІ ДАНІ
+    -- =====================================================
+    local safeAuthor = nil
+    local safeMsg = nil
+
+    -- Перевіряємо, що author та msg безпечні для порівнянь
+    pcall(function() safeAuthor = tostring(author) end)
+    pcall(function() safeMsg = tostring(msg) end)
+
+    -- Перевірка автора (щоб не реагувати на себе)
     local isSelf = false
-    if author and myName and author == myName then
+    if safeAuthor and myName and safeAuthor == myName then
         isSelf = true
     end
     if event == "CHAT_MSG_BN_WHISPER" and presenceID then
-        local accountInfo = C_BattleNet.GetAccountInfoByID(presenceID)
-        if accountInfo and accountInfo.isSelf then
+        local ok, accountInfo = pcall(C_BattleNet.GetAccountInfoByID, presenceID)
+        if ok and accountInfo and accountInfo.isSelf then
             isSelf = true
         end
     end
@@ -82,8 +87,7 @@ function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceI
     -- =====================================================
     -- MENTION PRIORITY
     -- =====================================================
-    if author and myName and tostring(author) == myName then return end
-    if msg and myNameLower and strfind(strlower(msg), myNameLower, 1, true) then
+    if safeMsg and myNameLower and strfind(strlower(safeMsg), myNameLower, 1, true) then
         self:Play(db.events["MENTION"])
         lastSoundTime = now
         return
@@ -99,21 +103,3 @@ function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceI
     end
 end
 
-
-
-function Sounds:Play(soundName)
-    if not soundName or soundName == "None" then return end
-
-    -- Anti-Spam: не грати звуки надто часто
-    local now = GetTime()
-    if (now - lastSoundTime) < THROTTLE_INTERVAL then return end
-
-    -- Отримуємо файл через LSM
-    local soundFile = LSM:Fetch("sound", soundName)
-    
-    if soundFile then
-        local channel = ns.db.sounds.masterVolume and "Master" or "SFX"
-        PlaySoundFile(soundFile, channel)
-        lastSoundTime = now
-    end
-end
