@@ -8,19 +8,20 @@ local Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify", "AceConsole-3.0")
 -- =========================================================
 function Chatify:GetOptions()
     local options = {
-        name = "Chatify", -- Main Title
+        name = "Chatify", 
         handler = Chatify,
         type = "group",
-        childGroups = "tab", -- CRITICAL: Switches layout to Tabs
+        childGroups = "tab", 
         args = {
+            -- HEADER
             headerInfo = {
                 order = 0,
                 type = "description",
                 name = " |cff33ff99Chatify|r  |cff777777v" .. (C_AddOns and C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0") .. "|r\n" ..
-                       " |cffffffffEnhance your chat experience.|r\n" ..
-                       " |cff999999Spam Filter • Sound Notifications • History|r\n",
+                       " |cffffffffMinimalist Chat Enhancer|r\n" ..
+                       " |cff999999Tabs • Spam Filter • Sounds • History|r",
                 fontSize = "large",
-                image = "Interface\\AddOns\\Chatify\\Assets\\icon",
+                image = "Interface\\AddOns\\Chatify\\Assets\\icon", 
                 imageWidth = 64, 
                 imageHeight = 64,
             },
@@ -28,25 +29,23 @@ function Chatify:GetOptions()
             headerSpacer = {
                 order = 0.5,
                 type = "description",
-                name = "\n",
+                name = "\n", 
             },
 
             -- TAB 1: GENERAL & APPEARANCE
-            -- Combined general tweaks and visual settings
             tabGeneral = {
                 name = "General & Visuals",
                 type = "group",
                 order = 10,
                 args = {
-                    -- Section: Text Formatting
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
                     shortChannels = {
                         order = 2,
                         name = "Shorten Channel Names",
-                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n|cffaaaaaa[Guild]|r becomes |cffaaaaaa[G]|r",
+                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r",
                         type = "toggle",
-                        width = "full", -- Takes full line for better readability
+                        width = "full", 
                         set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.shortChannels end,
                     },
@@ -56,27 +55,18 @@ function Chatify:GetOptions()
                         name = "Chat Font",
                         desc = "Select the typeface used for chat messages.",
                         type = "select",
-                        width = "double", -- Wider dropdown looks better
-                        values = function() 
-                            local t = {}
-                            if ns.Lists and ns.Lists.Fonts then
-                                for i, v in ipairs(ns.Lists.Fonts) do t[i] = v.name end
-                            else
-                                t[1] = "Default"
-                            end
-                            return t 
-                        end,
+                        width = "double",
+                        dialogControl = "LSM30_Font",
+                        values = AceGUIWidgetLSMlists.font, -- Auto-fill from LSM
                         set = function(info, val) self.db.profile.fontID = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.fontID end,
                     },
 
-                    -- Section: Time Settings
                     headerTime = { order = 10, type = "header", name = "Timestamps" },
 
                     timestampID = {
                         order = 11,
                         name = "Time Format",
-                        desc = "Choose how the time is displayed next to messages.",
                         type = "select",
                         width = "normal",
                         values = function()
@@ -95,7 +85,7 @@ function Chatify:GetOptions()
                     useServerTime = {
                         order = 12,
                         name = "Use Server Time",
-                        desc = "If checked, uses the Realm time.\nIf unchecked, uses your Local Computer time.",
+                        desc = "If checked, uses Realm time.\nIf unchecked, uses Local Computer time.",
                         type = "toggle",
                         set = function(info, val) self.db.profile.useServerTime = val end,
                         get = function(info) return self.db.profile.useServerTime end,
@@ -104,7 +94,7 @@ function Chatify:GetOptions()
                     timestampPost = {
                         order = 13,
                         name = "Show at End",
-                        desc = "Place the timestamp at the end of the message instead of the beginning.",
+                        desc = "Place timestamp at the end of the message.",
                         type = "toggle",
                         set = function(info, val) self.db.profile.timestampPost = val end,
                         get = function(info) return self.db.profile.timestampPost end,
@@ -112,8 +102,7 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- TAB 2: SOUNDS & NOTIFICATIONS
-            -- Cleaned up the wall of dropdowns
+            -- TAB 2: SOUNDS
             tabSounds = {
                 name = "Sounds",
                 type = "group",
@@ -124,7 +113,7 @@ function Chatify:GetOptions()
                     enable = {
                         order = 2,
                         name = "Enable Chat Sounds",
-                        desc = "Toggle all sound effects from this addon.",
+                        desc = "Toggle all sound effects.",
                         type = "toggle",
                         width = "full",
                         set = function(info, val) self.db.profile.sounds.enable = val end,
@@ -133,23 +122,21 @@ function Chatify:GetOptions()
                     masterChannel = {
                         order = 3,
                         name = "Force Master Channel",
-                        desc = "Play sounds through the 'Master' channel.\nThis ensures you hear notifications even if 'Sound Effects' are muted in WoW settings.",
+                        desc = "Play sounds through 'Master' channel to hear them even if SFX is muted.",
                         type = "toggle",
                         width = "full",
-                        disabled = function() return not self.db.profile.sounds.enable end, -- UX: Disable if master toggle is off
+                        disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.masterVolume = val end,
                         get = function(info) return self.db.profile.sounds.masterVolume end,
                     },
 
                     headerEvents = { order = 10, type = "header", name = "Event Notifications" },
                     
-                    -- Grouping these specifically makes it look cleaner
                     soundWhisper = {
                         order = 11,
                         type = "select",
                         dialogControl = "LSM30_Sound",
                         name = "Whisper Received",
-                        desc = "Sound to play when you receive a private message.",
                         values = AceGUIWidgetLSMlists.sound,
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
@@ -160,14 +147,14 @@ function Chatify:GetOptions()
                         type = "select",
                         dialogControl = "LSM30_Sound",
                         name = "Name Mentioned",
-                        desc = "Sound to play when someone types your character name in chat.",
+                        desc = "Plays when someone types your name.",
                         values = AceGUIWidgetLSMlists.sound,
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["MENTION"] = val end,
                         get = function(info) return self.db.profile.sounds.events["MENTION"] end,
                     },
                     
-                    spacer1 = { order = 12.5, type = "description", name = " " }, -- Visual spacer
+                    spacer1 = { order = 12.5, type = "description", name = " " }, 
 
                     soundGuild = {
                         order = 13,
@@ -203,48 +190,64 @@ function Chatify:GetOptions()
             },
 
             -- TAB 3: FILTERS & HISTORY
-            -- Combined privacy/utility features
             tabTools = {
                 name = "Filters & History",
                 type = "group",
                 order = 30,
                 args = {
-                    -- Spam Filter Group
+                    -- 1. SPAM FILTER GROUP
                     groupSpam = {
-                        name = "Spam Filter",
+                        name = "Spam & System Filters",
                         type = "group",
-                        inline = true, -- Makes it a box inside the tab
+                        inline = true, 
                         order = 1,
                         args = {
                             enableSpamFilter = {
                                 order = 1,
-                                name = "Enable Filter",
+                                name = "Enable Keyword Blocking",
                                 type = "toggle",
-                                set = function(info, val) self.db.profile.enableSpamFilter = val end,
+                                width = "full",
+                                set = function(info, val) self.db.profile.enableSpamFilter = val; if ns.UpdateSpamCache then ns.UpdateSpamCache() end end,
                                 get = function(info) return self.db.profile.enableSpamFilter end,
                             },
-                            helpText = {
+                            
+                            -- NEW: Anti-Flood & System Cleaners
+                            enableThrottle = {
                                 order = 2,
-                                type = "description",
-                                name = "|cffaaaaaaInstructions: To block a message containing a specific word, type the word below and press Enter.|r",
+                                name = "Block Repeated Messages (Anti-Flood)",
+                                desc = "Prevents people from spamming the exact same message multiple times in a row.",
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.enableThrottle = val end,
+                                get = function(info) return self.db.profile.enableThrottle end,
                             },
-                            addKeyword = {
+                            hideSystemSpam = {
                                 order = 3,
+                                name = "Hide Join/Leave Messages",
+                                desc = "Hides yellow system messages when players join or leave channels.",
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.hideSystemSpam = val end,
+                                get = function(info) return self.db.profile.hideSystemSpam end,
+                            },
+
+                            headerKeywords = { order = 4, type = "header", name = "Blocklist Management" },
+
+                            addKeyword = {
+                                order = 5,
                                 name = "Add Keyword",
-                                desc = "Type a word to block (e.g., 'boost', 'WTS')",
+                                desc = "Type a word to block (e.g., 'boost', 'WTS') and press Enter.",
                                 type = "input",
                                 width = "full",
                                 set = function(info, val)
                                     if val and val ~= "" then
                                         table.insert(self.db.profile.spamKeywords, val)
+                                        if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
                                     end
                                 end,
                                 get = function(info) return "" end,
                             },
                             removeKeyword = {
-                                order = 4,
+                                order = 6,
                                 name = "Remove Keyword",
-                                desc = "Select a keyword to stop blocking it.",
                                 type = "select",
                                 style = "dropdown",
                                 width = "full",
@@ -253,14 +256,16 @@ function Chatify:GetOptions()
                                     for i, word in ipairs(self.db.profile.spamKeywords) do t[i] = word end
                                     return t
                                 end,
-                                set = function(info, key) table.remove(self.db.profile.spamKeywords, key) end,
+                                set = function(info, key) 
+                                    table.remove(self.db.profile.spamKeywords, key)
+                                    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
+                                end,
                                 get = function(info) return nil end,
                                 confirm = true,
-                                confirmText = "Remove this keyword from the blocklist?",
+                                confirmText = "Remove this keyword?",
                             },
-                            -- Displaying the list nicely
                             curList = {
-                                order = 5,
+                                order = 7,
                                 type = "description",
                                 name = function() 
                                     if #self.db.profile.spamKeywords == 0 then return "\n|cff888888(Blocklist is empty)|r" end
@@ -270,21 +275,17 @@ function Chatify:GetOptions()
                         }
                     },
 
-                    -- Chat History Group
+                    -- 2. HISTORY GROUP
                     groupHistory = {
                         name = "Chat History",
                         type = "group",
                         inline = true,
                         order = 2,
                         args = {
-                            desc = {
-                                order = 0,
-                                type = "description",
-                                name = "Retains chat messages between sessions/reloads.",
-                            },
                             enableHistory = {
                                 order = 1,
                                 name = "Enable History",
+                                desc = "Restores chat messages after you reload the UI or login.",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.enableHistory = val end,
                                 get = function(info) return self.db.profile.enableHistory end,
@@ -292,7 +293,7 @@ function Chatify:GetOptions()
                             historyAlpha = {
                                 order = 2,
                                 name = "Fade Old Messages",
-                                desc = "Make restored history messages appear gray/faded to distinguish them from new messages.",
+                                desc = "Make restored history messages appear gray.",
                                 type = "toggle",
                                 disabled = function() return not self.db.profile.enableHistory end,
                                 set = function(info, val) self.db.profile.historyAlpha = val end,
@@ -300,8 +301,8 @@ function Chatify:GetOptions()
                             },
                             historyLimit = {
                                 order = 3,
-                                name = "History Size (Lines)",
-                                desc = "How many messages to keep. Higher numbers use more memory.",
+                                name = "History Size",
+                                desc = "Lines to keep.",
                                 type = "range",
                                 min = 10, max = 100, step = 10,
                                 disabled = function() return not self.db.profile.enableHistory end,
@@ -319,60 +320,46 @@ function Chatify:GetOptions()
                 type = "group",
                 order = 99, 
                 args = {
-                    -- 1. SETUP SECTION
                     headerSetup = { order = 1, type = "header", name = "Chat Tabs Setup" },
-                    
                     descSetup = {
                         order = 2,
                         type = "description",
-                        name = "This tool will automatically create separate chat tabs for Whispers, Guild, and Party chats. \n\n|cffffcc00Warning: This will modify your current chat window layout.|r",
+                        name = "Automatically create separate chat tabs for Whispers, Guild, and Party chats.\n|cffffcc00Warning: Modifies chat window layout.|r",
                         fontSize = "medium",
                     },
-
                     btnSetup = {
                         order = 3,
                         name = "Run Auto-Setup",
-                        desc = "Creates default tabs: Whisper, Guild, Party",
                         type = "execute",
                         func = "SetupDefaultTabs", 
                         width = "full",
                         confirm = true,
-                        confirmText = "This will create new chat tabs. Continue?",
+                        confirmText = "Create new chat tabs?",
                     },
 
-                    -- 2. MAINTENANCE SECTION (RESET & RELOAD)
-                    headerMaintenance = { order = 10, type = "header", name = "Maintenance & Danger Zone" },
-
-                    descReset = {
-                        order = 11,
-                        type = "description",
-                        name = "If something is broken or you want to start fresh, use the options below.\n",
-                        fontSize = "medium",
-                    },
-
+                    headerMaintenance = { order = 10, type = "header", name = "Maintenance" },
                     btnReset = {
                         order = 12,
                         name = "Reset All Settings",
-                        desc = "Reverts all Chatify settings to default values. \n|cffff0000Cannot be undone!|r",
+                        desc = "|cffff0000Cannot be undone!|r",
                         type = "execute",
                         func = function() 
-                            self.db:ResetProfile() -- Built-in AceDB function
-                            self:Print("Configuration reset to defaults.")
+                            self.db:ResetProfile()
+                            if ns.UpdateSpamCache then ns.UpdateSpamCache() end
+                            self:Print("Configuration reset.")
                         end,
                         width = "full",
-                        confirm = true, -- Safety popup
-                        confirmText = "|cffff0000WARNING:|r Are you sure you want to RESET all settings?",
+                        confirm = true,
+                        confirmText = "|cffff0000WARNING:|r Reset all settings?",
                     },
-
                     btnReload = {
                         order = 13,
-                        name = "Reload UI (/reload)",
-                        desc = "Reloads the game interface. Useful if settings don't update immediately.",
+                        name = "Reload UI",
                         type = "execute",
-                        func = function() ReloadUI() end, -- WoW API function
+                        func = function() ReloadUI() end,
                         width = "full",
                         confirm = true,
-                        confirmText = "Reload User Interface now?",
+                        confirmText = "Reload UI now?",
                     },
                 }
             }
@@ -385,32 +372,39 @@ end
 -- 5. INITIALIZATION LOGIC
 -- =========================================================
 function Chatify:OnInitialize()
+    -- Initialize DB
     if not ns.defaults then ns.defaults = { profile = { spamKeywords = {} } } end
-
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)
     
+    -- Register Callbacks
     self.db.RegisterCallback(self, "OnProfileChanged", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileCopied", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
 
     ns.db = self.db.profile 
 
+    -- Setup Config GUI
     LibStub("AceConfig-3.0"):RegisterOptionsTable("Chatify", self:GetOptions())
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("Chatify", "Chatify")
 
+    -- Chat Commands
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("mcm", "OpenConfig")
     
+    -- Initial Update
     if ns.ApplyVisuals then ns.ApplyVisuals() end
+    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Critical: Build cache on load
 end
 
 function Chatify:RefreshConfig()
     ns.db = self.db.profile
     if ns.ApplyVisuals then ns.ApplyVisuals() end
+    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Rebuild cache on profile change
 end
 
 function Chatify:OnEnable()
     if ns.ApplyVisuals then ns.ApplyVisuals() end
+    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
 end
 
 function Chatify:OpenConfig()
