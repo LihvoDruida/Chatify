@@ -82,7 +82,7 @@ function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceI
     -- =====================================================
     -- MENTION PRIORITY
     -- =====================================================
-    if author and myName and author == myName then return end
+    if author and myName and tostring(author) == myName then return end
     if msg and myNameLower and strfind(strlower(msg), myNameLower, 1, true) then
         self:Play(db.events["MENTION"])
         lastSoundTime = now

@@ -48,13 +48,19 @@ end
 function History:OnAddMessage(frame, text)
     local db = Chatify.db.profile
     if not db.enableHistory or isRestoring then return end
-    if not text or text == "" then return end
+
+    local safeText = text and tostring(text) or ""
+
+    -- Тепер порівнюємо безпечну змінну safeText
+    if safeText == "" or safeText == "nil" then return end
 
     local id = GetChatID(frame)
     if not id or id == 2 then return end -- ignore combat log
 
     sessionHistory[id] = sessionHistory[id] or {}
-    table.insert(sessionHistory[id], text)
+    
+    -- Зберігаємо безпечний текст
+    table.insert(sessionHistory[id], safeText)
 
     local limit = db.historyLimit or 50
     if #sessionHistory[id] > limit then
