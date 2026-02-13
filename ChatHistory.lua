@@ -68,22 +68,25 @@ end
 
 local function FormatMessage(message, author)
     local timestamp = date("%H:%M")
-    
-    -- Очищаємо ім'я від серверу (наприклад "Player-Realm" -> "Player")
-    local shortAuthor = author
-    if shortAuthor and string.find(shortAuthor, "-") then
-        shortAuthor = strsplit("-", shortAuthor)
+    local shortAuthor = nil
+
+    if author then
+        pcall(function()
+            shortAuthor = tostring(author)
+            local sep = string.find(shortAuthor, "-")
+            if sep then
+                shortAuthor = shortAuthor:sub(1, sep - 1)
+            end
+        end)
     end
 
-    -- Формат: [12:00] [Player]: Привіт
-    -- Час: Сірий (|cffaaaaaa)
-    -- Автор: Золотий/Жовтий (|cffffd700)
-    if shortAuthor then
+    if shortAuthor and shortAuthor ~= "" then
         return string.format("|cffaaaaaa[%s]|r |cffffd700[%s]|r: %s", timestamp, shortAuthor, message)
     else
         return string.format("|cffaaaaaa[%s]|r %s", timestamp, message)
     end
 end
+
 
 -- =========================================================
 -- EVENT HANDLER
