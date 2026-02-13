@@ -66,6 +66,25 @@ local function AddWithLimit(tbl, message, limit)
     end
 end
 
+local function FormatMessage(message, author)
+    local timestamp = date("%H:%M")
+    
+    -- Очищаємо ім'я від серверу (наприклад "Player-Realm" -> "Player")
+    local shortAuthor = author
+    if shortAuthor and string.find(shortAuthor, "-") then
+        shortAuthor = strsplit("-", shortAuthor)
+    end
+
+    -- Формат: [12:00] [Player]: Привіт
+    -- Час: Сірий (|cffaaaaaa)
+    -- Автор: Золотий/Жовтий (|cffffd700)
+    if shortAuthor then
+        return string.format("|cffaaaaaa[%s]|r |cffffd700[%s]|r: %s", timestamp, shortAuthor, message)
+    else
+        return string.format("|cffaaaaaa[%s]|r %s", timestamp, message)
+    end
+end
+
 -- =========================================================
 -- EVENT HANDLER
 -- =========================================================
@@ -82,7 +101,7 @@ function History:OnChatEvent(event, message, author, ...)
     if #targetFrames == 0 then return end
 
     local limit = db.historyLimit or 50
-
+    local fullMessage = FormatMessage(message, author)
     -- =====================================================
     -- CHANNEL (HYBRID ID + NAME)
     -- =====================================================
@@ -110,7 +129,7 @@ function History:OnChatEvent(event, message, author, ...)
 
                 AddWithLimit(
                     channelData.frames[chatID],
-                    message,
+                    fullMessage,
                     limit
                 )
             end
@@ -131,7 +150,7 @@ function History:OnChatEvent(event, message, author, ...)
 
             AddWithLimit(
                 sessionHistory[typeKey][chatID],
-                message,
+                fullMessage,
                 limit
             )
         end
@@ -188,62 +207,50 @@ function History:RestoreHistory()
     if not db.enableHistory then return end
     if not ChatifyHistoryDB then return end
 
+    local buffer = {}
+
+    local function addToBuffer(chatID, messages)
+        if not messages or #messages == 0 then return end
+        buffer[chatID] = buffer[chatID] or {}
+        
+        for _, msg in ipairs(messages) do
+            table.insert(buffer[chatID], msg)
+        end
+    end
+
     for typeKey, data in pairs(ChatifyHistoryDB) do
-
-        -- =================================================
-        -- CHANNEL RESTORE (HYBRID CHECK)
-        -- =================================================
+        
         if typeKey == "CHANNEL" then
-
             for channelName, chatFrames in pairs(data) do
-
-                -- Only restore if player is currently in this channel
-                local channelID = GetChannelName(channelName)
-                if channelID then
-
+                if GetChannelName(channelName) then
                     for chatID, messages in pairs(chatFrames) do
-                        local frame = _G["ChatFrame"..chatID]
-
-                        if frame and chatID ~= 2 then
-                            frame:AddMessage(
-                                "──────── "..channelName.." History ────────",
-                                0.6, 0.6, 0.6
-                            )
-
-                            for _, msg in ipairs(messages) do
-                                if db.historyAlpha then
-                                    frame:AddMessage("|cff888888"..msg.."|r")
-                                else
-                                    frame:AddMessage(msg)
-                                end
-                            end
-                        end
+                        addToBuffer(chatID, messages)
                     end
                 end
             end
-
-        -- =================================================
-        -- NORMAL RESTORE
-        -- =================================================
         else
             for chatID, messages in pairs(data) do
-                local frame = _G["ChatFrame"..chatID]
+                addToBuffer(chatID, messages)
+            end
+        end
+    end
 
-                if frame and chatID ~= 2 then
-                    frame:AddMessage(
-                        "──────── "..typeKey.." History ────────",
-                        0.6, 0.6, 0.6
-                    )
+    for chatID, messages in pairs(buffer) do
+        local frame = _G["ChatFrame"..chatID]
+        if frame and chatID ~= 2 then
+            
 
-                    for _, msg in ipairs(messages) do
-                        if db.historyAlpha then
-                            frame:AddMessage("|cff888888"..msg.."|r")
-                        else
-                            frame:AddMessage(msg)
-                        end
-                    end
+            frame:AddMessage("------------------------------------------", 0.6, 0.6, 0.6)
+
+            for _, msg in ipairs(messages) do
+                if db.historyAlpha then
+                    frame:AddMessage("|cff888888"..msg.."|r")
+                else
+                    frame:AddMessage(msg)
                 end
             end
+            
+            frame:AddMessage("-------------- Chat History --------------", 0.6, 0.6, 0.6)
         end
     end
 end
