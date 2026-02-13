@@ -61,12 +61,12 @@ local function StyleFrame(frame)
     end
 
     -- 2. Розмір та Outline
-    local size = db.fontSize or 14
-    size = NormalizeFontSize(size)
+    local _ , currentSize, _ = frame:GetFont()
+    currentSize = NormalizeFontSize(currentSize)
     local outline = db.fontOutline or ""
 
     -- 3. Встановлюємо шрифт на Frame
-    frame:SetFont(fontPath, size, outline)
+    frame:SetFont(fontPath, currentSize, outline)
     frame:SetShadowOffset(1, -1)
 
     -- 4. Встановлюємо шрифт на EditBox (поле вводу)
@@ -74,12 +74,12 @@ local function StyleFrame(frame)
     if editBox then
         -- EditBox часто потребує перевірки на header/headerSuffix
         local header = _G[editBox:GetName().."Header"]
-        if header then header:SetFont(fontPath, size, outline) end
+        if header then header:SetFont(fontPath, currentSize, outline) end
         
         local suffix = _G[editBox:GetName().."HeaderSuffix"]
-        if suffix then suffix:SetFont(fontPath, size, outline) end
+        if suffix then suffix:SetFont(fontPath, currentSize, outline) end
 
-        editBox:SetFont(fontPath, size, outline)
+        editBox:SetFont(fontPath, currentSize, outline)
     end
 end
 
