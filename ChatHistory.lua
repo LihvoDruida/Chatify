@@ -3,23 +3,29 @@ local Chatify = ns.Chatify
 local History = Chatify:NewModule("History", "AceEvent-3.0")
 
 -- =========================================================
--- EVENT → TYPE MAP (WHITELIST)
+-- EVENT → TYPE MAP
 -- =========================================================
--- Це ваш "білий список". Лише ці події будуть оброблятися.
--- Всі інші (MONSTER_YELL, BN_WHISPER) будуть ігноруватися миттєво.
 local eventTypeMap = {
-    CHAT_MSG_SAY            = "SAY",
-    CHAT_MSG_YELL           = "YELL",
-    CHAT_MSG_GUILD          = "GUILD",
-    CHAT_MSG_OFFICER        = "GUILD",
-    CHAT_MSG_PARTY          = "PARTY",
-    CHAT_MSG_PARTY_LEADER   = "PARTY",
-    CHAT_MSG_RAID           = "RAID",
-    CHAT_MSG_RAID_LEADER    = "RAID",
-    CHAT_MSG_WHISPER        = "WHISPER",
-    CHAT_MSG_WHISPER_INFORM = "WHISPER",
-    CHAT_MSG_CHANNEL        = "CHANNEL",
+    CHAT_MSG_SAY           = "SAY",
+    CHAT_MSG_YELL          = "YELL",
+    CHAT_MSG_GUILD         = "GUILD",
+    CHAT_MSG_OFFICER       = "GUILD",
+    CHAT_MSG_PARTY         = "PARTY",
+    CHAT_MSG_PARTY_LEADER  = "PARTY",
+    CHAT_MSG_RAID          = "RAID",
+    CHAT_MSG_RAID_LEADER   = "RAID",
+    CHAT_MSG_WHISPER       = "WHISPER",
+    CHAT_MSG_WHISPER_INFORM= "WHISPER",
+    CHAT_MSG_CHANNEL       = "CHANNEL",
 }
+
+-- =========================================================
+-- SAFE EVENT WHITELIST
+-- =========================================================
+local eventsToHandle = {}
+for event,_ in pairs(eventTypeMap) do
+    eventsToHandle[event] = true
+end
 
 -- =========================================================
 -- STATE
@@ -27,32 +33,19 @@ local eventTypeMap = {
 local sessionHistory = {}
 
 -- =========================================================
--- SAFETY HELPER
+-- SAFE TEXT HELPER
 -- =========================================================
 local function GetSafeText(rawText)
-    if rawText == nil then return nil end
-    if type(rawText) == "number" then return tostring(rawText) end
     if type(rawText) ~= "string" then return nil end
-
-    -- Створюємо "чисту" копію через pcall
-    local ok, clean = pcall(string.format, "%s", rawText)
-    if not ok then return nil end
-
-    -- Перевірка на порожній рядок тільки всередині pcall
-    local nonEmptyOk, result = pcall(function()
-        if clean == "" then return nil end
+    local ok, clean = pcall(function() return string.format("%s", rawText) end)
+    if ok and clean ~= "" then
         return clean
-    end)
-
-    if nonEmptyOk then
-        return result
-    else
-        return nil
     end
+    return nil
 end
 
 -- =========================================================
--- HELPERS
+-- CHAT HELPERS
 -- =========================================================
 local function GetTargetFrames(event)
     local frames = {}
@@ -74,13 +67,8 @@ end
 
 local function FormatMessage(msg, author)
     local timestamp = date("%H:%M")
-    local shortAuthor = author
-    if shortAuthor then
-        local sep = string.find(shortAuthor, "-")
-        if sep then shortAuthor = shortAuthor:sub(1, sep - 1) end
-    end
-
-    if shortAuthor and shortAuthor ~= "" then
+    if author and author ~= "" then
+        local shortAuthor = author:match("([^%-]+)") or author
         return string.format("|cffaaaaaa[%s]|r |cffffd700[%s]|r: %s", timestamp, shortAuthor, msg)
     else
         return string.format("|cffaaaaaa[%s]|r %s", timestamp, msg)
@@ -94,13 +82,16 @@ function History:OnChatEvent(event, message, author, ...)
     local db = Chatify.db.profile
     if not db.enableHistory then return end
 
-    local typeKey = eventTypeMap[event]
-    if not typeKey then return end
+    -- Ігноруємо події, які не в whitelist
+    if not eventsToHandle[event] then return end
 
+    -- Безпечне повідомлення та автор
     local safeMessage = GetSafeText(message)
     if not safeMessage then return end
-
     local safeAuthor = GetSafeText(author)
+
+    local typeKey = eventTypeMap[event]
+    if not typeKey then return end
 
     local targetFrames = GetTargetFrames(event)
     if #targetFrames == 0 then return end
@@ -139,7 +130,7 @@ function History:OnChatEvent(event, message, author, ...)
 end
 
 -- =========================================================
--- SAVE
+-- SAVE HISTORY
 -- =========================================================
 function History:SaveHistory()
     local db = Chatify.db.profile
@@ -153,7 +144,7 @@ function History:SaveHistory()
                 ChatifyHistoryDB.CHANNEL[channelName] = {}
                 for chatID, messages in pairs(channelData.frames) do
                     if #messages > 0 then
-                        ChatifyHistoryDB.CHANNEL[channelName][chatID] = CopyTable(messages)
+                        ChatifyHistoryDB.CHANNEL[channelName][chatID] = {unpack(messages)}
                     end
                 end
             end
@@ -161,7 +152,7 @@ function History:SaveHistory()
             ChatifyHistoryDB[typeKey] = {}
             for chatID, messages in pairs(data) do
                 if #messages > 0 then
-                    ChatifyHistoryDB[typeKey][chatID] = CopyTable(messages)
+                    ChatifyHistoryDB[typeKey][chatID] = {unpack(messages)}
                 end
             end
         end
@@ -169,7 +160,7 @@ function History:SaveHistory()
 end
 
 -- =========================================================
--- RESTORE
+-- RESTORE HISTORY
 -- =========================================================
 function History:RestoreHistory()
     local db = Chatify.db.profile
