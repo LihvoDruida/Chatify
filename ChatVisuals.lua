@@ -5,7 +5,34 @@ local LSM = LibStub("LibSharedMedia-3.0")
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 
 -- =========================================================
--- 1. UTILITIES
+-- SAFE EVENT WHITELIST (КРИТИЧНО ВАЖЛИВО)
+-- =========================================================
+-- Ми додаємо таймстемпи ТІЛЬКИ до цих подій.
+-- Всі інші (MONSTER_YELL, SYSTEM, BN_WHISPER) ігноруються, щоб уникнути taint-крашів.
+local eventsToHandle = {
+    CHAT_MSG_SAY = true,
+    CHAT_MSG_YELL = true,
+    CHAT_MSG_EMOTE = true,
+    CHAT_MSG_TEXT_EMOTE = true,
+    CHAT_MSG_GUILD = true,
+    CHAT_MSG_GUILD_MOTD = true,
+    CHAT_MSG_OFFICER = true,
+    CHAT_MSG_PARTY = true,
+    CHAT_MSG_PARTY_LEADER = true,
+    CHAT_MSG_RAID = true,
+    CHAT_MSG_RAID_LEADER = true,
+    CHAT_MSG_RAID_WARNING = true,
+    CHAT_MSG_INSTANCE_CHAT = true,
+    CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_CHANNEL = true,
+    -- CHAT_MSG_BN_WHISPER -- Видалено (taint ризик)
+    -- CHAT_MSG_SYSTEM -- Видалено (taint ризик)
+}
+
+-- =========================================================
+-- 1. UTILITIES & SAFETY
 -- =========================================================
 local function NormalizeFontSize(size)
     if type(size) ~= "number" or size <= 0 then return 14 end
@@ -17,6 +44,24 @@ end
 local function CleanTextTags(text)
     if not text then return "" end
     return text:gsub("|[cC]%x%x%x%x%x%x%x%x", ""):gsub("|[rR]", "")
+end
+
+-- Безпечне отримання тексту (Deep Sanitization)
+local function GetSafeText(rawText)
+    if rawText == nil then return nil end
+    if type(rawText) == "number" then return tostring(rawText) end
+    if type(rawText) ~= "string" then return nil end
+
+    -- Спроба створити нову копію рядка
+    local ok, clean = pcall(string.format, "%s", rawText)
+    if not ok then return nil end
+
+    local nonEmptyOk, result = pcall(function()
+        if clean == "" then return nil end
+        return clean
+    end)
+
+    if nonEmptyOk then return result else return nil end
 end
 
 function ns.GetEditBox(chatFrame)
@@ -39,54 +84,45 @@ function ns.GetEditBox(chatFrame)
 end
 
 -- =========================================================
--- 2. FONT STYLING (ВИПРАВЛЕНО)
+-- 2. FONT STYLING
 -- =========================================================
 local function StyleFrame(frame)
     if not frame then return end
-    -- Отримуємо профіль коректно
     local db = Chatify.db.profile
     if not db then return end
 
-    -- 1. Отримуємо шлях до шрифту через LSM
-    -- db.fontID зберігає назву шрифту (наприклад, "Arial Narrow")
-    -- LSM:Fetch перетворює цю назву на шлях "Fonts\\ARIALN.TTF"
     local fontPath = nil
     if db.fontID then
         fontPath = LSM:Fetch("font", db.fontID)
     end
 
-    -- Якщо шрифт не вибрано або не знайдено, беремо стандартний
     if not fontPath then
         fontPath = ChatFontNormal:GetFont()
     end
 
-    -- 2. Розмір та Outline
-    local _ , currentSize, _ = frame:GetFont()
-    currentSize = NormalizeFontSize(currentSize)
+    -- Отримуємо поточний розмір або налаштування
+    local _ , size, _ = frame:GetFont()
+    size = NormalizeFontSize(size)
     local outline = db.fontOutline or ""
 
-    -- 3. Встановлюємо шрифт на Frame
-    frame:SetFont(fontPath, currentSize, outline)
+    frame:SetFont(fontPath, size, outline)
     frame:SetShadowOffset(1, -1)
 
-    -- 4. Встановлюємо шрифт на EditBox (поле вводу)
     local editBox = ns.GetEditBox(frame)
     if editBox then
-        -- EditBox часто потребує перевірки на header/headerSuffix
         local header = _G[editBox:GetName().."Header"]
-        if header then header:SetFont(fontPath, currentSize, outline) end
+        if header then header:SetFont(fontPath, size, outline) end
         
         local suffix = _G[editBox:GetName().."HeaderSuffix"]
-        if suffix then suffix:SetFont(fontPath, currentSize, outline) end
+        if suffix then suffix:SetFont(fontPath, size, outline) end
 
-        editBox:SetFont(fontPath, currentSize, outline)
+        editBox:SetFont(fontPath, size, outline)
     end
 end
 
 -- =========================================================
 -- 3. CHANNEL SHORTENING
 -- =========================================================
--- (Без змін, код скорочення каналів виглядає коректно)
 local ShortChannelMaps = {
     CHAT_GUILD_GET              = "|Hchannel:GUILD|h[G]|h %s:\32",
     CHAT_OFFICER_GET            = "|Hchannel:OFFICER|h[O]|h %s:\32",
@@ -104,12 +140,10 @@ local ShortChannelMaps = {
 
 local OriginalChannelMaps = {}
 
--- Глобальна функція для оновлення візуалу
 function ns.ApplyVisuals()
     local db = Chatify.db.profile
     if not db then return end
 
-    -- 1. Оновлюємо шрифти для всіх вікон
     for i = 1, NUM_CHAT_WINDOWS do
         local frame = _G["ChatFrame"..i]
         if frame then 
@@ -117,20 +151,16 @@ function ns.ApplyVisuals()
         end
     end
 
-    -- 2. Оновлюємо імена каналів
     if db.shortChannels then
-        -- Зберігаємо оригінали, якщо ще не зберегли
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
             end
         end
-        -- Застосовуємо короткі назви
         for k, v in pairs(ShortChannelMaps) do
             if _G[k] then _G[k] = v end
         end
     else
-        -- Відновлюємо оригінали
         if next(OriginalChannelMaps) then
             for k, v in pairs(OriginalChannelMaps) do
                 _G[k] = v
@@ -140,17 +170,27 @@ function ns.ApplyVisuals()
 end
 
 -- =========================================================
--- 4. TIMESTAMPS (Оновлено для роботи з DB)
+-- 4. TIMESTAMPS (SECURE)
 -- =========================================================
 local function TimestampFilter(self, event, msg, author, ...)
     local db = Chatify.db.profile
     if not db then return false, msg, author, ... end
 
-    -- Перевіряємо, чи увімкнені таймстемпи (якщо у вас є така опція)
-     if not db.enableTimestamps then return false, msg, author, ... end
+    -- Перевірка налаштувань
+    if not db.enableTimestamps then return false, msg, author, ... end
 
-    -- Форматування часу
-    -- Використовуємо db.timestampID або дефолтний формат
+    -- 1. БІЛИЙ СПИСОК: Якщо подія небезпечна, повертаємо оригінал без змін
+    if not eventsToHandle[event] then
+        return false, msg, author, ...
+    end
+
+    -- 2. САНІТАРНА ОБРОБКА: Отримуємо безпечний текст
+    local safeMsg = GetSafeText(msg)
+    if not safeMsg then
+        -- Якщо текст tainted, не чіпаємо його
+        return false, msg, author, ...
+    end
+
     local timestampFormat = "%H:%M" 
     if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
        local formatData = ns.Lists.TimeFormats[db.timestampID]
@@ -160,18 +200,19 @@ local function TimestampFilter(self, event, msg, author, ...)
     local timestamp = db.useServerTime and GetServerTime() or time()
     local timeStr = date(timestampFormat, timestamp)
 
-    -- Форматуємо колір
     local tsColor = db.timestampColor or "68ccef"
+    -- Використовуємо string.format для створення нового рядка
     local styledTime = string.format("|cff%s[%s]|r", tsColor, timeStr)
 
-    -- Додаємо до повідомлення
+    -- Модифікуємо БЕЗПЕЧНУ копію повідомлення
     if db.timestampPost then
-        msg = msg .. " " .. styledTime
+        safeMsg = safeMsg .. " " .. styledTime
     else
-        msg = styledTime .. " " .. msg
+        safeMsg = styledTime .. " " .. safeMsg
     end
 
-    return false, msg, author, ...
+    -- Повертаємо нове, безпечне повідомлення
+    return false, safeMsg, author, ...
 end
 
 -- =========================================================
@@ -180,43 +221,27 @@ end
 function VisualsModule:OnEnable()
     self:RegisterEvent("PLAYER_LOGIN")
     
-    -- Оновлюємо стиль при зміні налаштувань WoW
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
 
-    -- Хуки для нових вікон
     self:SecureHook("FCF_OpenTemporaryWindow", function() ns.ApplyVisuals() end)
     self:SecureHook("FCF_OpenNewWindow", function() ns.ApplyVisuals() end)
 
-    -- Хук на зміну розміру шрифту через стандартний UI, щоб форсувати наш шрифт
-    -- (FCF_SetChatWindowFontSize часто викликає FCF_SetChatWindowFont, тому ми перехоплюємо це)
     hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame)
         StyleFrame(chatFrame)
     end)
 
-    -- Увімкнення кольорів класів у чаті
     for _, info in pairs(ChatTypeInfo) do
         if type(info) == "table" then
             info.colorNameByClass = true
         end
     end
 
-    -- Реєстрація фільтрів таймстемпів
-    local events = {
-        "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
-        "CHAT_MSG_GUILD", "CHAT_MSG_GUILD_MOTD", "CHAT_MSG_OFFICER",
-        "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
-        "CHAT_MSG_RAID_WARNING", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
-        "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_BN_WHISPER",
-        "CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_CHANNEL", "CHAT_MSG_SYSTEM",
-        "CHAT_MSG_ACHIEVEMENT", "CHAT_MSG_GUILD_ACHIEVEMENT"
-    }
-
-    for _, evt in ipairs(events) do
+    -- Реєструємо фільтри ТІЛЬКИ для подій з білого списку
+    for evt in pairs(eventsToHandle) do
         ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
     end
 
-    -- Застосовуємо стиль при старті
     ns.ApplyVisuals()
 end
 
