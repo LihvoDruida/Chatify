@@ -195,7 +195,9 @@ function History:RestoreHistory()
     for chatID, messages in pairs(buffer) do
         local frame = _G["ChatFrame"..chatID]
         if frame and chatID ~= 2 then
-            pcall(frame:AddMessage("------------------------------------------", 0.6, 0.6, 0.6))
+            pcall(function()
+                frame:AddMessage("------------------------------------------", 0.6, 0.6, 0.6)
+            end)
             for _, msg in ipairs(messages) do
                 pcall(function()
                     if db.historyAlpha then
@@ -205,7 +207,9 @@ function History:RestoreHistory()
                     end
                 end)
             end
-            pcall(frame:AddMessage("-------------- Chat History --------------", 0.6, 0.6, 0.6))
+            pcall(function()
+                frame:AddMessage("-------------- Chat History --------------", 0.6, 0.6, 0.6)
+            end)
         end
     end
 end
