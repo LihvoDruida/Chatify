@@ -9,6 +9,8 @@ local strlower = string.lower
 local PlaySoundFile = PlaySoundFile
 local GetTime = GetTime
 local tostring = tostring
+local tinsert = table.insert
+local tremove = table.remove
 
 -- ==========================
 -- Змінні модуля
@@ -29,7 +31,7 @@ local adaptiveThrottle = MIN_THROTTLE
 
 -- Sound queue
 local soundQueue = {}
-local queueProcessing = false
+local isQueueProcessing = false
 
 -- Мапінг подій на типи звуків
 local eventMap = {
@@ -48,15 +50,50 @@ local eventMap = {
 }
 
 -- ==========================
+-- Safe text conversion (Deep Sanitization)
+-- ==========================
+-- Ця функція створює нову копію рядка через string.format,
+-- що знімає статус "secret" (taint).
+local function GetSafeText(rawText)
+    if rawText == nil then return nil end
+    
+    if type(rawText) == "number" then
+        return tostring(rawText)
+    end
+
+    if type(rawText) ~= "string" then
+        return nil
+    end
+
+    -- Створення чистої копії
+    local ok, cleanCopy = pcall(string.format, "%s", rawText)
+
+    if ok and cleanCopy then
+        -- Перевірка на порожнечу всередині pcall для безпеки
+        local checkOk, isNotEmpty = pcall(function() return cleanCopy ~= "" end)
+        if checkOk and isNotEmpty then
+            return cleanCopy
+        end
+    end
+
+    return nil
+end
+
+-- ==========================
 -- Adaptive Throttle
 -- ==========================
 local function UpdateAdaptiveThrottle()
     local now = GetTime()
-    for i = #messageTimes, 1, -1 do
+    -- Очищення старих записів
+    local i = 1
+    while i <= #messageTimes do
         if (now - messageTimes[i]) > ADAPTIVE_WINDOW then
-            table.remove(messageTimes, i)
+            tremove(messageTimes, i)
+        else
+            i = i + 1
         end
     end
+
     local count = #messageTimes
     if count <= 3 then
         adaptiveThrottle = MIN_THROTTLE
@@ -71,88 +108,99 @@ end
 -- Sound Queue
 -- ==========================
 local function ProcessQueue()
-    if queueProcessing then return end
-    queueProcessing = true
+    if isQueueProcessing then return end
+    isQueueProcessing = true
 
-    C_Timer.NewTicker(0.05, function(ticker)
+    -- Використовуємо C_Timer для асинхронної обробки черги
+    local function PlayNext()
         if #soundQueue == 0 then
-            ticker:Cancel()
-            queueProcessing = false
+            isQueueProcessing = false
             return
         end
-        local item = table.remove(soundQueue, 1)
+
+        local item = tremove(soundQueue, 1)
         PlaySoundFile(item.file, item.channel)
-        item.lastTime = GetTime()
-    end)
+        
+        -- Невелика затримка між звуками, щоб вони не зливалися
+        C_Timer.After(0.5, PlayNext) 
+    end
+
+    PlayNext()
 end
 
 -- ==========================
--- Safe text conversion
--- ==========================
-local function SafeStr(val)
-    local ok, s = pcall(tostring, val)
-    if ok and type(s) == "string" then return s end
-    return nil
-end
-
--- ==========================
--- Play sound
+-- Play sound helper
 -- ==========================
 function Sounds:Play(soundName)
-    if not soundName or soundName == "None" then return end
+    local db = ns.db and ns.db.sounds
+    if not db or not soundName or soundName == "None" then return end
 
     local soundFile = LSM:Fetch("sound", soundName)
     if not soundFile then return end
 
-    local channel = ns.db.sounds.masterVolume and "Master" or "SFX"
-    table.insert(soundQueue, {file = soundFile, channel = channel})
+    local channel = db.masterVolume and "Master" or "SFX"
+    
+    tinsert(soundQueue, {file = soundFile, channel = channel})
     ProcessQueue()
 end
 
 -- ==========================
 -- Main Event Handler
 -- ==========================
-function Sounds:OnEvent(event, msg, author, _, _, _, _, _, _, _, _, _, presenceID)
-    local db = ns.db.sounds
+function Sounds:OnEvent(event, msg, author, ...)
+    local db = ns.db and ns.db.sounds
     if not db or not db.enable then return end
 
+    -- Оновлення тротлінгу
     local now = GetTime()
-    table.insert(messageTimes, now)
+    tinsert(messageTimes, now)
     UpdateAdaptiveThrottle()
 
-    local safeAuthor = SafeStr(author)
-    local safeMsg = SafeStr(msg)
+    -- 1. Безпечне отримання тексту та автора
+    local safeMsg = GetSafeText(msg)
+    -- Якщо повідомлення секретне або порожнє, ми його не обробляємо
+    if not safeMsg then return end
 
-    -- Check self
+    local safeAuthor = GetSafeText(author)
+
+    -- 2. Перевірка на "Себе" (Self Check)
     local isSelf = false
-    if safeAuthor and safeAuthor == myName then
-        isSelf = true
+    
+    -- Використовуємо pcall для порівняння, на всяк випадок
+    if safeAuthor and myName then
+        local ok, result = pcall(function() return safeAuthor == myName end)
+        if ok and result then isSelf = true end
     end
-    if event == "CHAT_MSG_BN_WHISPER" and presenceID then
-        local ok, accountInfo = pcall(C_BattleNet.GetAccountInfoByID, presenceID)
-        if ok and accountInfo and accountInfo.isSelf then
-            isSelf = true
+
+    -- Додаткова перевірка для Battle.net (presenceID)
+    if not isSelf and event == "CHAT_MSG_BN_WHISPER" then
+        -- presenceID is usually the 13th argument
+        local presenceID = select(13, event, msg, author, ...) 
+        if presenceID then
+            local ok, accountInfo = pcall(C_BattleNet.GetAccountInfoByID, presenceID)
+            if ok and accountInfo and accountInfo.isSelf then
+                isSelf = true
+            end
         end
     end
 
-    -- =======================
-    -- Mentions
-    -- =======================
+    -- 3. Обробка Mentions (Згадувань)
     if safeMsg and myNameLower then
-        -- regex word boundary
-        if strfind(strlower(safeMsg), "%f[%w]"..myNameLower.."%f[%W]") then
+        local msgLower = strlower(safeMsg)
+        -- Пошук ніку (word boundary)
+        if strfind(msgLower, "%f[%w]"..myNameLower.."%f[%W]") then
             if (now - lastMentionSound) >= MENTION_THROTTLE then
                 self:Play(db.events["MENTION"])
                 lastMentionSound = now
             end
-            return
+            return -- Якщо згадали нік, звук каналу вже не граємо
         end
     end
 
-    -- =======================
-    -- Category sound
-    -- =======================
+    -- 4. Звук категорії (Channel Sound)
     local eventType = eventMap[event]
+    
+    -- Граємо звук, якщо це не ми (або якщо ми не ігноруємо себе)
     if eventType and (not isSelf or (isSelf and not ignoreSelf)) then
         if (now - lastNormalSound) >= adaptiveThrottle then
             self:Play(db.events[eventType])
@@ -167,5 +215,12 @@ end
 function Sounds:OnEnable()
     for event in pairs(eventMap) do
         self:RegisterEvent(event, "OnEvent")
+    end
+    
+    -- Оновлення імені гравця при старті
+    local name = UnitName("player")
+    if name then
+        myName = name
+        myNameLower = strlower(name)
     end
 end
