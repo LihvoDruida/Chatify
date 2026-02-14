@@ -3,8 +3,10 @@ local Chatify = ns.Chatify
 local History = Chatify:NewModule("History", "AceEvent-3.0")
 
 -- =========================================================
--- EVENT → TYPE MAP
+-- EVENT → TYPE MAP (WHITELIST)
 -- =========================================================
+-- Це ваш "білий список". Лише ці події будуть оброблятися.
+-- Всі інші (MONSTER_YELL, BN_WHISPER) будуть ігноруватися миттєво.
 local eventTypeMap = {
     CHAT_MSG_SAY            = "SAY",
     CHAT_MSG_YELL           = "YELL",
@@ -20,25 +22,6 @@ local eventTypeMap = {
 }
 
 -- =========================================================
--- SAFE EVENT WHITELIST
--- =========================================================
--- Define explicitly which events are safe to process. 
--- Events like BN_WHISPER, MONSTER_YELL, etc. are excluded to avoid tainted string errors.
-local eventsToHandle = {
-    CHAT_MSG_SAY = true,
-    CHAT_MSG_YELL = true,
-    CHAT_MSG_GUILD = true,
-    CHAT_MSG_OFFICER = true,
-    CHAT_MSG_PARTY = true,
-    CHAT_MSG_PARTY_LEADER = true,
-    CHAT_MSG_RAID = true,
-    CHAT_MSG_RAID_LEADER = true,
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_CHANNEL = true,
-}
-
--- =========================================================
 -- STATE
 -- =========================================================
 local sessionHistory = {}
@@ -51,11 +34,11 @@ local function GetSafeText(rawText)
     if type(rawText) == "number" then return tostring(rawText) end
     if type(rawText) ~= "string" then return nil end
 
-    -- Create a "clean" copy via pcall
+    -- Створюємо "чисту" копію через pcall
     local ok, clean = pcall(string.format, "%s", rawText)
     if not ok then return nil end
 
-    -- Check for empty string only inside pcall
+    -- Перевірка на порожній рядок тільки всередині pcall
     local nonEmptyOk, result = pcall(function()
         if clean == "" then return nil end
         return clean
@@ -111,17 +94,13 @@ function History:OnChatEvent(event, message, author, ...)
     local db = Chatify.db.profile
     if not db.enableHistory then return end
 
-    -- Check if the event is in our safe whitelist before doing ANYTHING else.
-    -- This prevents processing tainted events like BN_WHISPER entirely.
-    if not eventsToHandle[event] then return end
+    local typeKey = eventTypeMap[event]
+    if not typeKey then return end
 
     local safeMessage = GetSafeText(message)
     if not safeMessage then return end
 
     local safeAuthor = GetSafeText(author)
-
-    local typeKey = eventTypeMap[event]
-    if not typeKey then return end
 
     local targetFrames = GetTargetFrames(event)
     if #targetFrames == 0 then return end
@@ -225,7 +204,7 @@ function History:RestoreHistory()
     for chatID, messages in pairs(buffer) do
         local frame = _G["ChatFrame"..chatID]
         if frame and chatID ~= 2 then
-            pcall(frame.AddMessage, frame, "──────── Chat History ────────", 0.6, 0.6, 0.6)
+            pcall(frame:AddMessage("------------------------------------------", 0.6, 0.6, 0.6))
             for _, msg in ipairs(messages) do
                 pcall(function()
                     if db.historyAlpha then
@@ -235,6 +214,7 @@ function History:RestoreHistory()
                     end
                 end)
             end
+            pcall(frame:AddMessage("-------------- Chat History --------------", 0.6, 0.6, 0.6))
         end
     end
 end
