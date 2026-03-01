@@ -97,7 +97,7 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
     hasEditBox = true,
     editBoxWidth = 350,
     OnShow = function(self, data)
-        local eb = self.EditBox
+        local eb = self.editBox or self.EditBox
         if eb then
             eb:SetText(data)
             eb:SetFocus()
@@ -126,8 +126,9 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
     -- 1. Клік на TIMESTAMP (chatcopy:ID)
     if link:sub(1, 9) == "chatcopy:" then
         local id = tonumber(link:sub(10))
-        if id and msgCache[id] then
-            ShowCopyWindow(msgCache[id])
+        local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
+        if id and payload then
+            ShowCopyWindow(payload)
         end
         return -- Не викликаємо оригінал, бо це наше посилання
     end

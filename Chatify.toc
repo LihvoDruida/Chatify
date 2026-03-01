@@ -22,6 +22,7 @@ libs\_manifest.xml
 Config.lua
 Settings.lua
 ChatCopy.lua
+ChatRouter.lua
 ChatVisuals.lua
 ChatFilters.lua
 ChatHistory.lua

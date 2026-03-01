@@ -243,6 +243,9 @@ end
 -- 6. ENABLE & HOOKS
 -- =========================================================
 function Filters:OnEnable()
+    if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then
+        return
+    end
     local events = {
         "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
         "CHAT_MSG_GUILD", "CHAT_MSG_GUILD_MOTD", "CHAT_MSG_OFFICER",

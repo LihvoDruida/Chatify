@@ -237,9 +237,11 @@ function VisualsModule:OnEnable()
         end
     end
 
-    -- Реєструємо фільтри ТІЛЬКИ для подій з білого списку
-    for evt in pairs(eventsToHandle) do
-        ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
+    -- У virtual mode не чіпаємо raw chat events, щоб не ловити taint/secret string у HistoryKeeper.
+    if not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
+        for evt in pairs(eventsToHandle) do
+            ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
+        end
     end
 
     ns.ApplyVisuals()

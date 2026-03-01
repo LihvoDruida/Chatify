@@ -218,6 +218,9 @@ end
 -- INIT
 -- =========================================================
 function History:OnEnable()
+    if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then
+        return
+    end
     for event in pairs(eventTypeMap) do
         self:RegisterEvent(event, "OnChatEvent")
     end

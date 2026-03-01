@@ -48,12 +48,14 @@ ns.defaults = {
         fontOutline = "",    -- Контур тексту для кращої читабельності
         
         -- === TIME ===
+        enableTimestamps = true,     -- Віртуальний чат додає таймстемпи у власному шарі
         timestampID = 2,            -- За замовчуванням HH:MM
         timestampColor = "68ccef",  -- Колір часу (світло-блакитний)
         useServerTime = false,      -- Використовувати локальний час ПК
         timestampPost = false,      -- Час на початку повідомлення
 
         -- === HISTORY ===
+        useVirtualChat = true,       -- Безпечний віртуальний шар чату поверх Blizzard frame
         enableHistory = true,
         historyLimit = 50,          -- Зберігати 50 рядків
         historyAlpha = true,        -- Робити старі повідомлення сірими
