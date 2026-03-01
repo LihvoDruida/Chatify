@@ -4,38 +4,36 @@ local Router = Chatify:NewModule("Router", "AceEvent-3.0")
 
 local _G = _G
 local pairs = pairs
-local ipairs = ipairs
 local type = type
 local tostring = tostring
 local tonumber = tonumber
-local string_format = string.format
-local string_gsub = string.gsub
-local string_find = string.find
-local string_upper = string.upper
 local date = date
 local time = time
 local pcall = pcall
-local next = next
-local unpack = unpack or table.unpack
+local hooksecurefunc = hooksecurefunc
 local tinsert = table.insert
 local tremove = table.remove
 local GetTime = GetTime
-local UnitName = UnitName
-
-local PLAYER_NAME = UnitName("player")
 
 local hookedFrames = {}
 local proxyFrames = {}
 local originalAddMessage = {}
-local lineTime = {}
-local lineId = {}
 local hiddenFrames = {}
 local cache = {}
 local cacheIndex = 0
-local CACHE_LIMIT = 600
+local CACHE_LIMIT = 800
+
+-- Anti-flood state for virtual mode.
+-- The same chat event can be routed to multiple frames in a very small time window,
+-- so we allow a short "fan-out" window before we treat repeated text as spam.
+local recentLines = {}
+local FANOUT_WINDOW = 0.08
 
 local function DB()
-    return Chatify and Chatify.db and Chatify.db.profile or ns.db
+    if Chatify and Chatify.db and Chatify.db.profile then
+        return Chatify.db.profile
+    end
+    return ns.db
 end
 
 local function IsVirtualEnabled()
@@ -44,25 +42,37 @@ local function IsVirtualEnabled()
 end
 
 local function SafeString(raw)
-    if raw == nil then return nil end
-    if type(raw) == "number" then return tostring(raw) end
-    if type(raw) ~= "string" then return nil end
+    if raw == nil then
+        return nil
+    end
 
-    local ok, clean = pcall(string_format, "%s", raw)
-    if ok and clean ~= "" then
+    if type(raw) == "number" then
+        return tostring(raw)
+    end
+
+    if type(raw) ~= "string" then
+        return nil
+    end
+
+    local ok, clean = pcall(string.format, "%s", raw)
+    if ok and clean and clean ~= "" then
         return clean
     end
+
     return nil
 end
 
 local function NormalizeText(text)
     text = SafeString(text)
-    if not text then return "" end
-    text = string_gsub(text, "|c%x%x%x%x%x%x%x%x", "")
-    text = string_gsub(text, "|r", "")
-    text = string_gsub(text, "|H.-|h(.-)|h", "%1")
-    text = string_gsub(text, "[%s%p%c]", "")
-    return string_upper(text)
+    if not text then
+        return ""
+    end
+
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|r", "")
+    text = text:gsub("|H.-|h(.-)|h", "%1")
+    text = text:gsub("[%s%p%c]", "")
+    return text:upper()
 end
 
 local function SaveCopyPayload(text)
@@ -88,13 +98,15 @@ local function EnsureHistoryStore()
 end
 
 local function SaveVirtualLine(frameID, text, limit)
-    if not frameID or frameID == 2 or not text then return end
+    if not frameID or frameID == 2 or not text then
+        return
+    end
 
     local store = EnsureHistoryStore()
     store[frameID] = store[frameID] or {}
     local bucket = store[frameID]
-    tinsert(bucket, text)
 
+    tinsert(bucket, text)
     while #bucket > limit do
         tremove(bucket, 1)
     end
@@ -102,17 +114,26 @@ end
 
 local function RestoreVirtualHistory()
     local db = DB()
-    if not db or not db.useVirtualChat or not db.enableHistory then return end
-    if not ChatifyHistoryDB or not ChatifyHistoryDB.Virtual then return end
+    if not db or not db.useVirtualChat or not db.enableHistory then
+        return
+    end
+
+    if not ChatifyHistoryDB or not ChatifyHistoryDB.Virtual then
+        return
+    end
 
     for frameID, messages in pairs(ChatifyHistoryDB.Virtual) do
         local proxy = proxyFrames[frameID]
-        if proxy and messages then
+        if proxy and messages and #messages > 0 then
             proxy:AddMessage("|cff666666---------------- Chatify History ----------------|r")
             for i = 1, #messages do
                 local msg = SafeString(messages[i])
                 if msg then
-                    proxy:AddMessage(db.historyAlpha and ("|cff888888" .. msg .. "|r") or msg)
+                    if db.historyAlpha then
+                        proxy:AddMessage("|cff888888" .. msg .. "|r")
+                    else
+                        proxy:AddMessage(msg)
+                    end
                 end
             end
             proxy:AddMessage("|cff666666-----------------------------------------------|r")
@@ -120,69 +141,101 @@ local function RestoreVirtualHistory()
     end
 end
 
-local function PassThrough(frame, ...)
-    local orig = originalAddMessage[frame]
-    if orig then
-        return orig(frame, ...)
-    end
-end
-
 local function ApplyTimestamp(text)
     local db = DB()
-    if not db or not db.enableTimestamps then return text end
+    if not db or not db.enableTimestamps then
+        return text
+    end
 
     local formatStr = "%H:%M"
     if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
         local entry = ns.Lists.TimeFormats[db.timestampID]
-        if entry and entry.format then
-            formatStr = entry.format
-        elseif entry and entry.format == nil then
-            return text
+        if entry then
+            if entry.format == nil then
+                return text
+            end
+            formatStr = entry.format or formatStr
         end
     end
 
-    local stamp = date(formatStr, (db.useServerTime and GetServerTime and GetServerTime()) or time())
+    local nowValue = time()
+    if db.useServerTime and type(GetServerTime) == "function" then
+        local ok, serverNow = pcall(GetServerTime)
+        if ok and serverNow then
+            nowValue = serverNow
+        end
+    end
+
+    local stamp = date(formatStr, nowValue)
     local id = SaveCopyPayload(text)
     local color = db.timestampColor or "68ccef"
-    local prefix = string_format("|cff%s|Hchatcopy:%d|h[%s]|h|r", color, id, stamp)
+    local prefix = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r", color, id, stamp)
 
     if db.timestampPost then
         return text .. " " .. prefix
     end
+
     return prefix .. " " .. text
 end
 
-local function MaybeHideSpam(text)
+local function ShouldSuppressForSpam(frameID, text)
     local db = DB()
-    if not db then return false end
+    if not db then
+        return false
+    end
 
     local normalized = NormalizeText(text)
-    if normalized == "" then return false end
-
-    if db.enableSpamFilter and db.spamKeywords then
-        for i = 1, #db.spamKeywords do
-            local keyword = NormalizeText(db.spamKeywords[i])
-            if keyword ~= "" and string_find(normalized, keyword, 1, true) then
-                return true
-            end
-        end
+    if normalized == "" then
+        return false
     end
 
-    if db.enableThrottle then
-        local now = GetTime()
-        local lastSeen = lineTime[normalized]
-        local expires = tonumber(db.throttleTime) or 60
-        if lastSeen and (now - lastSeen) < expires then
+    local now = GetTime()
+    local state = recentLines[normalized]
+
+    if db.enableSpamFilter and ns.IsSpamMessage and ns.IsSpamMessage(normalized) then
+        return true
+    end
+
+    if not db.enableThrottle then
+        return false
+    end
+
+    local throttleTime = tonumber(db.throttleTime) or 60
+
+    if not state then
+        recentLines[normalized] = {
+            lastSeen = now,
+            seenFrames = { [frameID] = true },
+        }
+        return false
+    end
+
+    local delta = now - (state.lastSeen or 0)
+
+    if delta <= FANOUT_WINDOW then
+        if state.seenFrames[frameID] then
             return true
         end
-        lineTime[normalized] = now
+
+        state.seenFrames[frameID] = true
+        return false
     end
 
+    if delta < throttleTime then
+        state.lastSeen = now
+        state.seenFrames = { [frameID] = true }
+        return true
+    end
+
+    state.lastSeen = now
+    state.seenFrames = { [frameID] = true }
     return false
 end
 
 local function CopyFrameSettings(source, target)
-    if not source or not target then return end
+    if not source or not target then
+        return
+    end
 
     local font, size, flags = source:GetFont()
     if font then
@@ -201,8 +254,12 @@ local function CopyFrameSettings(source, target)
 end
 
 local function EnsureProxy(frame)
-    if not frame or frame.ChatifyProxy then
-        return frame and frame.ChatifyProxy or nil
+    if not frame then
+        return nil
+    end
+
+    if frame.ChatifyProxy then
+        return frame.ChatifyProxy
     end
 
     local proxy = CreateFrame("ScrollingMessageFrame", nil, frame)
@@ -217,7 +274,7 @@ local function EnsureProxy(frame)
         end
     end)
     proxy:SetScript("OnHyperlinkClick", function(self, link, text, button)
-        if SetItemRef then
+        if type(SetItemRef) == "function" then
             SetItemRef(link, text, button, frame)
         end
     end)
@@ -236,19 +293,22 @@ local function EnsureProxy(frame)
 end
 
 local function HideOriginalFrame(frame)
-    if not frame or hiddenFrames[frame] then return end
+    if not frame or hiddenFrames[frame] then
+        return
+    end
+
     hiddenFrames[frame] = true
 
     if frame.Clear then
         pcall(frame.Clear, frame)
     end
 
-    local tab = _G[frame:GetName() .. "Tab"]
+    local tab = frame.GetName and _G[frame:GetName() .. "Tab"] or nil
     if tab then
         tab:SetAlpha(1)
     end
 
-    local buttonFrame = _G[frame:GetName() .. "ButtonFrame"]
+    local buttonFrame = frame.GetName and _G[frame:GetName() .. "ButtonFrame"] or nil
     if buttonFrame then
         buttonFrame:SetAlpha(1)
     end
@@ -259,41 +319,74 @@ local function HideOriginalFrame(frame)
     end
 end
 
+local function PassThrough(frame, ...)
+    local orig = originalAddMessage[frame]
+    if orig then
+        return orig(frame, ...)
+    end
+end
+
+local function PrepareOutput(text)
+    local safeText = SafeString(text)
+    if not safeText then
+        return nil
+    end
+
+    if type(ns.FormatMessage) == "function" then
+        local ok, formatted = pcall(ns.FormatMessage, safeText)
+        if ok and type(formatted) == "string" and formatted ~= "" then
+            safeText = formatted
+        end
+    end
+
+    return ApplyTimestamp(safeText), safeText
+end
+
 local function HandleVirtualAddMessage(frame, text, ...)
     if not IsVirtualEnabled() then
         return PassThrough(frame, text, ...)
     end
 
-    local safeText = SafeString(text)
-    if not safeText then
+    local frameID = frame and frame.GetID and frame:GetID() or 0
+    if ShouldSuppressForSpam(frameID, text) then
         return
     end
 
-    if MaybeHideSpam(safeText) then
+    local output, plain = PrepareOutput(text)
+    if not output then
         return
     end
 
-    local out = ApplyTimestamp(safeText)
     local proxy = EnsureProxy(frame)
     if not proxy then
         return
     end
 
-    local ok = pcall(proxy.AddMessage, proxy, out, ...)
+    local ok = pcall(proxy.AddMessage, proxy, output, ...)
+    if ok and proxy.ScrollToBottom then
+        pcall(proxy.ScrollToBottom, proxy)
+    end
+
     if ok then
         local db = DB()
         if db and db.enableHistory then
-            SaveVirtualLine(frame:GetID(), safeText, tonumber(db.historyLimit) or 50)
+            SaveVirtualLine(frameID, plain, tonumber(db.historyLimit) or 50)
         end
     end
 end
 
 local function HookFrame(frame)
-    if not frame or hookedFrames[frame] or not frame.AddMessage then return end
-    if frame.GetName and frame:GetName() == "ChatFrame2" then return end
+    if not frame or hookedFrames[frame] or not frame.AddMessage then
+        return
+    end
+
+    if frame.GetName and frame:GetName() == "ChatFrame2" then
+        return
+    end
 
     hookedFrames[frame] = true
     originalAddMessage[frame] = frame.AddMessage
+
     EnsureProxy(frame)
     HideOriginalFrame(frame)
 
@@ -324,7 +417,9 @@ function Router:RefreshProxies()
 end
 
 function Router:SaveHistory()
-    if not IsVirtualEnabled() then return end
+    if not IsVirtualEnabled() then
+        return
+    end
     EnsureHistoryStore()
 end
 
@@ -336,15 +431,21 @@ function Router:OnEnable()
     self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
     self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
 
-    if hooksecurefunc then
+    if type(hooksecurefunc) == "function" then
         hooksecurefunc("FCF_OpenTemporaryWindow", function(frame)
-            if frame then HookFrame(frame) end
+            if frame then
+                HookFrame(frame)
+            end
             self:RefreshProxies()
         end)
+
         hooksecurefunc("FCF_OpenNewWindow", function(frame)
-            if frame then HookFrame(frame) end
+            if frame then
+                HookFrame(frame)
+            end
             self:RefreshProxies()
         end)
+
         hooksecurefunc("FCF_SetChatWindowFontSize", function(frame)
             if frame then
                 local proxy = EnsureProxy(frame)

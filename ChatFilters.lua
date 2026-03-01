@@ -2,47 +2,42 @@ local addonName, ns = ...
 local Chatify = ns.Chatify
 local Filters = Chatify:NewModule("Filters", "AceEvent-3.0", "AceHook-3.0")
 
--- =========================================================
--- 1. UPVALUES & CONSTANTS (PERFORMANCE)
--- =========================================================
-local strfind, gsub, format, sub, upper = string.find, string.gsub, string.format, string.sub, string.upper
-local ipairs, pairs, insert = ipairs, pairs, table.insert
-local select = select -- Додаємо select для отримання LineID
-local GetTime = GetTime
+local ipairs = ipairs
+local pairs = pairs
+local tinsert = table.insert
+local string_find = string.find
+local string_gsub = string.gsub
+local string_upper = string.upper
 local UnitName = UnitName
 
 local PLAYER_NAME = UnitName("player")
+local CachedKeywords = {}
 
 local SystemEvents = {
-    ["CHAT_MSG_CHANNEL_JOIN"] = true,
-    ["CHAT_MSG_CHANNEL_LEAVE"] = true,
-    ["CHAT_MSG_CHANNEL_NOTICE"] = true,
-    ["CHAT_MSG_CHANNEL_NOTICE_USER"] = true,
+    CHAT_MSG_CHANNEL_JOIN = true,
+    CHAT_MSG_CHANNEL_LEAVE = true,
+    CHAT_MSG_CHANNEL_NOTICE = true,
+    CHAT_MSG_CHANNEL_NOTICE_USER = true,
 }
 
--- Розділяємо історію на дві таблиці для оптимізації (менше Garbage Collection)
-local HistoryTime = {} -- Зберігає час
-local HistoryID = {}   -- Зберігає унікальний ID повідомлення
-local LAST_CLEANUP = GetTime()
-local CLEANUP_INTERVAL = 300
-local CachedKeywords = nil 
-
--- =========================================================
--- 2. DATA (TLD & REGEX)
--- =========================================================
-local ValidTopLevelDomains = {}
-local TLD_STRING = [[
-ONION COM NET ORG EDU GOV MIL UA RU UK DE FR PL US CA IO CO ME EU TV INFO BIZ
-AC AD AE AERO AF AG AI AL AM AR AS ASIA AT AU AW AX AZ BA BB BE BG BH BI BJ BM BN
-BO BR BS BT BY BZ CC CD CH CI CL CN CR CU CX CY CZ DK DM DO DZ EC EE EG ES ET FI
-FJ FM FO GA GD GE GF GG GH GI GL GM GN GR GS GT GU HK HN HR HT HU ID IE IL IM IN
-INT IQ IR IS IT JE JM JO JP KG KH KR KW KZ LA LB LI LK LT LU LV LY MA MC MD MG MK
-ML MM MN MO MOBI MP MQ MR MS MT MU MV MW MX MY MZ NA NAME NC NE NG NI NL NO NP NR NU
-NZ OM PA PE PF PG PH PK PM PN PR PRO PS PT PW PY QA RE RO RS RW SA SB SC SD SE SG
-SH SI SJ SK SL SM SN SO SR ST SU SV SY SZ TC TD TEL TG TH TJ TK TL TM TN TO TR TRAVEL
-TT TW TZ UG UY UZ VA VC VE VG VI VN VU WS ZA ZM ZW PP KR JP CN ID
-]]
-for tld in TLD_STRING:gmatch("%S+") do ValidTopLevelDomains[tld] = true end
+local BaseEvents = {
+    "CHAT_MSG_CHANNEL",
+    "CHAT_MSG_SAY",
+    "CHAT_MSG_YELL",
+    "CHAT_MSG_WHISPER",
+    "CHAT_MSG_WHISPER_INFORM",
+    "CHAT_MSG_GUILD",
+    "CHAT_MSG_OFFICER",
+    "CHAT_MSG_PARTY",
+    "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID",
+    "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_RAID_WARNING",
+    "CHAT_MSG_INSTANCE_CHAT",
+    "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_EMOTE",
+    "CHAT_MSG_TEXT_EMOTE",
+}
 
 local LinkRegexRules = {
     { exp = "^(%a[%w+.-]+://%S+)", verifyDomain = false },
@@ -66,35 +61,85 @@ local LinkRegexRules = {
     { exp = "%f[%S]([-%w_%%]+%.(%a%a+))", verifyDomain = true },
 }
 
--- =========================================================
--- 3. HELPER FUNCTIONS
--- =========================================================
+local ValidTopLevelDomains = {}
+local TLD_STRING = [[
+ONION COM NET ORG EDU GOV MIL UA RU UK DE FR PL US CA IO CO ME EU TV INFO BIZ
+AC AD AE AERO AF AG AI AL AM AR AS ASIA AT AU AW AX AZ BA BB BE BG BH BI BJ BM BN
+BO BR BS BT BY BZ CC CD CH CI CL CN CR CU CX CY CZ DK DM DO DZ EC EE EG ES ET FI
+FJ FM FO GA GD GE GF GG GH GI GL GM GN GR GS GT GU HK HN HR HT HU ID IE IL IM IN
+INT IQ IR IS IT JE JM JO JP KG KH KR KW KZ LA LB LI LK LT LU LV LY MA MC MD MG MK
+ML MM MN MO MOBI MP MQ MR MS MT MU MV MW MX MY MZ NA NAME NC NE NG NI NL NO NP NR NU
+NZ OM PA PE PF PG PH PK PM PN PR PRO PS PT PW PY QA RE RO RS RW SA SB SC SD SE SG
+SH SI SJ SK SL SM SN SO SR ST SU SV SY SZ TC TD TEL TG TH TJ TK TL TM TN TO TR TRAVEL
+TT TW TZ UG UY UZ VA VC VE VG VI VN VU WS ZA ZM ZW PP KR JP CN ID
+]]
+for tld in TLD_STRING:gmatch("%S+") do
+    ValidTopLevelDomains[tld] = true
+end
+
+local function DB()
+    if Chatify and Chatify.db and Chatify.db.profile then
+        return Chatify.db.profile
+    end
+    return ns.db
+end
+
+local function IsVirtualMode()
+    local db = DB()
+    return db and db.useVirtualChat
+end
 
 local function NormalizeText(text)
-    if not text then return "" end
-    text = gsub(text, "|c%x%x%x%x%x%x%x%x", "") 
-    text = gsub(text, "|H.-|h.-|h", "")         
-    text = gsub(text, "[%s%p%c]", "")           
-    return upper(text)
+    if type(text) ~= "string" then
+        return ""
+    end
+
+    text = string_gsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    text = string_gsub(text, "|H.-|h.-|h", "")
+    text = string_gsub(text, "|r", "")
+    text = string_gsub(text, "[%s%p%c]", "")
+    return string_upper(text)
 end
 
 function ns.UpdateSpamCache()
-    if not ns.db or not ns.db.spamKeywords then return end
+    local db = DB()
     CachedKeywords = {}
-    for _, word in ipairs(ns.db.spamKeywords) do
+
+    if not db or not db.spamKeywords then
+        return
+    end
+
+    for i = 1, #db.spamKeywords do
+        local word = db.spamKeywords[i]
         if word and word ~= "" then
-            insert(CachedKeywords, NormalizeText(word))
+            tinsert(CachedKeywords, NormalizeText(word))
         end
     end
 end
 
+function ns.IsSpamMessage(normalizedMessage)
+    if normalizedMessage == "" then
+        return false
+    end
+
+    for i = 1, #CachedKeywords do
+        local keyword = CachedKeywords[i]
+        if keyword ~= "" and string_find(normalizedMessage, keyword, 1, true) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function DecorateLink(url)
-    local db = ns.db
-    if not db then return url end
-    
+    local db = DB()
+    if not db then
+        return url
+    end
+
     local cleanUrl = url:gsub("[%.,:;!'\"%)%]]+$", "")
     local color = db.urlColor or "0099FF"
-    
     return string.format("|cff%s|Hurl:%s|h[%s]|h|r", color, cleanUrl, cleanUrl)
 end
 
@@ -105,49 +150,53 @@ local function IsProtected(text, pos)
     return openCount > (closeCount / 2)
 end
 
--- =========================================================
--- 4. FORMATTING LOGIC
--- =========================================================
 function ns.FormatMessage(msg)
-    local db = ns.db 
-    if not db then return msg end
+    local db = DB()
+    if type(msg) ~= "string" or not db then
+        return msg
+    end
 
-    -- 1. ХАЙЛАЙТИ (Keywords)
     if db.highlightKeywords then
-        for _, word in ipairs(db.highlightKeywords) do
+        for i = 1, #db.highlightKeywords do
+            local word = db.highlightKeywords[i]
             if word and word ~= "" then
                 local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-                msg = msg:gsub("("..escaped..")", function(match)
-                    local s = msg:find(match, 1, true) 
-                    if s and IsProtected(msg, s) then return match end
+                msg = msg:gsub("(" .. escaped .. ")", function(match)
+                    local s = msg:find(match, 1, true)
+                    if s and IsProtected(msg, s) then
+                        return match
+                    end
                     return "|cff" .. (db.myHighlightColor or "ff0000") .. match .. "|r"
                 end)
             end
         end
     end
 
-    -- 2. URL ПОСИЛАННЯ
-    for _, rule in ipairs(LinkRegexRules) do
+    for i = 1, #LinkRegexRules do
+        local rule = LinkRegexRules[i]
         local startIdx = 1
+
         while true do
             local s, e, cap1, cap2 = msg:find(rule.exp, startIdx)
-            if not s then break end
-            
+            if not s then
+                break
+            end
+
             local url = cap1
             local tld = cap2
             local isValid = true
 
-            if rule.verifyDomain and tld then
-                if not ValidTopLevelDomains[tld:upper()] then
-                    isValid = false
-                end
+            if rule.verifyDomain and tld and not ValidTopLevelDomains[tld:upper()] then
+                isValid = false
             end
 
-            if isValid and IsProtected(msg, s) then isValid = false end
+            if isValid and IsProtected(msg, s) then
+                isValid = false
+            end
 
             if isValid then
                 local newLink = DecorateLink(url)
-                msg = msg:sub(1, s-1) .. newLink .. msg:sub(e+1)
+                msg = msg:sub(1, s - 1) .. newLink .. msg:sub(e + 1)
                 startIdx = s + #newLink
             else
                 startIdx = e + 1
@@ -155,144 +204,104 @@ function ns.FormatMessage(msg)
         end
     end
 
-    -- 3. ПІДСВІТКА ВЛАСНОГО ІМЕНІ
     if PLAYER_NAME and PLAYER_NAME ~= "" then
-        local escaped = gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-        msg = gsub(msg, "("..escaped..")", function(match)
-            local s = strfind(msg, match, 1, true)
-            if s and IsProtected(msg, s) then return match end
+        local escaped = string_gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
+        msg = string_gsub(msg, "(" .. escaped .. ")", function(match)
+            local s = string_find(msg, match, 1, true)
+            if s and IsProtected(msg, s) then
+                return match
+            end
             return "|cffffd700" .. match .. "|r"
         end)
     end
-    
+
     return msg
 end
 
--- =========================================================
--- 5. CHAT EVENT FILTER
--- =========================================================
-local function MessageProcessor(self, event, msg, author, ...)
-    local db = ns.db
-    if not db then return false, msg, author, ... end
-
-    -- A. ШВИДКИЙ ФІЛЬТР СИСТЕМНИХ ПОВІДОМЛЕНЬ
-    if SystemEvents[event] and db.hideSystemSpam then
-        return true 
+local function SystemOnlyFilter(self, event, msg, author, ...)
+    local db = DB()
+    if db and db.hideSystemSpam and SystemEvents[event] then
+        return true
     end
-
-    local isPlayer = (author == PLAYER_NAME)
-    
-    if not isPlayer then
-        -- Отримуємо унікальний ID повідомлення від сервера (11-й аргумент)
-        -- Це ключ до вирішення проблеми "спаму" у різних фреймах
-        local lineID = select(11, ...)
-        
-        local cleanMsg
-        if (db.enableThrottle or db.enableSpamFilter) then
-            cleanMsg = NormalizeText(msg)
-        end
-
-        -- D. ANTI-FLOOD (THROTTLE)
-        if db.enableThrottle and cleanMsg and cleanMsg ~= "" then
-            local now = GetTime()
-            
-            -- GC: Очистка таблиць
-            if now - LAST_CLEANUP > CLEANUP_INTERVAL then
-                HistoryTime = {}
-                HistoryID = {}
-                LAST_CLEANUP = now
-            end
-
-            local lastTime = HistoryTime[cleanMsg]
-            local lastID = HistoryID[cleanMsg]
-
-            -- КРИТИЧНЕ ВИПРАВЛЕННЯ:
-            -- Якщо LineID збігається з попереднім, це те саме повідомлення в іншому вікні.
-            -- Ми дозволяємо йому пройти (не return true).
-            if lastID and lastID == lineID then
-                -- Це дублікат для іншого фрейму - пропускаємо далі до форматування
-            elseif lastTime and (now - lastTime < (db.throttleTime or 60)) then
-                -- LineID інший, але текст той самий і час не пройшов -> БЛОКУЄМО
-                return true 
-            else
-                -- Нове повідомлення, записуємо
-                HistoryTime[cleanMsg] = now
-                HistoryID[cleanMsg] = lineID
-            end
-        end
-
-        -- E. SPAM FILTER (KEYWORDS)
-        if db.enableSpamFilter and cleanMsg and cleanMsg ~= "" then
-            if not CachedKeywords then ns.UpdateSpamCache() end
-            
-            for i = 1, #CachedKeywords do
-                if strfind(cleanMsg, CachedKeywords[i], 1, true) then
-                    return true 
-                end
-            end
-        end
-    end
-
-    -- F. ФОРМАТУВАННЯ
-    msg = ns.FormatMessage(msg)
 
     return false, msg, author, ...
 end
 
--- =========================================================
--- 6. ENABLE & HOOKS
--- =========================================================
-function Filters:OnEnable()
-    if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then
+local function LegacyMessageProcessor(self, event, msg, author, ...)
+    local db = DB()
+    if not db then
+        return false, msg, author, ...
+    end
+
+    if db.hideSystemSpam and SystemEvents[event] then
+        return true
+    end
+
+    if type(msg) ~= "string" then
+        return false, msg, author, ...
+    end
+
+    if db.enableSpamFilter and ns.IsSpamMessage(NormalizeText(msg)) then
+        return true
+    end
+
+    return false, ns.FormatMessage(msg), author, ...
+end
+
+function Filters:HookCommunities()
+    if IsVirtualMode() then
         return
     end
-    local events = {
-        "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
-        "CHAT_MSG_GUILD", "CHAT_MSG_GUILD_MOTD", "CHAT_MSG_OFFICER",
-        "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
-        "CHAT_MSG_RAID_WARNING", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
-        "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_BN_WHISPER",
-        "CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_CHANNEL", "CHAT_MSG_SYSTEM",
-        "CHAT_MSG_ACHIEVEMENT", "CHAT_MSG_GUILD_ACHIEVEMENT",
-        "CHAT_MSG_CHANNEL_JOIN", "CHAT_MSG_CHANNEL_LEAVE", 
-        "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_NOTICE_USER"
-    }
-    
-    for _, evt in ipairs(events) do
-        ChatFrame_AddMessageEventFilter(evt, MessageProcessor)
-    end
 
-    if ns.db then ns.UpdateSpamCache() end
+    if CommunitiesChatLineMixin and CommunitiesChatLineMixin.SetMessage then
+        self:SecureHook(CommunitiesChatLineMixin, "SetMessage", function(frame, messageInfo)
+            if not messageInfo or not messageInfo.text then
+                return
+            end
 
-    if C_AddOns.IsAddOnLoaded("Blizzard_Communities") then
-        self:HookCommunities()
-    else
-        self:RegisterEvent("ADDON_LOADED")
+            local formatted = ns.FormatMessage(messageInfo.text)
+            frame.Message:SetText(formatted)
+
+            if ns.db and ns.Lists and ns.Lists.Fonts then
+                local fontId = ns.db.fontID
+                local fontPath = fontId and LibStub("LibSharedMedia-3.0"):Fetch("font", fontId)
+                if fontPath then
+                    local _, size, flags = frame.Message:GetFont()
+                    frame.Message:SetFont(fontPath, size, flags)
+                end
+            end
+        end)
     end
 end
 
-function Filters:ADDON_LOADED(event, name)
+function Filters:ADDON_LOADED(_, name)
     if name == "Blizzard_Communities" then
         self:HookCommunities()
         self:UnregisterEvent("ADDON_LOADED")
     end
 end
 
-function Filters:HookCommunities()
-    if CommunitiesChatLineMixin and CommunitiesChatLineMixin.SetMessage then
-        self:SecureHook(CommunitiesChatLineMixin, "SetMessage", function(frame, messageInfo)
-            if not messageInfo or not messageInfo.text then return end
-            
-            local formatted = ns.FormatMessage(messageInfo.text)
-            frame.Message:SetText(formatted)
-            
-            if ns.db and ns.Lists and ns.Lists.Fonts then
-                local f = ns.Lists.Fonts[ns.db.fontID]
-                if f and f.path then
-                    local _, s, fl = frame.Message:GetFont()
-                    frame.Message:SetFont(f.path, s, fl)
-                end
-            end
-        end)
+function Filters:OnEnable()
+    ns.UpdateSpamCache()
+
+    if IsVirtualMode() then
+        for eventName in pairs(SystemEvents) do
+            ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
+        end
+        return
+    end
+
+    for i = 1, #BaseEvents do
+        ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
+    end
+
+    for eventName in pairs(SystemEvents) do
+        ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
+    end
+
+    if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_Communities") then
+        self:HookCommunities()
+    else
+        self:RegisterEvent("ADDON_LOADED")
     end
 end
