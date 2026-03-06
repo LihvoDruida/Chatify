@@ -42,37 +42,46 @@ local function IsVirtualEnabled()
 end
 
 local function SafeString(raw)
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(raw)
+    end
+
     if raw == nil then
         return nil
     end
 
-    if type(raw) == "number" then
+    local rawType = type(raw)
+    if rawType == "number" then
         return tostring(raw)
     end
-
-    if type(raw) ~= "string" then
-        return nil
-    end
-
-    local ok, clean = pcall(string.format, "%s", raw)
-    if ok and clean and clean ~= "" then
-        return clean
+    if rawType == "string" then
+        return raw
     end
 
     return nil
 end
 
 local function NormalizeText(text)
-    text = SafeString(text)
-    if not text then
-        return ""
+    local safe = SafeString(text)
+    if not safe then
+        return nil
     end
 
-    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
-    text = text:gsub("|r", "")
-    text = text:gsub("|H.-|h(.-)|h", "%1")
-    text = text:gsub("[%s%p%c]", "")
-    return text:upper()
+    local ok, normalized = pcall(function()
+        local v = safe
+        v = v:gsub("|c%x%x%x%x%x%x%x%x", "")
+        v = v:gsub("|r", "")
+        v = v:gsub("|H.-|h(.-)|h", "%1")
+        v = v:gsub("[%s%p%c]", "")
+        v = v:upper()
+        return v
+    end)
+
+    if ok and type(normalized) == "string" then
+        return normalized
+    end
+
+    return nil
 end
 
 local function SaveCopyPayload(text)
@@ -185,7 +194,7 @@ local function ShouldSuppressForSpam(frameID, text)
     end
 
     local normalized = NormalizeText(text)
-    if normalized == "" then
+    if not normalized then
         return false
     end
 
@@ -327,14 +336,20 @@ local function PassThrough(frame, ...)
 end
 
 local function PrepareOutput(text)
+    local rawType = type(text)
+    if rawType ~= "string" and rawType ~= "number" then
+        return nil, nil
+    end
+
     local safeText = SafeString(text)
     if not safeText then
-        return nil
+        -- Secret/tainted string: показуємо як є, але не чіпаємо форматування, таймстемпи, copy/cache.
+        return text, nil
     end
 
     if type(ns.FormatMessage) == "function" then
         local ok, formatted = pcall(ns.FormatMessage, safeText)
-        if ok and type(formatted) == "string" and formatted ~= "" then
+        if ok and type(formatted) == "string" then
             safeText = formatted
         end
     end
@@ -353,7 +368,7 @@ local function HandleVirtualAddMessage(frame, text, ...)
     end
 
     local output, plain = PrepareOutput(text)
-    if not output then
+    if output == nil then
         return
     end
 
@@ -367,7 +382,7 @@ local function HandleVirtualAddMessage(frame, text, ...)
         pcall(proxy.ScrollToBottom, proxy)
     end
 
-    if ok then
+    if ok and plain then
         local db = DB()
         if db and db.enableHistory then
             SaveVirtualLine(frameID, plain, tonumber(db.historyLimit) or 50)

@@ -90,15 +90,25 @@ local function IsVirtualMode()
 end
 
 local function NormalizeText(text)
-    if type(text) ~= "string" then
+    local safe = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(text) or text
+    if type(safe) ~= "string" then
         return ""
     end
 
-    text = string_gsub(text, "|c%x%x%x%x%x%x%x%x", "")
-    text = string_gsub(text, "|H.-|h.-|h", "")
-    text = string_gsub(text, "|r", "")
-    text = string_gsub(text, "[%s%p%c]", "")
-    return string_upper(text)
+    local ok, normalized = pcall(function()
+        local value = safe
+        value = string_gsub(value, "|c%x%x%x%x%x%x%x%x", "")
+        value = string_gsub(value, "|H.-|h.-|h", "")
+        value = string_gsub(value, "|r", "")
+        value = string_gsub(value, "[%s%p%c]", "")
+        return string_upper(value)
+    end)
+
+    if ok and type(normalized) == "string" then
+        return normalized
+    end
+
+    return ""
 end
 
 function ns.UpdateSpamCache()
@@ -156,63 +166,82 @@ function ns.FormatMessage(msg)
         return msg
     end
 
-    if db.highlightKeywords then
-        for i = 1, #db.highlightKeywords do
-            local word = db.highlightKeywords[i]
-            if word and word ~= "" then
-                local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-                msg = msg:gsub("(" .. escaped .. ")", function(match)
-                    local s = msg:find(match, 1, true)
-                    if s and IsProtected(msg, s) then
-                        return match
-                    end
-                    return "|cff" .. (db.myHighlightColor or "ff0000") .. match .. "|r"
-                end)
-            end
-        end
+    if IsVirtualMode() then
+        return msg
     end
 
-    for i = 1, #LinkRegexRules do
-        local rule = LinkRegexRules[i]
-        local startIdx = 1
-
-        while true do
-            local s, e, cap1, cap2 = msg:find(rule.exp, startIdx)
-            if not s then
-                break
-            end
-
-            local url = cap1
-            local tld = cap2
-            local isValid = true
-
-            if rule.verifyDomain and tld and not ValidTopLevelDomains[tld:upper()] then
-                isValid = false
-            end
-
-            if isValid and IsProtected(msg, s) then
-                isValid = false
-            end
-
-            if isValid then
-                local newLink = DecorateLink(url)
-                msg = msg:sub(1, s - 1) .. newLink .. msg:sub(e + 1)
-                startIdx = s + #newLink
-            else
-                startIdx = e + 1
-            end
-        end
+    local safeMsg = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(msg) or msg
+    if type(safeMsg) ~= "string" then
+        return msg
     end
 
-    if PLAYER_NAME and PLAYER_NAME ~= "" then
-        local escaped = string_gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-        msg = string_gsub(msg, "(" .. escaped .. ")", function(match)
-            local s = string_find(msg, match, 1, true)
-            if s and IsProtected(msg, s) then
-                return match
+    local ok, result = pcall(function()
+        local output = safeMsg
+
+        if db.highlightKeywords then
+            for i = 1, #db.highlightKeywords do
+                local word = db.highlightKeywords[i]
+                if word and word ~= "" then
+                    local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
+                    output = output:gsub("(" .. escaped .. ")", function(match)
+                        local s = output:find(match, 1, true)
+                        if s and IsProtected(output, s) then
+                            return match
+                        end
+                        return "|cff" .. (db.myHighlightColor or "ff0000") .. match .. "|r"
+                    end)
+                end
             end
-            return "|cffffd700" .. match .. "|r"
-        end)
+        end
+
+        for i = 1, #LinkRegexRules do
+            local rule = LinkRegexRules[i]
+            local startIdx = 1
+
+            while true do
+                local s, e, cap1, cap2 = output:find(rule.exp, startIdx)
+                if not s then
+                    break
+                end
+
+                local url = cap1
+                local tld = cap2
+                local isValid = true
+
+                if rule.verifyDomain and tld and not ValidTopLevelDomains[tld:upper()] then
+                    isValid = false
+                end
+
+                if isValid and IsProtected(output, s) then
+                    isValid = false
+                end
+
+                if isValid then
+                    local newLink = DecorateLink(url)
+                    output = output:sub(1, s - 1) .. newLink .. output:sub(e + 1)
+                    startIdx = s + #newLink
+                else
+                    startIdx = e + 1
+                end
+            end
+        end
+
+        if PLAYER_NAME and PLAYER_NAME ~= "" then
+            local escaped = string_gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
+            output = string_gsub(output, "(" .. escaped .. ")", function(match)
+                local s = string_find(output, match, 1, true)
+                if s and IsProtected(output, s) then
+                    return match
+                end
+                return "|cffffd700" .. match .. "|r"
+            end)
+        end
+
+        return output
+    end)
+
+    if ok and type(result) == "string" then
+        return result
     end
 
     return msg
@@ -259,8 +288,8 @@ function Filters:HookCommunities()
                 return
             end
 
-            local formatted = ns.FormatMessage(messageInfo.text)
-            frame.Message:SetText(formatted)
+            local ok, formatted = pcall(ns.FormatMessage, messageInfo.text)
+            frame.Message:SetText(ok and formatted or messageInfo.text)
 
             if ns.db and ns.Lists and ns.Lists.Fonts then
                 local fontId = ns.db.fontID

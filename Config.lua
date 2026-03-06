@@ -97,3 +97,46 @@ ns.defaults = {
         }
     }
 }
+
+-- =========================================================
+-- 4. SAFE TEXT HELPERS (WoW 12.0.x / Secret Values)
+-- =========================================================
+local tostring = tostring
+local pcall = pcall
+local type = type
+local string_format = string.format
+local string_gsub = string.gsub
+local string_find = string.find
+
+function ns.TryMakeSafeText(raw)
+    if raw == nil then
+        return nil
+    end
+
+    local rawType = type(raw)
+    if rawType == "number" then
+        return tostring(raw)
+    end
+
+    if rawType ~= "string" then
+        return nil
+    end
+
+    local ok, copied = pcall(string_format, "%s", raw)
+    if not ok or type(copied) ~= "string" then
+        return nil
+    end
+
+    -- Пробуємо кілька простих string-операцій у pcall.
+    -- Якщо будь-яка з них падає, вважаємо рядок небезпечним для подальшої обробки.
+    local probeOk = pcall(function()
+        string_find(copied, ".", 1)
+        string_gsub(copied, "|r", "|r")
+    end)
+
+    if not probeOk then
+        return nil
+    end
+
+    return copied
+end

@@ -36,11 +36,11 @@ local sessionHistory = {}
 -- SAFE TEXT HELPER
 -- =========================================================
 local function GetSafeText(rawText)
-    if type(rawText) ~= "string" then return nil end
-    local ok, clean = pcall(function() return string.format("%s", rawText) end)
-    if ok and clean ~= "" then
-        return clean
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(rawText)
     end
+    if type(rawText) == "string" then return rawText end
+    if type(rawText) == "number" then return tostring(rawText) end
     return nil
 end
 

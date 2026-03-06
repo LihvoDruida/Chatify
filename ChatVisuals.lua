@@ -48,20 +48,14 @@ end
 
 -- Безпечне отримання тексту (Deep Sanitization)
 local function GetSafeText(rawText)
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(rawText)
+    end
+
     if rawText == nil then return nil end
     if type(rawText) == "number" then return tostring(rawText) end
     if type(rawText) ~= "string" then return nil end
-
-    -- Спроба створити нову копію рядка
-    local ok, clean = pcall(string.format, "%s", rawText)
-    if not ok then return nil end
-
-    local nonEmptyOk, result = pcall(function()
-        if clean == "" then return nil end
-        return clean
-    end)
-
-    if nonEmptyOk then return result else return nil end
+    return rawText
 end
 
 function ns.GetEditBox(chatFrame)
