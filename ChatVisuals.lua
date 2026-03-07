@@ -3,6 +3,9 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 -- Підключаємо LibSharedMedia
 local LSM = LibStub("LibSharedMedia-3.0")
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
+local visualsFiltersInstalled = false
+local C_Timer = C_Timer
+local GetServerTime = GetServerTime
 
 -- =========================================================
 -- SAFE EVENT WHITELIST (КРИТИЧНО ВАЖЛИВО)
@@ -232,10 +235,11 @@ function VisualsModule:OnEnable()
     end
 
     -- У virtual mode не чіпаємо raw chat events, щоб не ловити taint/secret string у HistoryKeeper.
-    if not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
+    if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
         for evt in pairs(eventsToHandle) do
             ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
         end
+        visualsFiltersInstalled = true
     end
 
     ns.ApplyVisuals()

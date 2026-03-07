@@ -31,6 +31,7 @@ end
 -- STATE
 -- =========================================================
 local sessionHistory = {}
+local unpack = table.unpack or unpack
 
 -- =========================================================
 -- SAFE TEXT HELPER
@@ -179,7 +180,8 @@ function History:RestoreHistory()
     for typeKey, data in pairs(ChatifyHistoryDB) do
         if typeKey == "CHANNEL" then
             for channelName, chatFrames in pairs(data) do
-                if GetChannelName(channelName) then
+                local channelID = GetChannelName(channelName)
+                if channelID and channelID > 0 then
                     for chatID, messages in pairs(chatFrames) do
                         addToBuffer(chatID, messages)
                     end

@@ -13,6 +13,9 @@ local pcall = pcall
 local hooksecurefunc = hooksecurefunc
 local tinsert = table.insert
 local tremove = table.remove
+local GetServerTime = GetServerTime
+local C_Timer = C_Timer
+local SetItemRef = SetItemRef
 local GetTime = GetTime
 
 local hookedFrames = {}
@@ -22,6 +25,7 @@ local hiddenFrames = {}
 local cache = {}
 local cacheIndex = 0
 local CACHE_LIMIT = 800
+local routerHooksInstalled = false
 
 -- Anti-flood state for virtual mode.
 -- The same chat event can be routed to multiple frames in a very small time window,
@@ -287,7 +291,7 @@ local function ShowHyperlinkTooltip(owner, link)
 
     if ItemRefTooltip and ItemRefTooltip.SetOwner and type(SetItemRef) == "function" then
         ItemRefTooltip:SetOwner(owner, "ANCHOR_PRESERVE")
-        pcall(SetItemRef, link, link, "LeftButton", owner)
+        pcall(SetItemRef, link, nil, "LeftButton", owner)
     end
 end
 
@@ -495,7 +499,7 @@ function Router:OnEnable()
     self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
     self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
 
-    if type(hooksecurefunc) == "function" then
+    if not routerHooksInstalled and type(hooksecurefunc) == "function" then
         hooksecurefunc("FCF_OpenTemporaryWindow", function(frame)
             if frame then
                 HookFrame(frame)
@@ -518,6 +522,8 @@ function Router:OnEnable()
                 end
             end
         end)
+
+        routerHooksInstalled = true
     end
 
     C_Timer.After(1, function()

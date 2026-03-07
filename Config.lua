@@ -12,8 +12,8 @@ local LSM = LibStub("LibSharedMedia-3.0")
 
 -- Реєструємо ваші асети в глобальну бібліотеку
 -- Це дозволяє вибирати їх у випадаючих списках Config.lua
-LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\Assets\\Alert\\notification-0.ogg")
-LSM:Register("font", "Exo 2 (Chatify)", "Interface\\AddOns\\Chatify\\Assets\\Fonts\\Exo2.ttf")
+LSM:Register("sound", "Chatify Default", "Interface\AddOns\Chatify\assets\alert\notification-0.ogg")
+LSM:Register("font", "Exo 2 (Chatify)", "Interface\AddOns\Chatify\fonts\Exo2.ttf")
 
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
@@ -22,7 +22,7 @@ ns.Lists = {}
 
 -- Список шрифтів (Fallback, якщо LSM не працює)
 ns.Lists.Fonts = {
-    [1] = { name = "Exo 2 (Chatify)",      path = "Interface\\AddOns\\Chatify\\Assets\\Fonts\\Exo2.ttf" },
+    [1] = { name = "Exo 2 (Chatify)",      path = "Interface\AddOns\Chatify\fonts\Exo2.ttf" },
     [2] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
     [3] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
     [4] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
@@ -127,11 +127,12 @@ function ns.TryMakeSafeText(raw)
         return nil
     end
 
-    -- Пробуємо кілька простих string-операцій у pcall.
-    -- Якщо будь-яка з них падає, вважаємо рядок небезпечним для подальшої обробки.
+    -- WoW 12.0.x може передавати secret strings у чат/tooltip шляхах.
+    -- Будь-яка операція над таким значенням має проходити тільки через pcall.
     local probeOk = pcall(function()
-        string_find(copied, ".", 1)
+        string_find(copied, ".", 1, true)
         string_gsub(copied, "|r", "|r")
+        return copied:sub(1, 1)
     end)
 
     if not probeOk then

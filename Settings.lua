@@ -1,5 +1,16 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
+
+local function GetAddonMetadataValue(key)
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        return C_AddOns.GetAddOnMetadata(addonName, key)
+    end
+    if GetAddOnMetadata then
+        return GetAddOnMetadata(addonName, key)
+    end
+    return nil
+end
+
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
@@ -14,11 +25,11 @@ function Chatify:GetOptions()
             headerInfo = {
                 order = 0,
                 type = "description",
-                name = " |cff33ff99Chatify|r  |cff777777v" .. (C_AddOns and C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0") .. "|r\n" ..
+                name = " |cff33ff99Chatify|r  |cff777777v" .. (GetAddonMetadataValue("Version") or "1.0") .. "|r\n" ..
                        " |cffffffffMinimalist Chat Enhancer|r\n" ..
                        " |cff999999Tabs • Spam Filter • Sounds • History|r",
                 fontSize = "large",
-                image = "Interface\\AddOns\\Chatify\\Assets\\icon", 
+                image = "Interface\\AddOns\\Chatify\\assets\\icon", 
                 imageWidth = 64, 
                 imageHeight = 64,
             },

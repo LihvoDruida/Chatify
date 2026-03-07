@@ -20,6 +20,8 @@ local SystemEvents = {
     CHAT_MSG_CHANNEL_NOTICE_USER = true,
 }
 
+local filtersInstalled = false
+
 local BaseEvents = {
     "CHAT_MSG_CHANNEL",
     "CHAT_MSG_SAY",
@@ -289,7 +291,10 @@ function Filters:HookCommunities()
             end
 
             local ok, formatted = pcall(ns.FormatMessage, messageInfo.text)
-            frame.Message:SetText(ok and formatted or messageInfo.text)
+            local finalText = ok and formatted or messageInfo.text
+            if finalText then
+                frame.Message:SetText(finalText)
+            end
 
             if ns.db and ns.Lists and ns.Lists.Fonts then
                 local fontId = ns.db.fontID
@@ -313,19 +318,22 @@ end
 function Filters:OnEnable()
     ns.UpdateSpamCache()
 
-    if IsVirtualMode() then
-        for eventName in pairs(SystemEvents) do
-            ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
+    if not filtersInstalled then
+        if IsVirtualMode() then
+            for eventName in pairs(SystemEvents) do
+                ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
+            end
+        else
+            for i = 1, #BaseEvents do
+                ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
+            end
+
+            for eventName in pairs(SystemEvents) do
+                ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
+            end
         end
-        return
-    end
 
-    for i = 1, #BaseEvents do
-        ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
-    end
-
-    for eventName in pairs(SystemEvents) do
-        ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
+        filtersInstalled = true
     end
 
     if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_Communities") then
