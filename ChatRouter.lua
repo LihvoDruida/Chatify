@@ -15,7 +15,6 @@ local tinsert = table.insert
 local tremove = table.remove
 local GetServerTime = GetServerTime
 local C_Timer = C_Timer
-local SetItemRef = SetItemRef
 local GetTime = GetTime
 
 local hookedFrames = {}
@@ -289,9 +288,10 @@ local function ShowHyperlinkTooltip(owner, link)
         end
     end
 
-    if ItemRefTooltip and ItemRefTooltip.SetOwner and type(SetItemRef) == "function" then
+    local handler = _G.SetItemRef or ChatFrame_OnHyperlinkShow
+    if ItemRefTooltip and ItemRefTooltip.SetOwner and type(handler) == "function" then
         ItemRefTooltip:SetOwner(owner, "ANCHOR_PRESERVE")
-        pcall(SetItemRef, link, nil, "LeftButton", owner)
+        pcall(handler, link, nil, "LeftButton", owner)
     end
 end
 
@@ -327,8 +327,9 @@ local function EnsureProxy(frame)
         end
     end)
     proxy:SetScript("OnHyperlinkClick", function(self, link, text, button)
-        if type(SetItemRef) == "function" then
-            SetItemRef(link, text, button, frame)
+        local handler = _G.SetItemRef or ChatFrame_OnHyperlinkShow
+        if type(handler) == "function" then
+            handler(link, text, button, frame)
         end
     end)
     proxy:SetScript("OnHyperlinkEnter", function(self, link)
