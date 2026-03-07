@@ -262,6 +262,45 @@ local function CopyFrameSettings(source, target)
     if target.SetHyperlinksEnabled then target:SetHyperlinksEnabled(true) end
 end
 
+local function ShowHyperlinkTooltip(owner, link)
+    if not owner or not link or link == "" then
+        return
+    end
+
+    if type(link) ~= "string" then
+        return
+    end
+
+    if link:match("^chatcopy:") or link:match("^url:") then
+        return
+    end
+
+    if GameTooltip and GameTooltip.SetOwner and GameTooltip.SetHyperlink then
+        GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
+
+        local ok = pcall(GameTooltip.SetHyperlink, GameTooltip, link)
+        if ok then
+            GameTooltip:Show()
+            return
+        end
+    end
+
+    if ItemRefTooltip and ItemRefTooltip.SetOwner and type(SetItemRef) == "function" then
+        ItemRefTooltip:SetOwner(owner, "ANCHOR_PRESERVE")
+        pcall(SetItemRef, link, link, "LeftButton", owner)
+    end
+end
+
+local function HideHyperlinkTooltip(owner)
+    if GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner() == owner then
+        GameTooltip:Hide()
+    end
+
+    if ItemRefTooltip and ItemRefTooltip.GetOwner and ItemRefTooltip:GetOwner() == owner then
+        ItemRefTooltip:Hide()
+    end
+end
+
 local function EnsureProxy(frame)
     if not frame then
         return nil
@@ -274,6 +313,7 @@ local function EnsureProxy(frame)
     local proxy = CreateFrame("ScrollingMessageFrame", nil, frame)
     proxy:SetAllPoints(frame)
     proxy:SetFrameLevel(frame:GetFrameLevel() + 5)
+    proxy:EnableMouse(true)
     proxy:EnableMouseWheel(true)
     proxy:SetScript("OnMouseWheel", function(self, delta)
         if delta > 0 then
@@ -286,6 +326,15 @@ local function EnsureProxy(frame)
         if type(SetItemRef) == "function" then
             SetItemRef(link, text, button, frame)
         end
+    end)
+    proxy:SetScript("OnHyperlinkEnter", function(self, link)
+        ShowHyperlinkTooltip(self, link)
+    end)
+    proxy:SetScript("OnHyperlinkLeave", function(self)
+        HideHyperlinkTooltip(self)
+    end)
+    proxy:SetScript("OnHide", function(self)
+        HideHyperlinkTooltip(self)
     end)
     proxy:SetScript("OnSizeChanged", function(self)
         local source = self:GetParent()
