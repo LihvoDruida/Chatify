@@ -5,9 +5,9 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.6
+## Version: 0.9.4
 ## Author: melles1991
-## IconTexture: Interface\AddOns\Chatify\Assets\icon
+## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
 ## SavedVariables: ChatifyDB, ChatifyHistoryDB
 ## LoadSavedVariablesFirst: true

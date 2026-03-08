@@ -135,20 +135,23 @@ local function RestoreVirtualHistory()
     end
 
     for frameID, messages in pairs(ChatifyHistoryDB.Virtual) do
-        local proxy = proxyFrames[frameID]
-        if proxy and messages and #messages > 0 then
-            proxy:AddMessage("|cff666666---------------- Chatify History ----------------|r")
-            for i = 1, #messages do
-                local msg = SafeString(messages[i])
-                if msg then
-                    if db.historyAlpha then
-                        proxy:AddMessage("|cff888888" .. msg .. "|r")
-                    else
-                        proxy:AddMessage(msg)
+        local frame = _G["ChatFrame" .. frameID]
+        if frame and messages and #messages > 0 then
+            local orig = originalAddMessage[frame] or (frame and frame.AddMessage)
+            if type(orig) == "function" then
+                orig(frame, "|cff666666---------------- Chatify History ----------------|r")
+                for i = 1, #messages do
+                    local msg = SafeString(messages[i])
+                    if msg then
+                        if db.historyAlpha then
+                            orig(frame, "|cff888888" .. msg .. "|r")
+                        else
+                            orig(frame, msg)
+                        end
                     end
                 end
+                orig(frame, "|cff666666-----------------------------------------------|r")
             end
-            proxy:AddMessage("|cff666666-----------------------------------------------|r")
         end
     end
 end
@@ -305,54 +308,44 @@ local function HideHyperlinkTooltip(owner)
     end
 end
 
-local function EnsureProxy(frame)
+local interactiveFrames = {}
+
+local function EnsureFrameHyperlinks(frame)
     if not frame then
-        return nil
+        return
     end
 
-    if frame.ChatifyProxy then
-        return frame.ChatifyProxy
+    if frame.SetHyperlinksEnabled then
+        pcall(frame.SetHyperlinksEnabled, frame, true)
     end
 
-    local proxy = CreateFrame("ScrollingMessageFrame", nil, frame)
-    proxy:SetAllPoints(frame)
-    proxy:SetFrameLevel(frame:GetFrameLevel() + 5)
-    proxy:EnableMouse(true)
-    proxy:EnableMouseWheel(true)
-    proxy:SetScript("OnMouseWheel", function(self, delta)
-        if delta > 0 then
-            self:ScrollUp()
-        else
-            self:ScrollDown()
-        end
-    end)
-    proxy:SetScript("OnHyperlinkClick", function(self, link, text, button)
-        local handler = _G.SetItemRef or ChatFrame_OnHyperlinkShow
-        if type(handler) == "function" then
-            handler(link, text, button, frame)
-        end
-    end)
-    proxy:SetScript("OnHyperlinkEnter", function(self, link)
-        ShowHyperlinkTooltip(self, link)
-    end)
-    proxy:SetScript("OnHyperlinkLeave", function(self)
-        HideHyperlinkTooltip(self)
-    end)
-    proxy:SetScript("OnHide", function(self)
-        HideHyperlinkTooltip(self)
-    end)
-    proxy:SetScript("OnSizeChanged", function(self)
-        local source = self:GetParent()
-        if source then
-            CopyFrameSettings(source, self)
-        end
-    end)
+    if interactiveFrames[frame] then
+        return
+    end
 
-    CopyFrameSettings(frame, proxy)
+    interactiveFrames[frame] = true
 
-    frame.ChatifyProxy = proxy
-    proxyFrames[frame:GetID()] = proxy
-    return proxy
+    if frame.HookScript then
+        pcall(frame.HookScript, frame, "OnHyperlinkEnter", function(self, link)
+            if type(link) ~= "string" then
+                return
+            end
+
+            if link:match("^url:") or link:match("^chatcopy:") then
+                return
+            end
+
+            ShowHyperlinkTooltip(self, link)
+        end)
+
+        pcall(frame.HookScript, frame, "OnHyperlinkLeave", function(self)
+            HideHyperlinkTooltip(self)
+        end)
+    end
+end
+
+local function EnsureProxy(frame)
+    return nil
 end
 
 local function HideOriginalFrame(frame)
@@ -426,14 +419,14 @@ local function HandleVirtualAddMessage(frame, text, ...)
         return
     end
 
-    local proxy = EnsureProxy(frame)
-    if not proxy then
+    local orig = originalAddMessage[frame]
+    if type(orig) ~= "function" then
         return
     end
 
-    local ok = pcall(proxy.AddMessage, proxy, output, ...)
-    if ok and proxy.ScrollToBottom then
-        pcall(proxy.ScrollToBottom, proxy)
+    local ok = pcall(orig, frame, output, ...)
+    if ok and frame.ScrollToBottom then
+        pcall(frame.ScrollToBottom, frame)
     end
 
     if ok and plain then
@@ -455,9 +448,7 @@ local function HookFrame(frame)
 
     hookedFrames[frame] = true
     originalAddMessage[frame] = frame.AddMessage
-
-    EnsureProxy(frame)
-    HideOriginalFrame(frame)
+    EnsureFrameHyperlinks(frame)
 
     frame.AddMessage = function(self, ...)
         return HandleVirtualAddMessage(self, ...)
@@ -468,6 +459,7 @@ function Router:ApplyToAllFrames()
     for i = 1, NUM_CHAT_WINDOWS do
         local frame = _G["ChatFrame" .. i]
         if frame then
+            EnsureFrameHyperlinks(frame)
             HookFrame(frame)
         end
     end
@@ -477,10 +469,7 @@ function Router:RefreshProxies()
     for i = 1, NUM_CHAT_WINDOWS do
         local frame = _G["ChatFrame" .. i]
         if frame then
-            local proxy = EnsureProxy(frame)
-            if proxy then
-                CopyFrameSettings(frame, proxy)
-            end
+            EnsureFrameHyperlinks(frame)
         end
     end
 end

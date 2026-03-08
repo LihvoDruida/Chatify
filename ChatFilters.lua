@@ -168,9 +168,6 @@ function ns.FormatMessage(msg)
         return msg
     end
 
-    if IsVirtualMode() then
-        return msg
-    end
 
     local safeMsg = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(msg) or msg
     if type(safeMsg) ~= "string" then
