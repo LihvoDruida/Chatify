@@ -46,6 +46,10 @@ local eventMap = {
 }
 
 local function GetSafeText(rawText)
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(rawText)
+    end
+
     if rawText == nil then
         return nil
     end
@@ -54,13 +58,8 @@ local function GetSafeText(rawText)
         return tostring(rawText)
     end
 
-    if type(rawText) ~= "string" then
-        return nil
-    end
-
-    local ok, cleanCopy = pcall(string.format, "%s", rawText)
-    if ok and cleanCopy and cleanCopy ~= "" then
-        return cleanCopy
+    if type(rawText) == "string" then
+        return rawText
     end
 
     return nil
@@ -122,7 +121,12 @@ function Sounds:Play(soundName)
         return
     end
 
-    local soundFile = LSM:Fetch("sound", soundName)
+    local soundFile = nil
+    if type(ns.ResolveSoundPath) == "function" then
+        soundFile = ns.ResolveSoundPath(soundName)
+    else
+        soundFile = LSM:Fetch("sound", soundName, true)
+    end
     if not soundFile then
         return
     end
@@ -157,6 +161,10 @@ function Sounds:OnEvent(event, msg, author, ...)
         return
     end
 
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+        return
+    end
+
     local now = GetTime()
     tinsert(messageTimes, now)
     UpdateAdaptiveThrottle()
@@ -181,8 +189,11 @@ function Sounds:OnEvent(event, msg, author, ...)
     end
 
     if safeMsg and myNameLower then
-        local msgLower = strlower(safeMsg)
-        if strfind(msgLower, "%f[%w]" .. myNameLower .. "%f[%W]") then
+        local okMention, isMention = pcall(function()
+            local msgLower = strlower(safeMsg)
+            return strfind(msgLower, "%f[%w]" .. myNameLower .. "%f[%W]") ~= nil
+        end)
+        if okMention and isMention then
             if (now - lastMentionSound) >= MENTION_THROTTLE then
                 self:Play(db.events["MENTION"])
                 lastMentionSound = now

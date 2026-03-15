@@ -51,7 +51,7 @@ function Chatify:GetOptions()
                     shortChannels = {
                         order = 2,
                         name = "Shorten Channel Names",
-                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r",
+                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: stored in settings, but inactive in safe mode.|r",
                         type = "toggle",
                         width = "full", 
                         set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
@@ -77,6 +77,7 @@ function Chatify:GetOptions()
                         name = "Time Format",
                         type = "select",
                         width = "normal",
+                        disabled = function() return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() end,
                         values = function()
                             local t = {}
                             if ns.Lists and ns.Lists.TimeFormats then
@@ -102,8 +103,9 @@ function Chatify:GetOptions()
                     timestampPost = {
                         order = 13,
                         name = "Show at End",
-                        desc = "Place timestamp at the end of the message.",
+                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: timestamps are disabled only at runtime to avoid secret-value taint.|r",
                         type = "toggle",
+                        disabled = function() return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() end,
                         set = function(info, val) self.db.profile.timestampPost = val end,
                         get = function(info) return self.db.profile.timestampPost end,
                     }
@@ -231,7 +233,7 @@ function Chatify:GetOptions()
                             hideSystemSpam = {
                                 order = 3,
                                 name = "Hide Join/Leave Messages",
-                                desc = "Hides yellow system messages when players join or leave channels.",
+                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: inactive in safe mode, preserved for older Retail builds.|r",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.hideSystemSpam = val end,
                                 get = function(info) return self.db.profile.hideSystemSpam end,
@@ -293,7 +295,7 @@ function Chatify:GetOptions()
                             enableHistory = {
                                 order = 1,
                                 name = "Enable History",
-                                desc = "Restores chat messages after you reload the UI or login.",
+                                desc = "Restores chat messages after you reload the UI or login.\n\n|cff999999Retail 12.x: history restore is inactive in safe mode, but your preference is preserved for older Retail builds.|r",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.enableHistory = val end,
                                 get = function(info) return self.db.profile.enableHistory end,
@@ -390,6 +392,12 @@ function Chatify:OnInitialize()
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
 
     ns.db = self.db.profile 
+    if type(ns.RunRetailCompatibilityMigration) == "function" then
+        ns.RunRetailCompatibilityMigration(ns.db)
+    end
+    if type(ns.EnforceRetailSafeMode) == "function" then
+        ns.EnforceRetailSafeMode(ns.db)
+    end
 
     -- Setup Config GUI
     LibStub("AceConfig-3.0"):RegisterOptionsTable("Chatify", self:GetOptions())
@@ -406,6 +414,9 @@ end
 
 function Chatify:RefreshConfig()
     ns.db = self.db.profile
+    if type(ns.RunRetailCompatibilityMigration) == "function" then
+        ns.RunRetailCompatibilityMigration(ns.db)
+    end
     if ns.ApplyVisuals then ns.ApplyVisuals() end
     if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Rebuild cache on profile change
 end

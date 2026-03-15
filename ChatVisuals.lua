@@ -89,31 +89,36 @@ local function StyleFrame(frame)
     if not db then return end
 
     local fontPath = nil
-    if db.fontID then
-        fontPath = LSM:Fetch("font", db.fontID)
+    if type(ns.ResolveFontPath) == "function" then
+        fontPath = ns.ResolveFontPath(db.fontID)
+    elseif db.fontID then
+        fontPath = LSM:Fetch("font", db.fontID, true)
     end
 
-    if not fontPath then
+    if not fontPath and ChatFontNormal and ChatFontNormal.GetFont then
         fontPath = ChatFontNormal:GetFont()
     end
 
-    -- Отримуємо поточний розмір або налаштування
-    local _ , size, _ = frame:GetFont()
+    local _, size, flags = frame:GetFont()
     size = NormalizeFontSize(size)
-    local outline = db.fontOutline or ""
+    local outline = db.fontOutline or flags or ""
 
-    frame:SetFont(fontPath, size, outline)
+    local ok = pcall(frame.SetFont, frame, fontPath, size, outline)
+    if not ok and ChatFontNormal and ChatFontNormal.GetFont then
+        local fallbackPath = ChatFontNormal:GetFont()
+        pcall(frame.SetFont, frame, fallbackPath, size, flags or "")
+    end
     frame:SetShadowOffset(1, -1)
 
     local editBox = ns.GetEditBox(frame)
     if editBox then
         local header = _G[editBox:GetName().."Header"]
-        if header then header:SetFont(fontPath, size, outline) end
-        
-        local suffix = _G[editBox:GetName().."HeaderSuffix"]
-        if suffix then suffix:SetFont(fontPath, size, outline) end
+        if header then pcall(header.SetFont, header, fontPath, size, outline) end
 
-        editBox:SetFont(fontPath, size, outline)
+        local suffix = _G[editBox:GetName().."HeaderSuffix"]
+        if suffix then pcall(suffix.SetFont, suffix, fontPath, size, outline) end
+
+        pcall(editBox.SetFont, editBox, fontPath, size, outline)
     end
 end
 
@@ -137,9 +142,14 @@ local ShortChannelMaps = {
 
 local OriginalChannelMaps = {}
 
+local function IsRetailRestricted()
+    return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+end
+
 function ns.ApplyVisuals()
     local db = Chatify.db.profile
     if not db then return end
+    local retailRestricted = IsRetailRestricted()
 
     for i = 1, NUM_CHAT_WINDOWS do
         local frame = _G["ChatFrame"..i]
@@ -148,7 +158,13 @@ function ns.ApplyVisuals()
         end
     end
 
-    if db.shortChannels then
+    if retailRestricted then
+        if next(OriginalChannelMaps) then
+            for k, v in pairs(OriginalChannelMaps) do
+                _G[k] = v
+            end
+        end
+    elseif db.shortChannels then
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
@@ -173,6 +189,10 @@ local function TimestampFilter(self, event, msg, author, ...)
     local db = Chatify.db.profile
     if not db then return false, msg, author, ... end
 
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+        return false, msg, author, ...
+    end
+
     -- Перевірка налаштувань
     if not db.enableTimestamps then return false, msg, author, ... end
 
@@ -195,29 +215,39 @@ local function TimestampFilter(self, event, msg, author, ...)
     end
 
     local timestamp = db.useServerTime and GetServerTime() or time()
-    local timeStr = date(timestampFormat, timestamp)
+    local okBuild, finalMsg = pcall(function()
+        local timeStr = date(timestampFormat, timestamp)
+        local tsColor = db.timestampColor or "68ccef"
+        local styledTime = string.format("|cff%s[%s]|r", tsColor, timeStr)
 
-    local tsColor = db.timestampColor or "68ccef"
-    -- Використовуємо string.format для створення нового рядка
-    local styledTime = string.format("|cff%s[%s]|r", tsColor, timeStr)
+        if db.timestampPost then
+            return safeMsg .. " " .. styledTime
+        end
 
-    -- Модифікуємо БЕЗПЕЧНУ копію повідомлення
-    if db.timestampPost then
-        safeMsg = safeMsg .. " " .. styledTime
-    else
-        safeMsg = styledTime .. " " .. safeMsg
+        return styledTime .. " " .. safeMsg
+    end)
+
+    if not okBuild or type(finalMsg) ~= "string" then
+        return false, msg, author, ...
     end
 
     -- Повертаємо нове, безпечне повідомлення
-    return false, safeMsg, author, ...
+    return false, finalMsg, author, ...
 end
 
 -- =========================================================
 -- 5. MODULE LIFECYCLE
 -- =========================================================
 function VisualsModule:OnEnable()
+    if Chatify and Chatify.db and Chatify.db.profile then
+        ns.EnforceRetailSafeMode(Chatify.db.profile)
+    end
+
+    local retailRestricted = IsRetailRestricted()
+
     self:RegisterEvent("PLAYER_LOGIN")
-    
+    self:RegisterEvent("PLAYER_ENTERING_WORLD", "ApplyStyle")
+
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
 
@@ -228,14 +258,18 @@ function VisualsModule:OnEnable()
         StyleFrame(chatFrame)
     end)
 
-    for _, info in pairs(ChatTypeInfo) do
-        if type(info) == "table" then
-            info.colorNameByClass = true
+    if not retailRestricted then
+        for _, info in pairs(ChatTypeInfo) do
+            if type(info) == "table" then
+                info.colorNameByClass = true
+            end
         end
     end
 
     -- У virtual mode не чіпаємо raw chat events, щоб не ловити taint/secret string у HistoryKeeper.
-    if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
+    -- На Retail 12.x також повністю відмовляємось від message filters,
+    -- бо вони можуть taint-ити Blizzard chat pipeline для secret values.
+    if not retailRestricted and not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
         for evt in pairs(eventsToHandle) do
             ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
         end
@@ -247,6 +281,11 @@ end
 
 function VisualsModule:PLAYER_LOGIN()
     ns.ApplyVisuals()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() ns.ApplyVisuals() end)
+        C_Timer.After(1, function() ns.ApplyVisuals() end)
+        C_Timer.After(3, function() ns.ApplyVisuals() end)
+    end
 end
 
 function VisualsModule:ApplyStyle()

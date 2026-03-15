@@ -91,6 +91,10 @@ local function IsVirtualMode()
     return db and db.useVirtualChat
 end
 
+local function IsRetailRestricted()
+    return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+end
+
 local function NormalizeText(text)
     local safe = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(text) or text
     if type(safe) ~= "string" then
@@ -162,6 +166,72 @@ local function IsProtected(text, pos)
     return openCount > (closeCount / 2)
 end
 
+local function DecorateLinksInText(text)
+    if type(text) ~= "string" then
+        return text
+    end
+
+    if text:find("|Hurl:", 1, true) then
+        return text
+    end
+
+    local output = text
+    for i = 1, #LinkRegexRules do
+        local rule = LinkRegexRules[i]
+        local startIdx = 1
+
+        while true do
+            local s, e, cap1, cap2 = output:find(rule.exp, startIdx)
+            if not s then
+                break
+            end
+
+            local url = cap1
+            local tld = cap2
+            local isValid = true
+
+            if rule.verifyDomain and tld and not ValidTopLevelDomains[tld:upper()] then
+                isValid = false
+            end
+
+            if isValid and IsProtected(output, s) then
+                isValid = false
+            end
+
+            if isValid then
+                local newLink = DecorateLink(url)
+                output = output:sub(1, s - 1) .. newLink .. output:sub(e + 1)
+                startIdx = s + #newLink
+            else
+                startIdx = e + 1
+            end
+        end
+    end
+
+    return output
+end
+
+function ns.FormatLinksOnly(msg)
+    if type(msg) ~= "string" then
+        return msg
+    end
+
+    local safeMsg = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(msg) or msg
+    if type(safeMsg) ~= "string" then
+        return msg
+    end
+
+    local ok, result = pcall(function()
+        return DecorateLinksInText(safeMsg)
+    end)
+
+    if ok and type(result) == "string" then
+        return result
+    end
+
+    return msg
+end
+
 function ns.FormatMessage(msg)
     local db = DB()
     if type(msg) ~= "string" or not db then
@@ -193,37 +263,7 @@ function ns.FormatMessage(msg)
             end
         end
 
-        for i = 1, #LinkRegexRules do
-            local rule = LinkRegexRules[i]
-            local startIdx = 1
-
-            while true do
-                local s, e, cap1, cap2 = output:find(rule.exp, startIdx)
-                if not s then
-                    break
-                end
-
-                local url = cap1
-                local tld = cap2
-                local isValid = true
-
-                if rule.verifyDomain and tld and not ValidTopLevelDomains[tld:upper()] then
-                    isValid = false
-                end
-
-                if isValid and IsProtected(output, s) then
-                    isValid = false
-                end
-
-                if isValid then
-                    local newLink = DecorateLink(url)
-                    output = output:sub(1, s - 1) .. newLink .. output:sub(e + 1)
-                    startIdx = s + #newLink
-                else
-                    startIdx = e + 1
-                end
-            end
-        end
+        output = DecorateLinksInText(output)
 
         if PLAYER_NAME and PLAYER_NAME ~= "" then
             local escaped = string_gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
@@ -277,7 +317,7 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
 end
 
 function Filters:HookCommunities()
-    if IsVirtualMode() then
+    if IsVirtualMode() or IsRetailRestricted() then
         return
     end
 
@@ -295,10 +335,15 @@ function Filters:HookCommunities()
 
             if ns.db and ns.Lists and ns.Lists.Fonts then
                 local fontId = ns.db.fontID
-                local fontPath = fontId and LibStub("LibSharedMedia-3.0"):Fetch("font", fontId)
+                local fontPath = nil
+                if type(ns.ResolveFontPath) == "function" then
+                    fontPath = ns.ResolveFontPath(fontId)
+                elseif fontId then
+                    fontPath = LibStub("LibSharedMedia-3.0"):Fetch("font", fontId, true)
+                end
                 if fontPath then
                     local _, size, flags = frame.Message:GetFont()
-                    frame.Message:SetFont(fontPath, size, flags)
+                    pcall(frame.Message.SetFont, frame.Message, fontPath, size, flags)
                 end
             end
         end)
@@ -314,6 +359,14 @@ end
 
 function Filters:OnEnable()
     ns.UpdateSpamCache()
+
+    if Chatify and Chatify.db and Chatify.db.profile then
+        ns.EnforceRetailSafeMode(Chatify.db.profile)
+    end
+
+    if IsRetailRestricted() then
+        return
+    end
 
     if not filtersInstalled then
         if IsVirtualMode() then

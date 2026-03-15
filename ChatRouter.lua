@@ -32,6 +32,20 @@ local routerHooksInstalled = false
 local recentLines = {}
 local FANOUT_WINDOW = 0.08
 
+
+local function IsRetailSecretValueBuild()
+    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+        return false
+    end
+
+    if type(GetBuildInfo) ~= "function" then
+        return true
+    end
+
+    local interfaceVersion = select(4, GetBuildInfo())
+    return type(interfaceVersion) == "number" and interfaceVersion >= 120000
+end
+
 local function DB()
     if Chatify and Chatify.db and Chatify.db.profile then
         return Chatify.db.profile
@@ -41,7 +55,15 @@ end
 
 local function IsVirtualEnabled()
     local db = DB()
-    return db and db.useVirtualChat
+    if not db or not db.useVirtualChat then
+        return false
+    end
+
+    if IsRetailSecretValueBuild() then
+        return false
+    end
+
+    return true
 end
 
 local function SafeString(raw)
@@ -404,7 +426,36 @@ local function PrepareOutput(text)
     return ApplyTimestamp(safeText), safeText
 end
 
+local function HandleRetailRestrictedAddMessage(frame, text, ...)
+    local orig = originalAddMessage[frame]
+    if type(orig) ~= "function" then
+        return
+    end
+
+    local output = text
+    local rawType = type(text)
+    if rawType == "string" or rawType == "number" then
+        local safeText = SafeString(text)
+        if safeText and type(ns.FormatLinksOnly) == "function" then
+            local ok, formatted = pcall(ns.FormatLinksOnly, safeText)
+            if ok and type(formatted) == "string" then
+                output = formatted
+            else
+                output = safeText
+            end
+        elseif safeText then
+            output = safeText
+        end
+    end
+
+    return orig(frame, output, ...)
+end
+
 local function HandleVirtualAddMessage(frame, text, ...)
+    if IsRetailSecretValueBuild() then
+        return HandleRetailRestrictedAddMessage(frame, text, ...)
+    end
+
     if not IsVirtualEnabled() then
         return PassThrough(frame, text, ...)
     end
@@ -482,12 +533,22 @@ function Router:SaveHistory()
 end
 
 function Router:OnEnable()
+    local db = DB()
+    if db then
+        ns.EnforceRetailSafeMode(db)
+    end
+
+    local retailRestricted = IsRetailSecretValueBuild()
+
     self:ApplyToAllFrames()
     self:RegisterEvent("PLAYER_LOGIN", "ApplyToAllFrames")
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "RefreshProxies")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "RefreshProxies")
-    self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
-    self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+
+    if not retailRestricted then
+        self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
+        self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+    end
 
     if not routerHooksInstalled and type(hooksecurefunc) == "function" then
         hooksecurefunc("FCF_OpenTemporaryWindow", function(frame)
@@ -519,6 +580,8 @@ function Router:OnEnable()
     C_Timer.After(1, function()
         self:ApplyToAllFrames()
         self:RefreshProxies()
-        RestoreVirtualHistory()
+        if not retailRestricted then
+            RestoreVirtualHistory()
+        end
     end)
 end

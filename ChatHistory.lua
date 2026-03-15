@@ -83,6 +83,10 @@ function History:OnChatEvent(event, message, author, ...)
     local db = Chatify.db.profile
     if not db.enableHistory then return end
 
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(message, author, ...) then
+        return
+    end
+
     -- Ігноруємо події, які не в whitelist
     if not eventsToHandle[event] then return end
 
@@ -98,7 +102,10 @@ function History:OnChatEvent(event, message, author, ...)
     if #targetFrames == 0 then return end
 
     local limit = db.historyLimit or 50
-    local fullMessage = FormatMessage(safeMessage, safeAuthor)
+    local okFormatted, fullMessage = pcall(FormatMessage, safeMessage, safeAuthor)
+    if not okFormatted or type(fullMessage) ~= "string" then
+        return
+    end
 
     -- CHANNEL
     if event == "CHAT_MSG_CHANNEL" then
@@ -220,6 +227,14 @@ end
 -- INIT
 -- =========================================================
 function History:OnEnable()
+    if Chatify and Chatify.db and Chatify.db.profile then
+        ns.EnforceRetailSafeMode(Chatify.db.profile)
+    end
+
+    if (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()) then
+        return
+    end
+
     if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then
         return
     end
