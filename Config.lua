@@ -150,7 +150,30 @@ ns.defaults = {
                 ["PARTY"]   = "None",
                 ["RAID"]    = "None",
             }
+        },
+
+        -- === AUTO REPLY ===
+        autoReply = {
+            enabled = false,
+            busyMode = false,
+            onlyFriends = false,
+            autoNotify = true,
+            guildReplyEnabled = false,
+            cooldown = 5,
+            afkMessage = "I'm currently AFK. I'll be back later!",
+            queueMessage = "I'm in queue. Estimated wait time: %s minutes.",
+            raidMessage = "I'm currently in a raid. I'll message you when I'm free!",
+            dungeonMessage = "I'm currently in a dungeon. I'll message you when I'm done!",
+            pvpMessage = "I'm currently in PvP. I'll message you when I'm free!",
+            busyMessage = "I'm currently busy. I'll get back to you soon!",
+            returnMessage = "I'm back now! What did you need?",
         }
+    },
+    char = {
+        pendingWhispers = {},
+        pendingGuildMentions = {},
+        wasInActivity = false,
+        lastReplyTime = {},
     }
 }
 

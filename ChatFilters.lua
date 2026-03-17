@@ -418,10 +418,6 @@ function Filters:OnEnable()
         ns.EnforceRetailSafeMode(Chatify.db.profile)
     end
 
-    if IsRetailRestricted() then
-        return
-    end
-
     if not filtersInstalled then
         if IsRetailRestricted() then
             for i = 1, #RetailRestrictedEvents do
