@@ -41,6 +41,39 @@ local BaseEvents = {
     "CHAT_MSG_TEXT_EMOTE",
 }
 
+-- Retail 12.x: use Blizzard's secure message-event filter path only.
+-- These callbacks are wrapped by ChatFrameUtil's secure registry and will only
+-- run when the event payload is accessible via canaccessvalue(...).
+local RetailRestrictedEvents = {
+    "CHAT_MSG_CHANNEL",
+    "CHAT_MSG_SAY",
+    "CHAT_MSG_YELL",
+    "CHAT_MSG_WHISPER",
+    "CHAT_MSG_WHISPER_INFORM",
+    "CHAT_MSG_BN_WHISPER",
+    "CHAT_MSG_BN_WHISPER_INFORM",
+    "CHAT_MSG_GUILD",
+    "CHAT_MSG_OFFICER",
+    "CHAT_MSG_PARTY",
+    "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID",
+    "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_RAID_WARNING",
+    "CHAT_MSG_INSTANCE_CHAT",
+    "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_EMOTE",
+    "CHAT_MSG_TEXT_EMOTE",
+    "CHAT_MSG_MONSTER_SAY",
+    "CHAT_MSG_MONSTER_YELL",
+    "CHAT_MSG_MONSTER_EMOTE",
+    "CHAT_MSG_MONSTER_WHISPER",
+    "CHAT_MSG_MONSTER_BOSS_WHISPER",
+    "CHAT_MSG_MONSTER_BOSS_EMOTE",
+    "CHAT_MSG_SYSTEM",
+    "CHAT_MSG_ACHIEVEMENT",
+    "CHAT_MSG_GUILD_ACHIEVEMENT",
+}
+
 local LinkRegexRules = {
     { exp = "^(%a[%w+.-]+://%S+)", verifyDomain = false },
     { exp = "%f[%S](%a[%w+.-]+://%S+)", verifyDomain = false },
@@ -316,6 +349,27 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
     return false, ns.FormatMessage(msg), author, ...
 end
 
+local function RetailRestrictedProcessor(self, event, msg, author, ...)
+    local db = DB()
+    if not db then
+        return false, msg, author, ...
+    end
+
+    if db.hideSystemSpam and SystemEvents[event] then
+        return true
+    end
+
+    if type(msg) ~= "string" then
+        return false, msg, author, ...
+    end
+
+    if db.enableSpamFilter and ns.IsSpamMessage(NormalizeText(msg)) then
+        return true
+    end
+
+    return false, ns.FormatLinksOnly(msg), author, ...
+end
+
 function Filters:HookCommunities()
     if IsVirtualMode() or IsRetailRestricted() then
         return
@@ -369,7 +423,15 @@ function Filters:OnEnable()
     end
 
     if not filtersInstalled then
-        if IsVirtualMode() then
+        if IsRetailRestricted() then
+            for i = 1, #RetailRestrictedEvents do
+                ChatFrame_AddMessageEventFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
+            end
+
+            for eventName in pairs(SystemEvents) do
+                ChatFrame_AddMessageEventFilter(eventName, RetailRestrictedProcessor)
+            end
+        elseif IsVirtualMode() then
             for eventName in pairs(SystemEvents) do
                 ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
             end

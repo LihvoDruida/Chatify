@@ -497,9 +497,18 @@ local function HookFrame(frame)
         return
     end
 
+    EnsureFrameHyperlinks(frame)
+
+    if IsRetailSecretValueBuild() then
+        -- Retail 12.x: never replace Blizzard-owned AddMessage on live chat frames.
+        -- Use ChatFrame_AddMessageEventFilter instead, which Blizzard routes through
+        -- a secure canaccessvalue(...) gate for inaccessible payloads.
+        hookedFrames[frame] = true
+        return
+    end
+
     hookedFrames[frame] = true
     originalAddMessage[frame] = frame.AddMessage
-    EnsureFrameHyperlinks(frame)
 
     frame.AddMessage = function(self, ...)
         return HandleVirtualAddMessage(self, ...)
