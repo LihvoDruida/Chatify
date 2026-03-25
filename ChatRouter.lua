@@ -290,8 +290,21 @@ local function CopyFrameSettings(source, target)
     if target.SetHyperlinksEnabled then target:SetHyperlinksEnabled(true) end
 end
 
+local function ShouldShowHoverHyperlinkTooltips()
+    local db = DB()
+    if not db or db.hoverHyperlinkTooltips == nil then
+        return true
+    end
+
+    return db.hoverHyperlinkTooltips
+end
+
 local function ShowHyperlinkTooltip(owner, link)
     if not owner or not link or link == "" then
+        return
+    end
+
+    if not ShouldShowHoverHyperlinkTooltips() then
         return
     end
 
@@ -354,6 +367,11 @@ local function EnsureFrameHyperlinks(frame)
             end
 
             if link:match("^url:") or link:match("^chatcopy:") then
+                return
+            end
+
+            if not ShouldShowHoverHyperlinkTooltips() then
+                HideHyperlinkTooltip(self)
                 return
             end
 
@@ -475,8 +493,16 @@ local function HandleVirtualAddMessage(frame, text, ...)
         return
     end
 
+    local stickToBottom = true
+    if frame and frame.AtBottom then
+        local okBottom, atBottom = pcall(frame.AtBottom, frame)
+        if okBottom then
+            stickToBottom = atBottom and true or false
+        end
+    end
+
     local ok = pcall(orig, frame, output, ...)
-    if ok and frame.ScrollToBottom then
+    if ok and stickToBottom and frame.ScrollToBottom then
         pcall(frame.ScrollToBottom, frame)
     end
 

@@ -134,6 +134,7 @@ ns.defaults = {
         -- === FORMATTING ===
         shortChannels = true,       -- [Party] -> [P]
         urlColor = "0099FF",        -- Колір посилань
+        hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)

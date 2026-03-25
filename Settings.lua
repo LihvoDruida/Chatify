@@ -70,6 +70,22 @@ function Chatify:GetOptions()
                         get = function(info) return self.db.profile.fontID end,
                     },
 
+                    hoverHyperlinkTooltips = {
+                        order = 4,
+                        name = "Show Link Tooltips on Hover",
+                        desc = "When enabled, item/spell/achievement links in chat show their tooltip on mouseover.\n" ..
+                               "Disable this if hover-tooltips keep getting in your way.",
+                        type = "toggle",
+                        width = "full",
+                        set = function(info, val) self.db.profile.hoverHyperlinkTooltips = val end,
+                        get = function(info)
+                            if self.db.profile.hoverHyperlinkTooltips == nil then
+                                return true
+                            end
+                            return self.db.profile.hoverHyperlinkTooltips
+                        end,
+                    },
+
                     headerTime = { order = 10, type = "header", name = "Timestamps" },
 
                     timestampID = {

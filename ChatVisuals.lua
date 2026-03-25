@@ -7,6 +7,13 @@ local visualsFiltersInstalled = false
 local C_Timer = C_Timer
 local GetServerTime = GetServerTime
 
+local function GetVisualDB()
+    if Chatify and Chatify.db and Chatify.db.profile then
+        return Chatify.db.profile
+    end
+    return ns and ns.db or nil
+end
+
 -- =========================================================
 -- SAFE EVENT WHITELIST (КРИТИЧНО ВАЖЛИВО)
 -- =========================================================
@@ -85,7 +92,7 @@ end
 -- =========================================================
 local function StyleFrame(frame)
     if not frame then return end
-    local db = Chatify.db.profile
+    local db = GetVisualDB()
     if not db then return end
 
     local fontPath = nil
@@ -147,7 +154,7 @@ local function IsRetailRestricted()
 end
 
 function ns.ApplyVisuals()
-    local db = Chatify.db.profile
+    local db = GetVisualDB()
     if not db then return end
     local retailRestricted = IsRetailRestricted()
 
@@ -186,7 +193,7 @@ end
 -- 4. TIMESTAMPS (SECURE)
 -- =========================================================
 local function TimestampFilter(self, event, msg, author, ...)
-    local db = Chatify.db.profile
+    local db = GetVisualDB()
     if not db then return false, msg, author, ... end
 
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
