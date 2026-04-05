@@ -162,6 +162,10 @@ function Sounds:OnEvent(event, msg, author, ...)
         return
     end
 
+    if type(ns.IsSecretValue) == "function" and (ns.IsSecretValue(msg) or ns.IsSecretValue(author)) then
+        return
+    end
+
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return
     end

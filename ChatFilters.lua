@@ -14,6 +14,10 @@ local UnitName = UnitName
 local PLAYER_NAME = UnitName("player")
 local CachedKeywords = {}
 
+local function IsSecretValue(value)
+    return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
+end
+
 local SystemEvents = {
     CHAT_MSG_CHANNEL_JOIN = true,
     CHAT_MSG_CHANNEL_LEAVE = true,
@@ -151,6 +155,10 @@ local function IsRetailRestricted()
 end
 
 local function NormalizeText(text)
+    if IsSecretValue(text) then
+        return ""
+    end
+
     local safe = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(text) or text
     if type(safe) ~= "string" then
         return ""
@@ -204,6 +212,10 @@ function ns.IsSpamMessage(normalizedMessage)
 end
 
 local function DecorateLink(url)
+    if IsSecretValue(url) then
+        return url
+    end
+
     local db = DB()
     if not db then
         return url
@@ -298,7 +310,7 @@ local function DecorateLinksInSegment(segment)
 end
 
 local function DecorateLinksInText(text)
-    if type(text) ~= "string" then
+    if type(text) ~= "string" or IsSecretValue(text) then
         return text
     end
 
@@ -310,7 +322,7 @@ local function DecorateLinksInText(text)
 end
 
 local function HighlightWordList(text, words, color)
-    if type(text) ~= "string" or type(words) ~= "table" or #words == 0 then
+    if type(text) ~= "string" or IsSecretValue(text) or type(words) ~= "table" or #words == 0 then
         return text
     end
 
@@ -400,6 +412,10 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
+    if IsSecretValue(msg) or IsSecretValue(author) then
+        return false, msg, author, ...
+    end
+
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return false, msg, author, ...
     end
@@ -422,6 +438,10 @@ end
 local function RetailRestrictedProcessor(self, event, msg, author, ...)
     local db = DB()
     if not db then
+        return false, msg, author, ...
+    end
+
+    if IsSecretValue(msg) or IsSecretValue(author) then
         return false, msg, author, ...
     end
 
@@ -456,6 +476,9 @@ function Filters:HookCommunities()
             end
 
             local sourceText = messageInfo.text
+            if IsSecretValue(sourceText) then
+                return
+            end
             if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(sourceText) then
                 return
             end

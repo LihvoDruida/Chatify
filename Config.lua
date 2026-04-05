@@ -212,15 +212,40 @@ end
 local tostring = tostring
 local pcall = pcall
 local type = type
+local select = select
 local canaccessvalue = canaccessvalue
+local issecretvalue = issecretvalue
+
+function ns.IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then
+        return false
+    end
+
+    local ok, secret = pcall(issecretvalue, value)
+    return ok and secret or false
+end
 
 function ns.CanAccessChatValue(...)
-    if type(canaccessvalue) ~= "function" then
+    local count = select("#", ...)
+    if count == 0 then
         return true
     end
 
-    local ok, accessible = pcall(canaccessvalue, ...)
-    return ok and accessible or false
+    if type(canaccessvalue) == "function" then
+        local ok, accessible = pcall(canaccessvalue, ...)
+        if ok then
+            return accessible and true or false
+        end
+    end
+
+    for i = 1, count do
+        local value = select(i, ...)
+        if ns.IsSecretValue(value) then
+            return false
+        end
+    end
+
+    return true
 end
 
 function ns.EnforceRetailSafeMode(db)
@@ -273,6 +298,9 @@ function ns.TryMakeSafeText(raw)
     end
 
     if rawType == "string" then
+        if ns.IsSecretValue(raw) then
+            return nil
+        end
         if not ns.CanAccessChatValue(raw) then
             return nil
         end

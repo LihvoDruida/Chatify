@@ -76,6 +76,10 @@ local function IsVirtualEnabled()
     return true
 end
 
+local function IsSecretValue(value)
+    return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
+end
+
 local function SafeString(raw)
     if type(ns.TryMakeSafeText) == "function" then
         return ns.TryMakeSafeText(raw)
@@ -316,8 +320,24 @@ local function ShouldShowHoverHyperlinkTooltips()
     return db.hoverHyperlinkTooltips
 end
 
+local function IsSafeHyperlink(link)
+    if type(link) ~= "string" or link == "" then
+        return false
+    end
+
+    if IsSecretValue(link) then
+        return false
+    end
+
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(link) then
+        return false
+    end
+
+    return true
+end
+
 local function ShowHyperlinkTooltip(owner, link)
-    if not owner or not link or link == "" then
+    if not owner or not IsSafeHyperlink(link) then
         return
     end
 
@@ -341,11 +361,16 @@ local function ShowHyperlinkTooltip(owner, link)
     if GameTooltip then
         GameTooltip:Hide()
     end
+    if BattlePetTooltip then
+        BattlePetTooltip:Hide()
+    end
 
     if linkType == "battlepet" and BattlePetToolTip_ShowLink and GameTooltip and GameTooltip.SetOwner then
         GameTooltip:SetOwner(UIParent or owner, "ANCHOR_CURSOR")
-        pcall(BattlePetToolTip_ShowLink, link)
-        return
+        local ok = pcall(BattlePetToolTip_ShowLink, link)
+        if ok then
+            return
+        end
     end
 
     if GameTooltip and GameTooltip.SetOwner and GameTooltip.SetHyperlink then
@@ -356,6 +381,7 @@ local function ShowHyperlinkTooltip(owner, link)
             GameTooltip:Show()
             return
         end
+        GameTooltip:Hide()
     end
 
     local handler = _G.SetItemRef or ChatFrame_OnHyperlinkShow
@@ -372,6 +398,10 @@ local function HideHyperlinkTooltip(owner)
 
     if ItemRefTooltip and ItemRefTooltip.GetOwner and ItemRefTooltip:GetOwner() == owner then
         ItemRefTooltip:Hide()
+    end
+
+    if BattlePetTooltip and BattlePetTooltip.Hide then
+        BattlePetTooltip:Hide()
     end
 end
 
@@ -394,7 +424,7 @@ local function EnsureFrameHyperlinks(frame)
 
     if frame.HookScript then
         pcall(frame.HookScript, frame, "OnHyperlinkEnter", function(self, link)
-            if type(link) ~= "string" then
+            if not IsSafeHyperlink(link) then
                 return
             end
 

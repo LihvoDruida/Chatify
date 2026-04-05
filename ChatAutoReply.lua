@@ -52,6 +52,9 @@ local function SafeChatText(value)
     if type(ns.TryMakeSafeText) == "function" then
         return ns.TryMakeSafeText(value)
     end
+    if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value) then
+        return nil
+    end
     if type(value) == "string" then
         return value
     end
@@ -135,10 +138,35 @@ local function GetQueueInfo()
     end
 
     if type(GetBattlefieldStatus) == "function" then
-        for index = 1, 3 do
-            local status, mapName, _, _, _, _, estimatedWaitTime = GetBattlefieldStatus(index)
-            if status == "queued" and estimatedWaitTime and estimatedWaitTime > 0 then
-                return true, math_floor(estimatedWaitTime / 60000), mapName or "battleground"
+        local maxQueues = 3
+        if type(GetMaxBattlefieldID) == "function" then
+            local ok, count = pcall(GetMaxBattlefieldID)
+            if ok and type(count) == "number" and count > 0 then
+                maxQueues = count
+            end
+        end
+
+        for index = 1, maxQueues do
+            local ok, status, mapName, _, _, _, _, legacyWait = pcall(GetBattlefieldStatus, index)
+            if ok and (status == "queued" or status == "confirm") then
+                local estimatedWaitTime = legacyWait
+                if type(GetBattlefieldEstimatedWaitTime) == "function" then
+                    local okWait, waitTime = pcall(GetBattlefieldEstimatedWaitTime, index)
+                    if okWait and type(waitTime) == "number" and waitTime > 0 then
+                        estimatedWaitTime = waitTime
+                    end
+                end
+
+                local waitMinutes = 0
+                if type(estimatedWaitTime) == "number" and estimatedWaitTime > 0 then
+                    if estimatedWaitTime >= 1000 then
+                        waitMinutes = math_floor(estimatedWaitTime / 60000)
+                    else
+                        waitMinutes = math_floor(estimatedWaitTime / 60)
+                    end
+                end
+
+                return true, waitMinutes, mapName or "battleground"
             end
         end
     end

@@ -123,6 +123,10 @@ function CopyModule:OnEnable()
 end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
+    if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(link) then
+        return self.hooks.SetItemRef(link, text, button, chatFrame)
+    end
+
     if type(link) ~= "string" or link == "" then
         return self.hooks.SetItemRef(link, text, button, chatFrame)
     end

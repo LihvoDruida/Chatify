@@ -9,6 +9,7 @@ local eventTypeMap = {
     CHAT_MSG_SAY = "SAY",
     CHAT_MSG_YELL = "YELL",
     CHAT_MSG_GUILD = "GUILD",
+    CHAT_MSG_GUILD_MOTD = "GUILD",
     CHAT_MSG_GUILD_ACHIEVEMENT = "GUILD",
     CHAT_MSG_OFFICER = "GUILD",
     CHAT_MSG_PARTY = "PARTY",
@@ -22,12 +23,21 @@ local eventTypeMap = {
     CHAT_MSG_WHISPER_INFORM = "WHISPER",
     CHAT_MSG_BN_WHISPER = "WHISPER",
     CHAT_MSG_BN_WHISPER_INFORM = "WHISPER",
+    CHAT_MSG_BN_CONVERSATION = "WHISPER",
     CHAT_MSG_CHANNEL = "CHANNEL",
+    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITY",
+    CHAT_MSG_EMOTE = "EMOTE",
+    CHAT_MSG_TEXT_EMOTE = "EMOTE",
     CHAT_MSG_SYSTEM = "SYSTEM",
     CHAT_MSG_AFK = "SYSTEM",
     CHAT_MSG_DND = "SYSTEM",
     CHAT_MSG_ACHIEVEMENT = "SYSTEM",
-    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITY",
+    CHAT_MSG_MONSTER_SAY = "SYSTEM",
+    CHAT_MSG_MONSTER_YELL = "SYSTEM",
+    CHAT_MSG_MONSTER_EMOTE = "SYSTEM",
+    CHAT_MSG_MONSTER_WHISPER = "SYSTEM",
+    CHAT_MSG_MONSTER_BOSS_WHISPER = "SYSTEM",
+    CHAT_MSG_MONSTER_BOSS_EMOTE = "SYSTEM",
     CHAT_MSG_LOOT = "LOOT",
 }
 
@@ -111,6 +121,10 @@ end
 function History:OnChatEvent(event, message, author, ...)
     local db = Chatify.db.profile
     if not db.enableHistory then return end
+
+    if type(ns.IsSecretValue) == "function" and (ns.IsSecretValue(message) or ns.IsSecretValue(author)) then
+        return
+    end
 
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(message, author, ...) then
         return

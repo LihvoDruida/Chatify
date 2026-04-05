@@ -7,6 +7,10 @@ local visualsFiltersInstalled = false
 local C_Timer = C_Timer
 local GetServerTime = GetServerTime
 
+local function IsSecretValue(value)
+    return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
+end
+
 local function GetVisualDB()
     if Chatify and Chatify.db and Chatify.db.profile then
         return Chatify.db.profile
@@ -205,6 +209,10 @@ local function TimestampFilter(self, event, msg, author, ...)
     if not db then return false, msg, author, ... end
     if not db.enableTimestamps then return false, msg, author, ... end
     if not eventsToHandle[event] then return false, msg, author, ... end
+
+    if IsSecretValue(msg) or IsSecretValue(author) then
+        return false, msg, author, ...
+    end
 
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return false, msg, author, ...
