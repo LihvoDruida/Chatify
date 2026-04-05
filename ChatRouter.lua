@@ -366,15 +366,16 @@ local function ShowHyperlinkTooltip(owner, link)
     end
 
     if linkType == "battlepet" and BattlePetToolTip_ShowLink and GameTooltip and GameTooltip.SetOwner then
-        GameTooltip:SetOwner(UIParent or owner, "ANCHOR_CURSOR")
+        GameTooltip:SetOwner(owner, "ANCHOR_CURSOR_RIGHT")
         local ok = pcall(BattlePetToolTip_ShowLink, link)
         if ok then
             return
         end
+        GameTooltip:Hide()
     end
 
     if GameTooltip and GameTooltip.SetOwner and GameTooltip.SetHyperlink then
-        GameTooltip:SetOwner(UIParent or owner, "ANCHOR_CURSOR")
+        GameTooltip:SetOwner(owner, "ANCHOR_CURSOR_RIGHT")
 
         local ok = pcall(GameTooltip.SetHyperlink, GameTooltip, link)
         if ok then
@@ -392,16 +393,25 @@ local function ShowHyperlinkTooltip(owner, link)
 end
 
 local function HideHyperlinkTooltip(owner)
-    if GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner() == owner then
-        GameTooltip:Hide()
+    if GameTooltip then
+        local owned = (GameTooltip.IsOwned and owner and GameTooltip:IsOwned(owner)) or (GameTooltip.GetOwner and GameTooltip:GetOwner() == owner)
+        if owned then
+            GameTooltip:Hide()
+        end
     end
 
-    if ItemRefTooltip and ItemRefTooltip.GetOwner and ItemRefTooltip:GetOwner() == owner then
-        ItemRefTooltip:Hide()
+    if ItemRefTooltip then
+        local owned = (ItemRefTooltip.IsOwned and owner and ItemRefTooltip:IsOwned(owner)) or (ItemRefTooltip.GetOwner and ItemRefTooltip:GetOwner() == owner)
+        if owned then
+            ItemRefTooltip:Hide()
+        end
     end
 
-    if BattlePetTooltip and BattlePetTooltip.Hide then
-        BattlePetTooltip:Hide()
+    if BattlePetTooltip then
+        local owned = (BattlePetTooltip.IsOwned and owner and BattlePetTooltip:IsOwned(owner)) or (BattlePetTooltip.GetOwner and BattlePetTooltip:GetOwner() == owner)
+        if owned and BattlePetTooltip.Hide then
+            BattlePetTooltip:Hide()
+        end
     end
 end
 
