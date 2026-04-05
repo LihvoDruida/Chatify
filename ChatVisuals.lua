@@ -48,6 +48,25 @@ local eventsToHandle = {
     CHAT_MSG_LOOT = true,
 }
 
+local retailTimestampEvents = {
+    CHAT_MSG_CHANNEL = true,
+    CHAT_MSG_SAY = true,
+    CHAT_MSG_YELL = true,
+    CHAT_MSG_GUILD = true,
+    CHAT_MSG_OFFICER = true,
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true,
+    CHAT_MSG_BN_WHISPER_INFORM = true,
+    CHAT_MSG_BN_CONVERSATION = true,
+    CHAT_MSG_PARTY = true,
+    CHAT_MSG_PARTY_LEADER = true,
+    CHAT_MSG_INSTANCE_CHAT = true,
+    CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+    CHAT_MSG_COMMUNITIES_CHANNEL = true,
+    CHAT_MSG_LOOT = true,
+}
+
 -- =========================================================
 -- 1. UTILITIES & SAFETY
 -- =========================================================
@@ -172,7 +191,7 @@ function ns.ApplyVisuals()
         end
     end
 
-    if db.shortChannels then
+    if db.shortChannels and not retailRestricted then
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
@@ -197,7 +216,8 @@ local function TimestampFilter(self, event, msg, author, ...)
     local db = GetVisualDB()
     if not db then return false, msg, author, ... end
     if not db.enableTimestamps then return false, msg, author, ... end
-    if not eventsToHandle[event] then return false, msg, author, ... end
+    local allowedEvents = IsRetailRestricted() and retailTimestampEvents or eventsToHandle
+    if not allowedEvents[event] then return false, msg, author, ... end
 
     if IsSecretValue(msg) or IsSecretValue(author) then
         return false, msg, author, ...
@@ -291,7 +311,8 @@ function VisualsModule:OnEnable()
     -- Віртуальний чат додає власні таймстемпи через Router, тому тут не дублюємо їх.
     -- На Retail 12.x використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
     if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
-        for evt in pairs(eventsToHandle) do
+        local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
+        for evt in pairs(filterEvents) do
             if type(ns.AddMessageEventFilterIfSupported) == "function" then
                 ns.AddMessageEventFilterIfSupported(evt, TimestampFilter)
             else

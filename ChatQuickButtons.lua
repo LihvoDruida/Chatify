@@ -8,6 +8,7 @@ local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
+local GetConfiguredAlpha
 
 local function ApplyButtonBackdrop(button, bg, border)
     if not button or type(button.SetBackdrop) ~= "function" then
@@ -33,16 +34,17 @@ end
 local function GetButtonPalette(button)
     local enabled = not (button and button.__chatifyDisabled)
     local selected = button and button.__chatifySelected
+    local alpha = GetConfiguredAlpha()
 
     if not enabled then
-        return { 0.11, 0.11, 0.11, 0.78 }, { 0.32, 0.32, 0.32, 0.9 }, { 0.55, 0.55, 0.55 }
+        return { 0.11, 0.11, 0.11, math.min(alpha, 0.78) }, { 0.32, 0.32, 0.32, math.min(1, alpha + 0.12) }, { 0.55, 0.55, 0.55 }
     end
 
     if selected then
-        return { 0.17, 0.13, 0.05, 0.96 }, { 0.95, 0.78, 0.22, 1.0 }, { 1.0, 0.9, 0.45 }
+        return { 0.17, 0.13, 0.05, math.min(1, alpha + 0.08) }, { 0.95, 0.78, 0.22, 1.0 }, { 1.0, 0.9, 0.45 }
     end
 
-    return { 0.07, 0.07, 0.07, 0.92 }, { 0.72, 0.58, 0.18, 0.95 }, { 1.0, 0.82, 0.18 }
+    return { 0.07, 0.07, 0.07, alpha }, { 0.72, 0.58, 0.18, math.min(1, alpha + 0.03) }, { 1.0, 0.82, 0.18 }
 end
 
 local function RefreshButtonLook(button)
@@ -67,6 +69,17 @@ local function GetDB()
         return Chatify.db.profile
     end
     return nil
+end
+
+GetConfiguredAlpha = function()
+    local db = GetDB()
+    local alpha = db and db.quickChatButtonAlpha or 0.92
+    if type(alpha) ~= "number" then
+        alpha = 0.92
+    end
+    if alpha < 0.25 then alpha = 0.25 end
+    if alpha > 1 then alpha = 1 end
+    return alpha
 end
 
 local BUTTON_DEFS = {
@@ -317,8 +330,12 @@ local function LayoutButtons()
 
     local db = GetDB()
     local configuredSize = 24
+    local sideGap = 18
     if db and type(db.quickChatButtonSize) == "number" then
-        configuredSize = math.max(18, math.min(32, math.floor(db.quickChatButtonSize + 0.5)))
+        configuredSize = math.max(16, math.min(40, math.floor(db.quickChatButtonSize + 0.5)))
+    end
+    if db and type(db.quickChatButtonGap) == "number" then
+        sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
     end
 
     local frame = GetAnchorFrame()
@@ -327,15 +344,18 @@ local function LayoutButtons()
     end
 
     local spacing = 4
+    local buttonCount = #BUTTON_DEFS
     local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
-    local maxSizeForChat = math.floor((chatHeight - ((#BUTTON_DEFS - 1) * spacing)) / #BUTTON_DEFS)
-    local size = math.max(18, math.min(math.max(configuredSize, 24), maxSizeForChat > 0 and maxSizeForChat or configuredSize))
+    local usableHeight = math.max(1, chatHeight - ((buttonCount - 1) * spacing))
+    local autoSize = math.floor(usableHeight / buttonCount)
+    local size = math.max(14, math.min(configuredSize, autoSize > 0 and autoSize or configuredSize))
+    local totalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
 
     container:ClearAllPoints()
     container:SetParent(GetAnchorParent())
-    container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 12, 0)
-    container:SetHeight(chatHeight)
-    container:SetWidth(size + 2)
+    container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", sideGap, 0)
+    container:SetHeight(math.max(chatHeight, totalHeight))
+    container:SetWidth(size + 4)
 
     local previous
     for _, def in ipairs(BUTTON_DEFS) do
@@ -359,6 +379,7 @@ local function LayoutButtons()
 
             if button.Highlight then
                 button.Highlight:SetAllPoints(button)
+                button.Highlight:SetVertexColor(1.0, 0.85, 0.25, math.min(0.18, GetConfiguredAlpha() * 0.18))
             end
 
             previous = button

@@ -136,7 +136,9 @@ ns.defaults = {
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
         quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
-        quickChatButtonSize = 24,   -- Розмір кнопок швидкого перемикання чату
+        quickChatButtonSize = 24,   -- Базовий розмір кнопок швидкого перемикання чату
+        quickChatButtonGap = 18,    -- Відступ кнопок від правого краю чату
+        quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)

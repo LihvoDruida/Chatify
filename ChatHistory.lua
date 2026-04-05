@@ -261,8 +261,17 @@ end
 -- INIT
 -- =========================================================
 function History:OnEnable()
+    local retailRestricted = false
     if Chatify and Chatify.db and Chatify.db.profile then
         ns.EnforceRetailSafeMode(Chatify.db.profile)
+        retailRestricted = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() or false
+    end
+
+    -- Retail 12.x: custom history tracking through standalone chat events is not
+    -- equivalent to Prat's full MessageEventHandler path and can taint Blizzard's
+    -- protected HistoryKeeper tables. Keep this module disabled on modern Retail.
+    if retailRestricted then
+        return
     end
 
     if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then

@@ -167,15 +167,46 @@ function Chatify:GetOptions()
                     quickChatButtonSize = {
                         order = 7,
                         name = "Quick Button Size",
-                        desc = "Adjust the size of the quick chat buttons. Buttons stay aligned to the chat height and bottom edge.",
+                        desc = "Adjust the base size of the quick chat buttons. They still resize down automatically when the chat frame becomes smaller.",
                         type = "range",
                         min = 16,
-                        max = 32,
+                        max = 40,
                         step = 1,
                         disabled = function() return self.db.profile.quickChatButtons == false end,
                         set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.RefreshQuickChatButtons() end,
                         get = function(info)
-                            return self.db.profile.quickChatButtonSize or 22
+                            return self.db.profile.quickChatButtonSize or 24
+                        end,
+                    },
+
+                    quickChatButtonGap = {
+                        order = 8,
+                        name = "Quick Button Offset",
+                        desc = "Adjust how far the quick chat buttons sit from the right side of the chat frame.",
+                        type = "range",
+                        min = 8,
+                        max = 36,
+                        step = 1,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.RefreshQuickChatButtons() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonGap or 18
+                        end,
+                    },
+
+                    quickChatButtonAlpha = {
+                        order = 9,
+                        name = "Quick Button Opacity",
+                        desc = "Adjust the opacity of the quick chat buttons.",
+                        type = "range",
+                        min = 0.25,
+                        max = 1,
+                        step = 0.05,
+                        isPercent = true,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.RefreshQuickChatButtons() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonAlpha or 0.92
                         end,
                     },
 
