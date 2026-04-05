@@ -64,6 +64,18 @@ local function RefreshButtonLook(button)
     end
 end
 
+local function AddTooltipLine(leftText, rightText, r, g, b, wrap)
+    if not GameTooltip or type(leftText) ~= "string" then
+        return
+    end
+
+    if rightText then
+        GameTooltip:AddDoubleLine(leftText, rightText, r or 0.90, g or 0.90, b or 0.90, 0.78, 0.78, 0.78)
+    else
+        GameTooltip:AddLine(leftText, r or 0.90, g or 0.90, b or 0.90, wrap ~= false)
+    end
+end
+
 local function GetDB()
     if Chatify and Chatify.db and Chatify.db.profile then
         return Chatify.db.profile
@@ -88,8 +100,8 @@ local BUTTON_DEFS = {
         chatType = "GUILD",
         altChatType = "OFFICER",
         label = "G",
-        tooltip = "Гільдійський чат",
-        altTooltip = "Офіцерський чат",
+        tooltip = "Guild Chat",
+        altTooltip = "Officer Chat",
         slash = "/g ",
         altSlash = "/o ",
         isAvailable = function()
@@ -118,8 +130,8 @@ local BUTTON_DEFS = {
         chatType = "RAID",
         altChatType = "RAID_WARNING",
         label = "R",
-        tooltip = "Рейдовий чат",
-        altTooltip = "Чат рейд-командира",
+        tooltip = "Raid Chat",
+        altTooltip = "Raid Warning",
         slash = "/ra ",
         altSlash = "/rw ",
         isAvailable = function()
@@ -139,7 +151,7 @@ local BUTTON_DEFS = {
         key = "PARTY",
         chatType = "PARTY",
         label = "P",
-        tooltip = "Чат групи",
+        tooltip = "Party Chat",
         slash = "/p ",
         isAvailable = function()
             if type(IsInGroup) ~= "function" or type(IsInRaid) ~= "function" then
@@ -152,7 +164,7 @@ local BUTTON_DEFS = {
         key = "INSTANCE_CHAT",
         chatType = "INSTANCE_CHAT",
         label = "I",
-        tooltip = "Інстанс-чат",
+        tooltip = "Instance Chat",
         slash = "/i ",
         isAvailable = function()
             return type(IsInGroup) == "function" and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) or false
@@ -162,7 +174,7 @@ local BUTTON_DEFS = {
         key = "SAY",
         chatType = "SAY",
         label = "S",
-        tooltip = "Звичайний чат",
+        tooltip = "Say Chat",
         slash = "/s ",
         isAvailable = function()
             return true
@@ -346,9 +358,16 @@ local function LayoutButtons()
     local spacing = 4
     local buttonCount = #BUTTON_DEFS
     local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
-    local usableHeight = math.max(1, chatHeight - ((buttonCount - 1) * spacing))
-    local autoSize = math.floor(usableHeight / buttonCount)
-    local size = math.max(14, math.min(configuredSize, autoSize > 0 and autoSize or configuredSize))
+    local maxUsableSize = math.floor((chatHeight - ((buttonCount - 1) * spacing)) / buttonCount)
+    if maxUsableSize < 12 then
+        maxUsableSize = 12
+    end
+
+    local size = configuredSize
+    if size * buttonCount + (spacing * (buttonCount - 1)) > chatHeight then
+        size = math.max(12, math.min(configuredSize, maxUsableSize))
+    end
+
     local totalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
 
     container:ClearAllPoints()
@@ -461,21 +480,37 @@ local function EnsureContainer()
         button:SetScript("OnEnter", function(self)
             RefreshButtonLook(self)
             if GameTooltip then
+                local enabled = IsButtonEnabled(def)
+                local altEnabled = def.altChatType and IsAltButtonEnabled(def) or false
+
                 GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-                GameTooltip:SetText(def.tooltip, 1, 0.82, 0.18)
-                if IsButtonEnabled(def) then
-                    GameTooltip:AddLine("ЛКМ: відкрити цей тип чату", 0.9, 0.9, 0.9, true)
-                    if def.altChatType then
-                        if IsAltButtonEnabled(def) then
-                            GameTooltip:AddLine("Alt + ЛКМ: " .. (def.altTooltip or def.altChatType), 0.75, 0.82, 1.0, true)
-                        else
-                            GameTooltip:AddLine("Alt + ЛКМ: " .. (def.altTooltip or def.altChatType) .. " (недоступно)", 0.6, 0.6, 0.6, true)
-                        end
-                    end
-                    GameTooltip:AddLine("Швидке перемикання каналу праворуч від чату.", 0.7, 0.7, 0.7, true)
-                else
-                    GameTooltip:AddLine("Зараз недоступно", 1.0, 0.2, 0.2, true)
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine(def.tooltip, 1.00, 0.82, 0.18, true)
+                AddTooltipLine("Primary", def.chatType, 0.82, 0.82, 0.82)
+
+                if def.altChatType then
+                    AddTooltipLine("Alt Action", def.altTooltip or def.altChatType, 0.72, 0.82, 1.00)
                 end
+
+                AddTooltipLine(" ")
+                AddTooltipLine("Left Click", "Switch channel", 0.95, 0.95, 0.95)
+
+                if def.altChatType then
+                    if altEnabled then
+                        AddTooltipLine("Alt + Left Click", "Use alternate channel", 0.72, 0.82, 1.00)
+                    else
+                        AddTooltipLine("Alt + Left Click", "Alternate channel unavailable", 0.62, 0.62, 0.62)
+                    end
+                end
+
+                AddTooltipLine(" ")
+                if enabled then
+                    AddTooltipLine("Status", "Available", 0.35, 0.95, 0.55)
+                else
+                    AddTooltipLine("Status", "Unavailable", 1.00, 0.35, 0.35)
+                end
+
+                AddTooltipLine("Position", "Right side of the chat frame", 0.72, 0.72, 0.72)
                 GameTooltip:Show()
             end
         end)
