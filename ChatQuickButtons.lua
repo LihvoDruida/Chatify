@@ -103,7 +103,9 @@ local BUTTON_DEFS = {
         tooltip = "Guild Chat",
         altTooltip = "Officer Chat",
         slash = "/g ",
+        slashAlias = "/guild",
         altSlash = "/o ",
+        altSlashAlias = "/officer",
         isAvailable = function()
             return type(IsInGuild) == "function" and IsInGuild() or false
         end,
@@ -133,7 +135,9 @@ local BUTTON_DEFS = {
         tooltip = "Raid Chat",
         altTooltip = "Raid Warning",
         slash = "/ra ",
+        slashAlias = "/raid",
         altSlash = "/rw ",
+        altSlashAlias = "/raidwarning",
         isAvailable = function()
             return type(IsInRaid) == "function" and IsInRaid(LE_PARTY_CATEGORY_HOME) or false
         end,
@@ -153,6 +157,7 @@ local BUTTON_DEFS = {
         label = "P",
         tooltip = "Party Chat",
         slash = "/p ",
+        slashAlias = "/party",
         isAvailable = function()
             if type(IsInGroup) ~= "function" or type(IsInRaid) ~= "function" then
                 return false
@@ -165,7 +170,9 @@ local BUTTON_DEFS = {
         chatType = "INSTANCE_CHAT",
         label = "I",
         tooltip = "Instance Chat",
+        tooltipNote = "Available only in instance groups formed through the group finder.",
         slash = "/i ",
+        slashAlias = "/instance",
         isAvailable = function()
             return type(IsInGroup) == "function" and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) or false
         end,
@@ -176,6 +183,7 @@ local BUTTON_DEFS = {
         label = "S",
         tooltip = "Say Chat",
         slash = "/s ",
+        slashAlias = "/say",
         isAvailable = function()
             return true
         end,
@@ -358,14 +366,16 @@ local function LayoutButtons()
     local spacing = 4
     local buttonCount = #BUTTON_DEFS
     local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
-    local maxUsableSize = math.floor((chatHeight - ((buttonCount - 1) * spacing)) / buttonCount)
+    local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
+    local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing)) / buttonCount)
     if maxUsableSize < 12 then
         maxUsableSize = 12
     end
 
-    local size = configuredSize
-    if size * buttonCount + (spacing * (buttonCount - 1)) > chatHeight then
-        size = math.max(12, math.min(configuredSize, maxUsableSize))
+    local size = math.max(12, math.min(configuredSize, 48))
+    local desiredTotalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
+    if desiredTotalHeight > fitHeight then
+        size = math.max(12, math.min(size, maxUsableSize))
     end
 
     local totalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
@@ -486,20 +496,21 @@ local function EnsureContainer()
                 GameTooltip:SetOwner(self, "ANCHOR_LEFT")
                 GameTooltip:ClearLines()
                 GameTooltip:AddLine(def.tooltip, 1.00, 0.82, 0.18, true)
-                AddTooltipLine("Primary", def.chatType, 0.82, 0.82, 0.82)
+                AddTooltipLine("Command", string.format("%s  |cff8f8f8f%s|r", def.slash:gsub("%s+$", ""), def.slashAlias or ""), 0.90, 0.90, 0.90)
 
-                if def.altChatType then
-                    AddTooltipLine("Alt Action", def.altTooltip or def.altChatType, 0.72, 0.82, 1.00)
+                if def.tooltipNote then
+                    AddTooltipLine(def.tooltipNote, nil, 0.72, 0.82, 1.00, true)
                 end
 
                 AddTooltipLine(" ")
-                AddTooltipLine("Left Click", "Switch channel", 0.95, 0.95, 0.95)
+                AddTooltipLine("Left Click", "Switch to this channel", 0.95, 0.95, 0.95)
 
                 if def.altChatType then
+                    AddTooltipLine("Alt Command", string.format("%s  |cff8f8f8f%s|r", (def.altSlash or ""):gsub("%s+$", ""), def.altSlashAlias or ""), 0.72, 0.82, 1.00)
                     if altEnabled then
-                        AddTooltipLine("Alt + Left Click", "Use alternate channel", 0.72, 0.82, 1.00)
+                        AddTooltipLine("Alt + Left Click", string.format("Switch to %s", def.altTooltip or def.altChatType), 0.72, 0.82, 1.00)
                     else
-                        AddTooltipLine("Alt + Left Click", "Alternate channel unavailable", 0.62, 0.62, 0.62)
+                        AddTooltipLine("Alt + Left Click", string.format("%s unavailable", def.altTooltip or "Alternate channel"), 0.62, 0.62, 0.62)
                     end
                 end
 
