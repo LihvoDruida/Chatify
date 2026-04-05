@@ -50,7 +50,7 @@ end
 -- =========================================================
 local function GetTargetFrames(event)
     local frames = {}
-    for i = 1, NUM_CHAT_WINDOWS do
+    for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
         if frame and frame:IsEventRegistered(event) then
             table.insert(frames, i)

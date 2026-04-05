@@ -194,6 +194,18 @@ function ns.IsRetailSecretValueBuild()
     return type(interfaceVersion) == "number" and interfaceVersion >= 120000
 end
 
+function ns.GetMaxChatWindows()
+    if type(NUM_CHAT_WINDOWS) == "number" and NUM_CHAT_WINDOWS > 0 then
+        return NUM_CHAT_WINDOWS
+    end
+
+    if Constants and Constants.ChatFrameConstants and type(Constants.ChatFrameConstants.MaxChatWindows) == "number" then
+        return Constants.ChatFrameConstants.MaxChatWindows
+    end
+
+    return 10
+end
+
 -- =========================================================
 -- 6. SAFE TEXT HELPERS (WoW 12.0.x / Secret Values)
 -- =========================================================

@@ -43,6 +43,7 @@ local eventMap = {
     CHAT_MSG_INSTANCE_CHAT = "RAID",
     CHAT_MSG_INSTANCE_CHAT_LEADER = "RAID",
     CHAT_MSG_CHANNEL = nil,
+    CHAT_MSG_COMMUNITIES_CHANNEL = "GUILD",
 }
 
 local function GetSafeText(rawText)

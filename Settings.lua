@@ -11,6 +11,67 @@ local function GetAddonMetadataValue(key)
     return nil
 end
 
+local function GetLSMFontValues()
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
+        return AceGUIWidgetLSMlists.font
+    end
+
+    local values = {}
+    if LibStub and LibStub("LibSharedMedia-3.0", true) then
+        local LSM = LibStub("LibSharedMedia-3.0")
+        local ok, hash = pcall(LSM.HashTable, LSM, "font")
+        if ok and type(hash) == "table" then
+            for name in pairs(hash) do
+                values[name] = name
+            end
+        end
+    end
+
+    if next(values) == nil and ns.Lists and ns.Lists.Fonts then
+        for _, entry in ipairs(ns.Lists.Fonts) do
+            if entry and entry.name then
+                values[entry.name] = entry.name
+            end
+        end
+    end
+
+    return values
+end
+
+local function GetLSMSoundValues()
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound then
+        return AceGUIWidgetLSMlists.sound
+    end
+
+    local values = { ["None"] = "None" }
+    if LibStub and LibStub("LibSharedMedia-3.0", true) then
+        local LSM = LibStub("LibSharedMedia-3.0")
+        local ok, hash = pcall(LSM.HashTable, LSM, "sound")
+        if ok and type(hash) == "table" then
+            for name in pairs(hash) do
+                values[name] = name
+            end
+        end
+    end
+
+    values["Chatify Default"] = "Chatify Default"
+    return values
+end
+
+local function GetLSMFontControl()
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
+        return "LSM30_Font"
+    end
+    return nil
+end
+
+local function GetLSMSoundControl()
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound then
+        return "LSM30_Sound"
+    end
+    return nil
+end
+
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
@@ -64,8 +125,8 @@ function Chatify:GetOptions()
                         desc = "Select the typeface used for chat messages.",
                         type = "select",
                         width = "double",
-                        dialogControl = "LSM30_Font",
-                        values = AceGUIWidgetLSMlists.font, -- Auto-fill from LSM
+                        dialogControl = GetLSMFontControl(),
+                        values = GetLSMFontValues(),
                         set = function(info, val) self.db.profile.fontID = val; ns.ApplyVisuals() end,
                         get = function(info) return self.db.profile.fontID end,
                     },
@@ -161,9 +222,9 @@ function Chatify:GetOptions()
                     soundWhisper = {
                         order = 11,
                         type = "select",
-                        dialogControl = "LSM30_Sound",
+                        dialogControl = GetLSMSoundControl(),
                         name = "Whisper Received",
-                        values = AceGUIWidgetLSMlists.sound,
+                        values = GetLSMSoundValues(),
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
                         get = function(info) return self.db.profile.sounds.events["WHISPER"] end,
@@ -171,10 +232,10 @@ function Chatify:GetOptions()
                     soundMention = {
                         order = 12,
                         type = "select",
-                        dialogControl = "LSM30_Sound",
+                        dialogControl = GetLSMSoundControl(),
                         name = "Name Mentioned",
                         desc = "Plays when someone types your name.",
-                        values = AceGUIWidgetLSMlists.sound,
+                        values = GetLSMSoundValues(),
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["MENTION"] = val end,
                         get = function(info) return self.db.profile.sounds.events["MENTION"] end,
@@ -185,9 +246,9 @@ function Chatify:GetOptions()
                     soundGuild = {
                         order = 13,
                         type = "select",
-                        dialogControl = "LSM30_Sound",
+                        dialogControl = GetLSMSoundControl(),
                         name = "Guild Chat",
-                        values = AceGUIWidgetLSMlists.sound,
+                        values = GetLSMSoundValues(),
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["GUILD"] = val end,
                         get = function(info) return self.db.profile.sounds.events["GUILD"] end,
@@ -195,9 +256,9 @@ function Chatify:GetOptions()
                     soundParty = {
                         order = 14,
                         type = "select",
-                        dialogControl = "LSM30_Sound",
+                        dialogControl = GetLSMSoundControl(),
                         name = "Party Chat",
-                        values = AceGUIWidgetLSMlists.sound,
+                        values = GetLSMSoundValues(),
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["PARTY"] = val end,
                         get = function(info) return self.db.profile.sounds.events["PARTY"] end,
@@ -205,9 +266,9 @@ function Chatify:GetOptions()
                     soundRaid = {
                         order = 15,
                         type = "select",
-                        dialogControl = "LSM30_Sound",
+                        dialogControl = GetLSMSoundControl(),
                         name = "Raid Chat",
-                        values = AceGUIWidgetLSMlists.sound,
+                        values = GetLSMSoundValues(),
                         disabled = function() return not self.db.profile.sounds.enable end,
                         set = function(info, val) self.db.profile.sounds.events["RAID"] = val end,
                         get = function(info) return self.db.profile.sounds.events["RAID"] end,
@@ -577,7 +638,12 @@ end
 function Chatify:OpenConfig()
     if Settings and Settings.OpenToCategory then
         Settings.OpenToCategory(self.optionsFrame.name)
-    else
+        Settings.OpenToCategory(self.optionsFrame.name)
+        return
+    end
+
+    if InterfaceOptionsFrame_OpenToCategory then
+        InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
         InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
     end
 end

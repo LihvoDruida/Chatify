@@ -8,6 +8,7 @@ local tinsert = table.insert
 local string_find = string.find
 local string_gsub = string.gsub
 local string_upper = string.upper
+local table_concat = table.concat
 local UnitName = UnitName
 
 local PLAYER_NAME = UnitName("player")
@@ -72,6 +73,7 @@ local RetailRestrictedEvents = {
     "CHAT_MSG_SYSTEM",
     "CHAT_MSG_ACHIEVEMENT",
     "CHAT_MSG_GUILD_ACHIEVEMENT",
+    "CHAT_MSG_COMMUNITIES_CHANNEL",
 }
 
 local LinkRegexRules = {
@@ -192,23 +194,51 @@ local function DecorateLink(url)
     return string.format("|cff%s|Hurl:%s|h[%s]|h|r", color, cleanUrl, cleanUrl)
 end
 
-local function IsProtected(text, pos)
-    local prefix = text:sub(1, pos)
-    local _, openCount = prefix:gsub("|H", "")
-    local _, closeCount = prefix:gsub("|h", "")
-    return openCount > (closeCount / 2)
-end
-
-local function DecorateLinksInText(text)
+local function TransformPlainTextSegments(text, transformer)
     if type(text) ~= "string" then
         return text
     end
 
-    if text:find("|Hurl:", 1, true) then
-        return text
+    local out = {}
+    local index = 1
+    local length = #text
+
+    while index <= length do
+        local hs = text:find("|H", index, true)
+        if not hs then
+            out[#out + 1] = transformer(text:sub(index))
+            break
+        end
+
+        if hs > index then
+            out[#out + 1] = transformer(text:sub(index, hs - 1))
+        end
+
+        local firstClose = text:find("|h", hs + 2, true)
+        if not firstClose then
+            out[#out + 1] = transformer(text:sub(hs))
+            break
+        end
+
+        local secondClose = text:find("|h", firstClose + 2, true)
+        if not secondClose then
+            out[#out + 1] = transformer(text:sub(hs))
+            break
+        end
+
+        out[#out + 1] = text:sub(hs, secondClose + 1)
+        index = secondClose + 2
     end
 
-    local output = text
+    return table_concat(out)
+end
+
+local function DecorateLinksInSegment(segment)
+    if type(segment) ~= "string" or segment == "" then
+        return segment
+    end
+
+    local output = segment
     for i = 1, #LinkRegexRules do
         local rule = LinkRegexRules[i]
         local startIdx = 1
@@ -227,10 +257,6 @@ local function DecorateLinksInText(text)
                 isValid = false
             end
 
-            if isValid and IsProtected(output, s) then
-                isValid = false
-            end
-
             if isValid then
                 local newLink = DecorateLink(url)
                 output = output:sub(1, s - 1) .. newLink .. output:sub(e + 1)
@@ -242,6 +268,38 @@ local function DecorateLinksInText(text)
     end
 
     return output
+end
+
+local function DecorateLinksInText(text)
+    if type(text) ~= "string" then
+        return text
+    end
+
+    if text:find("|Hurl:", 1, true) then
+        return text
+    end
+
+    return TransformPlainTextSegments(text, DecorateLinksInSegment)
+end
+
+local function HighlightWordList(text, words, color)
+    if type(text) ~= "string" or type(words) ~= "table" or #words == 0 then
+        return text
+    end
+
+    local function apply(segment)
+        local output = segment
+        for i = 1, #words do
+            local word = words[i]
+            if word and word ~= "" then
+                local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
+                output = output:gsub("(" .. escaped .. ")", "|cff" .. color .. "%1|r")
+            end
+        end
+        return output
+    end
+
+    return TransformPlainTextSegments(text, apply)
 end
 
 function ns.FormatLinksOnly(msg)
@@ -281,32 +339,13 @@ function ns.FormatMessage(msg)
         local output = safeMsg
 
         if db.highlightKeywords then
-            for i = 1, #db.highlightKeywords do
-                local word = db.highlightKeywords[i]
-                if word and word ~= "" then
-                    local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-                    output = output:gsub("(" .. escaped .. ")", function(match)
-                        local s = output:find(match, 1, true)
-                        if s and IsProtected(output, s) then
-                            return match
-                        end
-                        return "|cff" .. (db.myHighlightColor or "ff0000") .. match .. "|r"
-                    end)
-                end
-            end
+            output = HighlightWordList(output, db.highlightKeywords, db.myHighlightColor or "ff0000")
         end
 
         output = DecorateLinksInText(output)
 
         if PLAYER_NAME and PLAYER_NAME ~= "" then
-            local escaped = string_gsub(PLAYER_NAME, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-            output = string_gsub(output, "(" .. escaped .. ")", function(match)
-                local s = string_find(output, match, 1, true)
-                if s and IsProtected(output, s) then
-                    return match
-                end
-                return "|cffffd700" .. match .. "|r"
-            end)
+            output = HighlightWordList(output, { PLAYER_NAME }, "ffd700")
         end
 
         return output

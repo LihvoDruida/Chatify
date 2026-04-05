@@ -59,3 +59,10 @@ Contributions are welcome!
 ## 📝 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+
+## Compatibility Notes
+
+- Retail 12.x uses a restricted safe path inspired by modern Prat patterns: filters stay on Blizzard's secure message pipeline, while risky direct chat-frame rewrites stay disabled.
+- Auto Reply is now actually loaded from the TOC, so its settings are no longer dead UI.
+- Extra TOC variants were added for TBC/Wrath/Vanilla packaging.

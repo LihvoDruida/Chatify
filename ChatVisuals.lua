@@ -158,7 +158,7 @@ function ns.ApplyVisuals()
     if not db then return end
     local retailRestricted = IsRetailRestricted()
 
-    for i = 1, NUM_CHAT_WINDOWS do
+    for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
         if frame then 
             StyleFrame(frame) 

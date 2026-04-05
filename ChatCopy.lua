@@ -123,6 +123,10 @@ function CopyModule:OnEnable()
 end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
+    if type(link) ~= "string" or link == "" then
+        return self.hooks.SetItemRef(link, text, button, chatFrame)
+    end
+
     -- 1. Клік на TIMESTAMP (chatcopy:ID)
     if link:sub(1, 9) == "chatcopy:" then
         local id = tonumber(link:sub(10))

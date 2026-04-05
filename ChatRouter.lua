@@ -17,6 +17,16 @@ local GetServerTime = GetServerTime
 local C_Timer = C_Timer
 local GetTime = GetTime
 
+local tooltipLinkTypes = {
+    item = true,
+    enchant = true,
+    spell = true,
+    quest = true,
+    achievement = true,
+    currency = true,
+    battlepet = true,
+}
+
 local hookedFrames = {}
 local proxyFrames = {}
 local originalAddMessage = {}
@@ -316,8 +326,23 @@ local function ShowHyperlinkTooltip(owner, link)
         return
     end
 
+    local linkType = link:match("^([^:]+):")
+    if not tooltipLinkTypes[linkType] then
+        return
+    end
+
+    if GameTooltip then
+        GameTooltip:Hide()
+    end
+
+    if linkType == "battlepet" and BattlePetToolTip_ShowLink and GameTooltip and GameTooltip.SetOwner then
+        GameTooltip:SetOwner(UIParent or owner, "ANCHOR_CURSOR")
+        pcall(BattlePetToolTip_ShowLink, link)
+        return
+    end
+
     if GameTooltip and GameTooltip.SetOwner and GameTooltip.SetHyperlink then
-        GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
+        GameTooltip:SetOwner(UIParent or owner, "ANCHOR_CURSOR")
 
         local ok = pcall(GameTooltip.SetHyperlink, GameTooltip, link)
         if ok then
@@ -542,7 +567,7 @@ local function HookFrame(frame)
 end
 
 function Router:ApplyToAllFrames()
-    for i = 1, NUM_CHAT_WINDOWS do
+    for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame" .. i]
         if frame then
             EnsureFrameHyperlinks(frame)
@@ -552,7 +577,7 @@ function Router:ApplyToAllFrames()
 end
 
 function Router:RefreshProxies()
-    for i = 1, NUM_CHAT_WINDOWS do
+    for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame" .. i]
         if frame then
             EnsureFrameHyperlinks(frame)
