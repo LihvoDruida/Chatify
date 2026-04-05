@@ -136,7 +136,7 @@ ns.defaults = {
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
         quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
-        quickChatButtonSize = 22,   -- Розмір кнопок швидкого перемикання чату
+        quickChatButtonSize = 24,   -- Розмір кнопок швидкого перемикання чату
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)
@@ -261,6 +261,60 @@ function ns.EnforceRetailSafeMode(db)
     return true
 end
 
+
+
+local eventSupportCache = {}
+local eventProbeFrame
+
+function ns.IsEventSupported(eventName)
+    if type(eventName) ~= "string" or eventName == "" then
+        return false
+    end
+
+    if eventSupportCache[eventName] ~= nil then
+        return eventSupportCache[eventName]
+    end
+
+    if type(CreateFrame) ~= "function" then
+        eventSupportCache[eventName] = false
+        return false
+    end
+
+    eventProbeFrame = eventProbeFrame or CreateFrame("Frame")
+    local ok = pcall(eventProbeFrame.RegisterEvent, eventProbeFrame, eventName)
+    if ok then
+        pcall(eventProbeFrame.UnregisterEvent, eventProbeFrame, eventName)
+    end
+
+    eventSupportCache[eventName] = ok and true or false
+    return eventSupportCache[eventName]
+end
+
+function ns.RegisterEventIfSupported(target, eventName, method)
+    if not target or type(target.RegisterEvent) ~= "function" then
+        return false
+    end
+
+    if not ns.IsEventSupported(eventName) then
+        return false
+    end
+
+    local ok = pcall(target.RegisterEvent, target, eventName, method)
+    return ok and true or false
+end
+
+function ns.AddMessageEventFilterIfSupported(eventName, callback)
+    if type(ChatFrame_AddMessageEventFilter) ~= "function" or type(callback) ~= "function" then
+        return false
+    end
+
+    if not ns.IsEventSupported(eventName) then
+        return false
+    end
+
+    local ok = pcall(ChatFrame_AddMessageEventFilter, eventName, callback)
+    return ok and true or false
+end
 function ns.RunRetailCompatibilityMigration(db)
     if not db or ns.IsRetailSecretValueBuild() then
         return false

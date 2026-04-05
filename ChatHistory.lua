@@ -275,9 +275,19 @@ function History:OnEnable()
         return
     end
     for event in pairs(eventTypeMap) do
-        self:RegisterEvent(event, "OnChatEvent")
+        if type(ns.RegisterEventIfSupported) == "function" then
+            ns.RegisterEventIfSupported(self, event, "OnChatEvent")
+        else
+            self:RegisterEvent(event, "OnChatEvent")
+        end
     end
-    self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
-    self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+
+    if type(ns.RegisterEventIfSupported) == "function" then
+        ns.RegisterEventIfSupported(self, "PLAYER_LOGOUT", "SaveHistory")
+        ns.RegisterEventIfSupported(self, "PLAYER_LEAVING_WORLD", "SaveHistory")
+    else
+        self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
+        self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+    end
     C_Timer.After(1, function() pcall(function() self:RestoreHistory() end) end)
 end

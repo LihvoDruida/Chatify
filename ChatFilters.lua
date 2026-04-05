@@ -45,21 +45,11 @@ local BaseEvents = {
     "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_INSTANCE_CHAT",
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
-    "CHAT_MSG_EMOTE",
-    "CHAT_MSG_TEXT_EMOTE",
     "CHAT_MSG_SYSTEM",
     "CHAT_MSG_AFK",
     "CHAT_MSG_DND",
-    "CHAT_MSG_ACHIEVEMENT",
-    "CHAT_MSG_GUILD_ACHIEVEMENT",
     "CHAT_MSG_COMMUNITIES_CHANNEL",
     "CHAT_MSG_LOOT",
-    "CHAT_MSG_MONSTER_SAY",
-    "CHAT_MSG_MONSTER_YELL",
-    "CHAT_MSG_MONSTER_EMOTE",
-    "CHAT_MSG_MONSTER_WHISPER",
-    "CHAT_MSG_MONSTER_BOSS_WHISPER",
-    "CHAT_MSG_MONSTER_BOSS_EMOTE",
 }
 
 -- Retail 12.x: use Blizzard's secure message-event filter path only.
@@ -83,21 +73,11 @@ local RetailRestrictedEvents = {
     "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_INSTANCE_CHAT",
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
-    "CHAT_MSG_EMOTE",
-    "CHAT_MSG_TEXT_EMOTE",
     "CHAT_MSG_SYSTEM",
     "CHAT_MSG_AFK",
     "CHAT_MSG_DND",
-    "CHAT_MSG_ACHIEVEMENT",
-    "CHAT_MSG_GUILD_ACHIEVEMENT",
     "CHAT_MSG_COMMUNITIES_CHANNEL",
     "CHAT_MSG_LOOT",
-    "CHAT_MSG_MONSTER_SAY",
-    "CHAT_MSG_MONSTER_YELL",
-    "CHAT_MSG_MONSTER_EMOTE",
-    "CHAT_MSG_MONSTER_WHISPER",
-    "CHAT_MSG_MONSTER_BOSS_WHISPER",
-    "CHAT_MSG_MONSTER_BOSS_EMOTE",
 }
 
 local LinkRegexRules = {
@@ -524,23 +504,43 @@ function Filters:OnEnable()
     if not filtersInstalled then
         if IsRetailRestricted() then
             for i = 1, #RetailRestrictedEvents do
-                ChatFrame_AddMessageEventFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
+                if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                    ns.AddMessageEventFilterIfSupported(RetailRestrictedEvents[i], RetailRestrictedProcessor)
+                else
+                    ChatFrame_AddMessageEventFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
+                end
             end
 
             for eventName in pairs(SystemEvents) do
-                ChatFrame_AddMessageEventFilter(eventName, RetailRestrictedProcessor)
+                if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                    ns.AddMessageEventFilterIfSupported(eventName, RetailRestrictedProcessor)
+                else
+                    ChatFrame_AddMessageEventFilter(eventName, RetailRestrictedProcessor)
+                end
             end
         elseif IsVirtualMode() then
             for eventName in pairs(SystemEvents) do
-                ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
+                if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                    ns.AddMessageEventFilterIfSupported(eventName, SystemOnlyFilter)
+                else
+                    ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
+                end
             end
         else
             for i = 1, #BaseEvents do
-                ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
+                if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                    ns.AddMessageEventFilterIfSupported(BaseEvents[i], LegacyMessageProcessor)
+                else
+                    ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
+                end
             end
 
             for eventName in pairs(SystemEvents) do
-                ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
+                if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                    ns.AddMessageEventFilterIfSupported(eventName, LegacyMessageProcessor)
+                else
+                    ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
+                end
             end
         end
 

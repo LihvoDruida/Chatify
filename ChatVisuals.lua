@@ -28,7 +28,6 @@ local eventsToHandle = {
     CHAT_MSG_SAY = true,
     CHAT_MSG_YELL = true,
     CHAT_MSG_GUILD = true,
-    CHAT_MSG_GUILD_MOTD = true,
     CHAT_MSG_OFFICER = true,
     CHAT_MSG_WHISPER = true,
     CHAT_MSG_WHISPER_INFORM = true,
@@ -42,21 +41,11 @@ local eventsToHandle = {
     CHAT_MSG_RAID_WARNING = true,
     CHAT_MSG_INSTANCE_CHAT = true,
     CHAT_MSG_INSTANCE_CHAT_LEADER = true,
-    CHAT_MSG_EMOTE = true,
-    CHAT_MSG_TEXT_EMOTE = true,
     CHAT_MSG_SYSTEM = true,
     CHAT_MSG_AFK = true,
     CHAT_MSG_DND = true,
-    CHAT_MSG_ACHIEVEMENT = true,
-    CHAT_MSG_GUILD_ACHIEVEMENT = true,
     CHAT_MSG_COMMUNITIES_CHANNEL = true,
     CHAT_MSG_LOOT = true,
-    CHAT_MSG_MONSTER_SAY = true,
-    CHAT_MSG_MONSTER_YELL = true,
-    CHAT_MSG_MONSTER_EMOTE = true,
-    CHAT_MSG_MONSTER_WHISPER = true,
-    CHAT_MSG_MONSTER_BOSS_WHISPER = true,
-    CHAT_MSG_MONSTER_BOSS_EMOTE = true,
 }
 
 -- =========================================================
@@ -303,7 +292,11 @@ function VisualsModule:OnEnable()
     -- На Retail 12.x використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
     if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
         for evt in pairs(eventsToHandle) do
-            ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
+            if type(ns.AddMessageEventFilterIfSupported) == "function" then
+                ns.AddMessageEventFilterIfSupported(evt, TimestampFilter)
+            else
+                ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
+            end
         end
         visualsFiltersInstalled = true
     end
