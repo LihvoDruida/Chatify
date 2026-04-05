@@ -20,13 +20,17 @@ end
 -- Ми додаємо таймстемпи ТІЛЬКИ до цих подій.
 -- Всі інші (MONSTER_YELL, SYSTEM, BN_WHISPER) ігноруються, щоб уникнути taint-крашів.
 local eventsToHandle = {
+    CHAT_MSG_CHANNEL = true,
     CHAT_MSG_SAY = true,
     CHAT_MSG_YELL = true,
-    CHAT_MSG_EMOTE = true,
-    CHAT_MSG_TEXT_EMOTE = true,
     CHAT_MSG_GUILD = true,
     CHAT_MSG_GUILD_MOTD = true,
     CHAT_MSG_OFFICER = true,
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true,
+    CHAT_MSG_BN_WHISPER_INFORM = true,
+    CHAT_MSG_BN_CONVERSATION = true,
     CHAT_MSG_PARTY = true,
     CHAT_MSG_PARTY_LEADER = true,
     CHAT_MSG_RAID = true,
@@ -34,11 +38,21 @@ local eventsToHandle = {
     CHAT_MSG_RAID_WARNING = true,
     CHAT_MSG_INSTANCE_CHAT = true,
     CHAT_MSG_INSTANCE_CHAT_LEADER = true,
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_CHANNEL = true,
-    -- CHAT_MSG_BN_WHISPER -- Видалено (taint ризик)
-    -- CHAT_MSG_SYSTEM -- Видалено (taint ризик)
+    CHAT_MSG_EMOTE = true,
+    CHAT_MSG_TEXT_EMOTE = true,
+    CHAT_MSG_SYSTEM = true,
+    CHAT_MSG_AFK = true,
+    CHAT_MSG_DND = true,
+    CHAT_MSG_ACHIEVEMENT = true,
+    CHAT_MSG_GUILD_ACHIEVEMENT = true,
+    CHAT_MSG_COMMUNITIES_CHANNEL = true,
+    CHAT_MSG_LOOT = true,
+    CHAT_MSG_MONSTER_SAY = true,
+    CHAT_MSG_MONSTER_YELL = true,
+    CHAT_MSG_MONSTER_EMOTE = true,
+    CHAT_MSG_MONSTER_WHISPER = true,
+    CHAT_MSG_MONSTER_BOSS_WHISPER = true,
+    CHAT_MSG_MONSTER_BOSS_EMOTE = true,
 }
 
 -- =========================================================
@@ -165,13 +179,7 @@ function ns.ApplyVisuals()
         end
     end
 
-    if retailRestricted then
-        if next(OriginalChannelMaps) then
-            for k, v in pairs(OriginalChannelMaps) do
-                _G[k] = v
-            end
-        end
-    elseif db.shortChannels then
+    if db.shortChannels then
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
@@ -195,37 +203,48 @@ end
 local function TimestampFilter(self, event, msg, author, ...)
     local db = GetVisualDB()
     if not db then return false, msg, author, ... end
+    if not db.enableTimestamps then return false, msg, author, ... end
+    if not eventsToHandle[event] then return false, msg, author, ... end
 
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return false, msg, author, ...
     end
 
-    -- Перевірка налаштувань
-    if not db.enableTimestamps then return false, msg, author, ... end
-
-    -- 1. БІЛИЙ СПИСОК: Якщо подія небезпечна, повертаємо оригінал без змін
-    if not eventsToHandle[event] then
-        return false, msg, author, ...
-    end
-
-    -- 2. САНІТАРНА ОБРОБКА: Отримуємо безпечний текст
     local safeMsg = GetSafeText(msg)
-    if not safeMsg then
-        -- Якщо текст tainted, не чіпаємо його
+    if not safeMsg or type(safeMsg) ~= "string" then
         return false, msg, author, ...
     end
 
-    local timestampFormat = "%H:%M" 
+    if safeMsg:find("|Hchatcopy:", 1, true) then
+        return false, msg, author, ...
+    end
+
+    local timestampFormat = "%H:%M"
     if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
-       local formatData = ns.Lists.TimeFormats[db.timestampID]
-       if formatData then timestampFormat = formatData.format end
+        local formatData = ns.Lists.TimeFormats[db.timestampID]
+        if formatData then
+            if formatData.format == nil then
+                return false, msg, author, ...
+            end
+            timestampFormat = formatData.format or timestampFormat
+        end
     end
 
     local timestamp = db.useServerTime and GetServerTime() or time()
     local okBuild, finalMsg = pcall(function()
         local timeStr = date(timestampFormat, timestamp)
         local tsColor = db.timestampColor or "68ccef"
-        local styledTime = string.format("|cff%s[%s]|r", tsColor, timeStr)
+        local cacheId = nil
+        if type(ns.SaveToCache) == "function" then
+            cacheId = ns.SaveToCache(safeMsg)
+        end
+
+        local styledTime
+        if cacheId then
+            styledTime = string.format("|cff%s|Hchatcopy:%d|h[%s]|h|r", tsColor, cacheId, timeStr)
+        else
+            styledTime = string.format("|cff%s[%s]|r", tsColor, timeStr)
+        end
 
         if db.timestampPost then
             return safeMsg .. " " .. styledTime
@@ -238,7 +257,6 @@ local function TimestampFilter(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    -- Повертаємо нове, безпечне повідомлення
     return false, finalMsg, author, ...
 end
 
@@ -273,10 +291,9 @@ function VisualsModule:OnEnable()
         end
     end
 
-    -- У virtual mode не чіпаємо raw chat events, щоб не ловити taint/secret string у HistoryKeeper.
-    -- На Retail 12.x також повністю відмовляємось від message filters,
-    -- бо вони можуть taint-ити Blizzard chat pipeline для secret values.
-    if not retailRestricted and not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
+    -- Віртуальний чат додає власні таймстемпи через Router, тому тут не дублюємо їх.
+    -- На Retail 12.x використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
+    if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
         for evt in pairs(eventsToHandle) do
             ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
         end

@@ -29,6 +29,9 @@ local BaseEvents = {
     "CHAT_MSG_YELL",
     "CHAT_MSG_WHISPER",
     "CHAT_MSG_WHISPER_INFORM",
+    "CHAT_MSG_BN_WHISPER",
+    "CHAT_MSG_BN_WHISPER_INFORM",
+    "CHAT_MSG_BN_CONVERSATION",
     "CHAT_MSG_GUILD",
     "CHAT_MSG_OFFICER",
     "CHAT_MSG_PARTY",
@@ -40,6 +43,19 @@ local BaseEvents = {
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
     "CHAT_MSG_EMOTE",
     "CHAT_MSG_TEXT_EMOTE",
+    "CHAT_MSG_SYSTEM",
+    "CHAT_MSG_AFK",
+    "CHAT_MSG_DND",
+    "CHAT_MSG_ACHIEVEMENT",
+    "CHAT_MSG_GUILD_ACHIEVEMENT",
+    "CHAT_MSG_COMMUNITIES_CHANNEL",
+    "CHAT_MSG_LOOT",
+    "CHAT_MSG_MONSTER_SAY",
+    "CHAT_MSG_MONSTER_YELL",
+    "CHAT_MSG_MONSTER_EMOTE",
+    "CHAT_MSG_MONSTER_WHISPER",
+    "CHAT_MSG_MONSTER_BOSS_WHISPER",
+    "CHAT_MSG_MONSTER_BOSS_EMOTE",
 }
 
 -- Retail 12.x: use Blizzard's secure message-event filter path only.
@@ -53,6 +69,7 @@ local RetailRestrictedEvents = {
     "CHAT_MSG_WHISPER_INFORM",
     "CHAT_MSG_BN_WHISPER",
     "CHAT_MSG_BN_WHISPER_INFORM",
+    "CHAT_MSG_BN_CONVERSATION",
     "CHAT_MSG_GUILD",
     "CHAT_MSG_OFFICER",
     "CHAT_MSG_PARTY",
@@ -64,16 +81,19 @@ local RetailRestrictedEvents = {
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
     "CHAT_MSG_EMOTE",
     "CHAT_MSG_TEXT_EMOTE",
+    "CHAT_MSG_SYSTEM",
+    "CHAT_MSG_AFK",
+    "CHAT_MSG_DND",
+    "CHAT_MSG_ACHIEVEMENT",
+    "CHAT_MSG_GUILD_ACHIEVEMENT",
+    "CHAT_MSG_COMMUNITIES_CHANNEL",
+    "CHAT_MSG_LOOT",
     "CHAT_MSG_MONSTER_SAY",
     "CHAT_MSG_MONSTER_YELL",
     "CHAT_MSG_MONSTER_EMOTE",
     "CHAT_MSG_MONSTER_WHISPER",
     "CHAT_MSG_MONSTER_BOSS_WHISPER",
     "CHAT_MSG_MONSTER_BOSS_EMOTE",
-    "CHAT_MSG_SYSTEM",
-    "CHAT_MSG_ACHIEVEMENT",
-    "CHAT_MSG_GUILD_ACHIEVEMENT",
-    "CHAT_MSG_COMMUNITIES_CHANNEL",
 }
 
 local LinkRegexRules = {
@@ -189,9 +209,16 @@ local function DecorateLink(url)
         return url
     end
 
-    local cleanUrl = url:gsub("[%.,:;!'\"%)%]]+$", "")
+    local cleanUrl, trailing = url:match("^(.-)([%.,:;!'\"%)%]]*)$")
+    cleanUrl = cleanUrl or url
+    trailing = trailing or ""
+
+    if cleanUrl == "" then
+        return url
+    end
+
     local color = db.urlColor or "0099FF"
-    return string.format("|cff%s|Hurl:%s|h[%s]|h|r", color, cleanUrl, cleanUrl)
+    return string.format("|cff%s|Hurl:%s|h[%s]|h|r%s", color, cleanUrl, cleanUrl, trailing)
 end
 
 local function TransformPlainTextSegments(text, transformer)
@@ -373,6 +400,10 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+        return false, msg, author, ...
+    end
+
     if db.hideSystemSpam and SystemEvents[event] then
         return true
     end
@@ -394,6 +425,10 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+        return false, msg, author, ...
+    end
+
     if db.hideSystemSpam and SystemEvents[event] then
         return true
     end
@@ -406,22 +441,28 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         return true
     end
 
-    return false, ns.FormatLinksOnly(msg), author, ...
+    return false, ns.FormatMessage(msg), author, ...
 end
 
 function Filters:HookCommunities()
-    if IsVirtualMode() or IsRetailRestricted() then
+    if IsVirtualMode() then
         return
     end
 
     if CommunitiesChatLineMixin and CommunitiesChatLineMixin.SetMessage then
         self:SecureHook(CommunitiesChatLineMixin, "SetMessage", function(frame, messageInfo)
-            if not messageInfo or not messageInfo.text then
+            if not messageInfo or not messageInfo.text or not frame or not frame.Message then
                 return
             end
 
-            local ok, formatted = pcall(ns.FormatMessage, messageInfo.text)
-            local finalText = ok and formatted or messageInfo.text
+            local sourceText = messageInfo.text
+            if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(sourceText) then
+                return
+            end
+
+            local formatter = ns.FormatMessage
+            local ok, formatted = pcall(formatter, sourceText)
+            local finalText = ok and formatted or sourceText
             if finalText then
                 frame.Message:SetText(finalText)
             end

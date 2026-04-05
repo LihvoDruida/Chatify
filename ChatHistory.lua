@@ -6,17 +6,29 @@ local History = Chatify:NewModule("History", "AceEvent-3.0")
 -- EVENT → TYPE MAP
 -- =========================================================
 local eventTypeMap = {
-    CHAT_MSG_SAY           = "SAY",
-    CHAT_MSG_YELL          = "YELL",
-    CHAT_MSG_GUILD         = "GUILD",
-    CHAT_MSG_OFFICER       = "GUILD",
-    CHAT_MSG_PARTY         = "PARTY",
-    CHAT_MSG_PARTY_LEADER  = "PARTY",
-    CHAT_MSG_RAID          = "RAID",
-    CHAT_MSG_RAID_LEADER   = "RAID",
-    CHAT_MSG_WHISPER       = "WHISPER",
-    CHAT_MSG_WHISPER_INFORM= "WHISPER",
-    CHAT_MSG_CHANNEL       = "CHANNEL",
+    CHAT_MSG_SAY = "SAY",
+    CHAT_MSG_YELL = "YELL",
+    CHAT_MSG_GUILD = "GUILD",
+    CHAT_MSG_GUILD_ACHIEVEMENT = "GUILD",
+    CHAT_MSG_OFFICER = "GUILD",
+    CHAT_MSG_PARTY = "PARTY",
+    CHAT_MSG_PARTY_LEADER = "PARTY",
+    CHAT_MSG_RAID = "RAID",
+    CHAT_MSG_RAID_LEADER = "RAID",
+    CHAT_MSG_RAID_WARNING = "RAID",
+    CHAT_MSG_INSTANCE_CHAT = "RAID",
+    CHAT_MSG_INSTANCE_CHAT_LEADER = "RAID",
+    CHAT_MSG_WHISPER = "WHISPER",
+    CHAT_MSG_WHISPER_INFORM = "WHISPER",
+    CHAT_MSG_BN_WHISPER = "WHISPER",
+    CHAT_MSG_BN_WHISPER_INFORM = "WHISPER",
+    CHAT_MSG_CHANNEL = "CHANNEL",
+    CHAT_MSG_SYSTEM = "SYSTEM",
+    CHAT_MSG_AFK = "SYSTEM",
+    CHAT_MSG_DND = "SYSTEM",
+    CHAT_MSG_ACHIEVEMENT = "SYSTEM",
+    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITY",
+    CHAT_MSG_LOOT = "LOOT",
 }
 
 -- =========================================================
@@ -32,6 +44,23 @@ end
 -- =========================================================
 local sessionHistory = {}
 local unpack = table.unpack or unpack
+
+local function AppendRestoredMessage(frame, text, ...)
+    if not frame then
+        return
+    end
+
+    if type(frame.BackFillMessage) == "function" then
+        local ok = pcall(frame.BackFillMessage, frame, text, ...)
+        if ok then
+            return
+        end
+    end
+
+    if type(frame.AddMessage) == "function" then
+        pcall(frame.AddMessage, frame, text, ...)
+    end
+end
 
 -- =========================================================
 -- SAFE TEXT HELPER
@@ -204,21 +233,18 @@ function History:RestoreHistory()
     for chatID, messages in pairs(buffer) do
         local frame = _G["ChatFrame"..chatID]
         if frame and chatID ~= 2 then
-            pcall(function()
-                frame:AddMessage("------------------------------------------", 0.6, 0.6, 0.6)
-            end)
+            AppendRestoredMessage(frame, "------------------------------------------", 0.6, 0.6, 0.6)
             for _, msg in ipairs(messages) do
-                pcall(function()
-                    if db.historyAlpha then
-                        frame:AddMessage("|cff888888"..msg.."|r")
-                    else
-                        frame:AddMessage(msg)
-                    end
-                end)
+                if db.historyAlpha then
+                    AppendRestoredMessage(frame, "|cff888888"..msg.."|r")
+                else
+                    AppendRestoredMessage(frame, msg)
+                end
             end
-            pcall(function()
-                frame:AddMessage("-------------- Chat History --------------", 0.6, 0.6, 0.6)
-            end)
+            AppendRestoredMessage(frame, "-------------- Chat History --------------", 0.6, 0.6, 0.6)
+            if type(frame.ResetAllFadeTimes) == "function" then
+                pcall(frame.ResetAllFadeTimes, frame)
+            end
         end
     end
 end
@@ -229,10 +255,6 @@ end
 function History:OnEnable()
     if Chatify and Chatify.db and Chatify.db.profile then
         ns.EnforceRetailSafeMode(Chatify.db.profile)
-    end
-
-    if (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()) then
-        return
     end
 
     if Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat then

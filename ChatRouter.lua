@@ -120,6 +120,13 @@ local function NormalizeText(text)
 end
 
 local function SaveCopyPayload(text)
+    if type(ns.SaveToCache) == "function" then
+        local ok, externalId = pcall(ns.SaveToCache, text)
+        if ok and externalId then
+            return externalId
+        end
+    end
+
     cacheIndex = cacheIndex + 1
     cache[cacheIndex] = text
 

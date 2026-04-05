@@ -112,7 +112,7 @@ function Chatify:GetOptions()
                     shortChannels = {
                         order = 2,
                         name = "Shorten Channel Names",
-                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: stored in settings, but inactive in safe mode.|r",
+                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: applied through the safe formatting path.|r",
                         type = "toggle",
                         width = "full", 
                         set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
@@ -154,7 +154,6 @@ function Chatify:GetOptions()
                         name = "Time Format",
                         type = "select",
                         width = "normal",
-                        disabled = function() return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() end,
                         values = function()
                             local t = {}
                             if ns.Lists and ns.Lists.TimeFormats then
@@ -180,9 +179,8 @@ function Chatify:GetOptions()
                     timestampPost = {
                         order = 13,
                         name = "Show at End",
-                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: timestamps are disabled only at runtime to avoid secret-value taint.|r",
+                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only for safely accessible chat payloads.|r",
                         type = "toggle",
-                        disabled = function() return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() end,
                         set = function(info, val) self.db.profile.timestampPost = val end,
                         get = function(info) return self.db.profile.timestampPost end,
                     }
@@ -310,7 +308,7 @@ function Chatify:GetOptions()
                             hideSystemSpam = {
                                 order = 3,
                                 name = "Hide Join/Leave Messages",
-                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: inactive in safe mode, preserved for older Retail builds.|r",
+                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the same safe message filter path as Prat-style processing.|r",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.hideSystemSpam = val end,
                                 get = function(info) return self.db.profile.hideSystemSpam end,
@@ -372,7 +370,7 @@ function Chatify:GetOptions()
                             enableHistory = {
                                 order = 1,
                                 name = "Enable History",
-                                desc = "Restores chat messages after you reload the UI or login.\n\n|cff999999Retail 12.x: history restore is inactive in safe mode, but your preference is preserved for older Retail builds.|r",
+                                desc = "Restores chat messages after you reload the UI or login.\n\n|cff999999Retail 12.x: restores only messages captured through the safe event path.|r",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.enableHistory = val end,
                                 get = function(info) return self.db.profile.enableHistory end,
