@@ -6,11 +6,20 @@ local History = Chatify:NewModule("History", "AceEvent-3.0")
 -- EVENT → TYPE MAP
 -- =========================================================
 local eventTypeMap = {
+    -- Safe user chat channels only.
+    -- Do not register monster/emote/achievement events on Retail 12.x,
+    -- because merely touching those payloads can still taint Blizzard's
+    -- HistoryKeeper path even if we later bail out.
+    CHAT_MSG_CHANNEL = "CHANNEL",
     CHAT_MSG_SAY = "SAY",
     CHAT_MSG_YELL = "YELL",
+    CHAT_MSG_WHISPER = "WHISPER",
+    CHAT_MSG_WHISPER_INFORM = "WHISPER",
+    CHAT_MSG_BN_WHISPER = "WHISPER",
+    CHAT_MSG_BN_WHISPER_INFORM = "WHISPER",
+    CHAT_MSG_BN_CONVERSATION = "WHISPER",
     CHAT_MSG_GUILD = "GUILD",
     CHAT_MSG_GUILD_MOTD = "GUILD",
-    CHAT_MSG_GUILD_ACHIEVEMENT = "GUILD",
     CHAT_MSG_OFFICER = "GUILD",
     CHAT_MSG_PARTY = "PARTY",
     CHAT_MSG_PARTY_LEADER = "PARTY",
@@ -19,25 +28,10 @@ local eventTypeMap = {
     CHAT_MSG_RAID_WARNING = "RAID",
     CHAT_MSG_INSTANCE_CHAT = "RAID",
     CHAT_MSG_INSTANCE_CHAT_LEADER = "RAID",
-    CHAT_MSG_WHISPER = "WHISPER",
-    CHAT_MSG_WHISPER_INFORM = "WHISPER",
-    CHAT_MSG_BN_WHISPER = "WHISPER",
-    CHAT_MSG_BN_WHISPER_INFORM = "WHISPER",
-    CHAT_MSG_BN_CONVERSATION = "WHISPER",
-    CHAT_MSG_CHANNEL = "CHANNEL",
-    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITY",
-    CHAT_MSG_EMOTE = "EMOTE",
-    CHAT_MSG_TEXT_EMOTE = "EMOTE",
     CHAT_MSG_SYSTEM = "SYSTEM",
     CHAT_MSG_AFK = "SYSTEM",
     CHAT_MSG_DND = "SYSTEM",
-    CHAT_MSG_ACHIEVEMENT = "SYSTEM",
-    CHAT_MSG_MONSTER_SAY = "SYSTEM",
-    CHAT_MSG_MONSTER_YELL = "SYSTEM",
-    CHAT_MSG_MONSTER_EMOTE = "SYSTEM",
-    CHAT_MSG_MONSTER_WHISPER = "SYSTEM",
-    CHAT_MSG_MONSTER_BOSS_WHISPER = "SYSTEM",
-    CHAT_MSG_MONSTER_BOSS_EMOTE = "SYSTEM",
+    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITY",
     CHAT_MSG_LOOT = "LOOT",
 }
 
