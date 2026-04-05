@@ -103,7 +103,7 @@ function Chatify:GetOptions()
 
             -- TAB 1: GENERAL & APPEARANCE
             tabGeneral = {
-                name = "General & Visuals",
+                name = "General & Visual",
                 type = "group",
                 order = 10,
                 args = {
@@ -144,6 +144,38 @@ function Chatify:GetOptions()
                                 return true
                             end
                             return self.db.profile.hoverHyperlinkTooltips
+                        end,
+                    },
+
+                    headerQuickChat = { order = 5, type = "header", name = "Quick Chat Buttons" },
+
+                    quickChatButtons = {
+                        order = 6,
+                        name = "Enable Quick Chat Buttons",
+                        desc = "Show quick channel buttons on the right side of the chat frame, anchored from the bottom.",
+                        type = "toggle",
+                        width = "full",
+                        set = function(info, val) self.db.profile.quickChatButtons = val; ns.RefreshQuickChatButtons() end,
+                        get = function(info)
+                            if self.db.profile.quickChatButtons == nil then
+                                return true
+                            end
+                            return self.db.profile.quickChatButtons
+                        end,
+                    },
+
+                    quickChatButtonSize = {
+                        order = 7,
+                        name = "Quick Button Size",
+                        desc = "Adjust the size of the quick chat buttons. Buttons stay aligned to the chat height and bottom edge.",
+                        type = "range",
+                        min = 16,
+                        max = 32,
+                        step = 1,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.RefreshQuickChatButtons() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonSize or 22
                         end,
                     },
 

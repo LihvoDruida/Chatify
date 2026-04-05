@@ -6,6 +6,7 @@ local C_Timer = C_Timer
 local container
 local buttons = {}
 local hookedEditBox
+local hookedAnchorFrame
 
 local function GetDB()
     if Chatify and Chatify.db and Chatify.db.profile then
@@ -76,18 +77,10 @@ end
 
 local function GetAnchorParent()
     local frame = GetAnchorFrame()
-    if not frame then
-        return UIParent
+    if frame and frame.GetParent then
+        return frame:GetParent() or UIParent
     end
-
-    if frame.GetName then
-        local buttonFrame = _G[frame:GetName() .. "ButtonFrame"]
-        if buttonFrame then
-            return buttonFrame
-        end
-    end
-
-    return frame
+    return UIParent
 end
 
 local function GetActiveEditBox()
@@ -214,24 +207,26 @@ local function LayoutButtons()
     end
 
     local db = GetDB()
-    local size = 22
+    local configuredSize = 22
     if db and type(db.quickChatButtonSize) == "number" then
-        size = math.max(16, math.min(32, math.floor(db.quickChatButtonSize + 0.5)))
+        configuredSize = math.max(16, math.min(32, math.floor(db.quickChatButtonSize + 0.5)))
     end
+
+    local frame = GetAnchorFrame()
+    if not frame then
+        return
+    end
+
     local spacing = 4
+    local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
+    local maxSizeForChat = math.floor((chatHeight - ((#BUTTON_DEFS - 1) * spacing)) / #BUTTON_DEFS)
+    local size = math.max(16, math.min(configuredSize, maxSizeForChat > 0 and maxSizeForChat or configuredSize))
 
     container:ClearAllPoints()
-    local parent = GetAnchorParent()
-    container:SetParent(parent)
-
-    if parent and parent ~= UIParent and parent.GetName and parent:GetName() ~= "ChatFrame1" then
-        container:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, -4)
-    else
-        local frame = GetAnchorFrame()
-        container:SetPoint("TOPLEFT", frame, "TOPLEFT", -(size + 8), -2)
-    end
-
-    container:SetSize(size, (#BUTTON_DEFS * size) + ((#BUTTON_DEFS - 1) * spacing))
+    container:SetParent(GetAnchorParent())
+    container:SetPoint("TOPLEFT", frame, "TOPRIGHT", 6, 0)
+    container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 6, 0)
+    container:SetWidth(size)
 
     local previous
     for _, def in ipairs(BUTTON_DEFS) do
@@ -240,13 +235,34 @@ local function LayoutButtons()
             button:ClearAllPoints()
             button:SetSize(size, size)
             if previous then
-                button:SetPoint("TOP", previous, "BOTTOM", 0, -spacing)
+                button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
             else
-                button:SetPoint("TOP", container, "TOP", 0, 0)
+                button:SetPoint("BOTTOM", container, "BOTTOM", 0, 0)
+            end
+            if button.Label then
+                button.Label:ClearAllPoints()
+                button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
             end
             previous = button
         end
     end
+end
+
+local function HookAnchorFrameSignals()
+    local frame = GetAnchorFrame()
+    if not frame or frame == hookedAnchorFrame or not frame.HookScript then
+        return
+    end
+
+    hookedAnchorFrame = frame
+    frame:HookScript("OnSizeChanged", function()
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, ns.RefreshQuickChatButtons)
+        else
+            ns.RefreshQuickChatButtons()
+        end
+    end)
+    frame:HookScript("OnShow", ns.RefreshQuickChatButtons)
 end
 
 local function HookEditBoxSignals()
@@ -286,8 +302,10 @@ local function EnsureContainer()
         button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
         button:RegisterForClicks("LeftButtonUp")
 
-        local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        label:SetPoint("CENTER", 0, 1)
+        local label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetJustifyH("CENTER")
+        label:SetJustifyV("MIDDLE")
+        label:SetPoint("CENTER", button, "CENTER", 0, 0)
         label:SetText(def.label)
         button.Label = label
 
@@ -304,10 +322,11 @@ local function EnsureContainer()
 
         button:SetScript("OnEnter", function(self)
             if GameTooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
                 GameTooltip:SetText(def.tooltip, 1, 0.82, 0.18)
                 if IsButtonEnabled(def) then
                     GameTooltip:AddLine("ЛКМ: відкрити цей тип чату", 0.9, 0.9, 0.9, true)
+                    GameTooltip:AddLine("Праворуч від чату, швидке перемикання каналу.", 0.7, 0.7, 0.7, true)
                 else
                     GameTooltip:AddLine("Зараз недоступно", 1.0, 0.2, 0.2, true)
                 end
@@ -335,6 +354,7 @@ function ns.RefreshQuickChatButtons()
     end
 
     EnsureContainer()
+    HookAnchorFrameSignals()
     HookEditBoxSignals()
     LayoutButtons()
     UpdateButtonState()
