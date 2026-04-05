@@ -24,6 +24,7 @@ Settings.lua
 ChatCopy.lua
 ChatRouter.lua
 ChatVisuals.lua
+ChatQuickButtons.lua
 ChatFilters.lua
 ChatHistory.lua
 ChatSounds.lua

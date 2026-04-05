@@ -135,6 +135,8 @@ ns.defaults = {
         shortChannels = true,       -- [Party] -> [P]
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
+        quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
+        quickChatButtonSize = 22,   -- Розмір кнопок швидкого перемикання чату
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)
