@@ -3,22 +3,99 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local QuickButtonsModule = Chatify:NewModule("QuickButtons", "AceEvent-3.0")
 
 local C_Timer = C_Timer
+local hooksecurefunc = hooksecurefunc
+local unpack = unpack or table.unpack
 local container
 local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 local GetConfiguredAlpha
+local elvuiEngine
+local elvuiChat
+local elvuiHooksInstalled = false
+
+
+local function GetColorComponents(color, fallback)
+    fallback = fallback or { 1, 1, 1 }
+    if type(color) ~= "table" then
+        return fallback[1], fallback[2], fallback[3]
+    end
+
+    local r = color.r or color[1] or fallback[1]
+    local g = color.g or color[2] or fallback[2]
+    local b = color.b or color[3] or fallback[3]
+    return r, g, b
+end
+
+local function GetElvUI()
+    if type(IsAddOnLoaded) ~= "function" or not IsAddOnLoaded("ElvUI") or not _G.ElvUI then
+        elvuiEngine = nil
+        elvuiChat = nil
+        return nil, nil
+    end
+
+    if not elvuiEngine then
+        local ok, engine = pcall(function()
+            return unpack(_G.ElvUI)
+        end)
+        if ok then
+            elvuiEngine = engine
+        end
+    end
+
+    if elvuiEngine and not elvuiChat and type(elvuiEngine.GetModule) == "function" then
+        local ok, chat = pcall(elvuiEngine.GetModule, elvuiEngine, "Chat", true)
+        if ok then
+            elvuiChat = chat
+        end
+    end
+
+    return elvuiEngine, elvuiChat
+end
+
+local function HasElvUIChat()
+    local E, CH = GetElvUI()
+    return E ~= nil and CH ~= nil
+end
+
+local function ScheduleRefresh(delay)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(delay or 0, ns.RefreshQuickChatButtons)
+    else
+        ns.RefreshQuickChatButtons()
+    end
+end
 
 local function ApplyButtonBackdrop(button, bg, border)
-    if not button or type(button.SetBackdrop) ~= "function" then
+    if not button then
+        return
+    end
+
+    local E = GetElvUI()
+    if E and type(button.SetTemplate) == "function" then
+        if not button._chatifyElvStyled then
+            pcall(button.SetTemplate, button, "Transparent")
+            button._chatifyElvStyled = true
+        end
+
+        if type(button.SetBackdropColor) == "function" then
+            button:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+        end
+        if type(button.SetBackdropBorderColor) == "function" then
+            button:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
+        end
+        return
+    end
+
+    if type(button.SetBackdrop) ~= "function" then
         return
     end
 
     if not button._chatifyBackdropSet then
         button:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            bgFile = "Interface\Buttons\WHITE8x8",
+            edgeFile = "Interface\Tooltips\UI-Tooltip-Border",
             tile = true,
             tileSize = 8,
             edgeSize = 12,
@@ -30,11 +107,27 @@ local function ApplyButtonBackdrop(button, bg, border)
     button:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
     button:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
 end
-
 local function GetButtonPalette(button)
     local enabled = not (button and button.__chatifyDisabled)
     local selected = button and button.__chatifySelected
     local alpha = GetConfiguredAlpha()
+    local E = GetElvUI()
+
+    if E and E.media then
+        local vr, vg, vb = GetColorComponents(E.media.rgbvaluecolor, { 1.0, 0.82, 0.18 })
+        local br, bg, bb = GetColorComponents(E.media.bordercolor, { 0.32, 0.32, 0.32 })
+        local transp = type(E.GetMediaBackdropAlpha) == "function" and E:GetMediaBackdropAlpha("value") or 0.82
+
+        if not enabled then
+            return { 0.08, 0.08, 0.08, math.min(alpha, 0.72) }, { br, bg, bb, math.min(1, alpha + 0.08) }, { 0.58, 0.58, 0.58 }
+        end
+
+        if selected then
+            return { vr, vg, vb, math.max(transp, math.min(1, alpha)) }, { vr, vg, vb, 1.0 }, { 1.0, 1.0, 1.0 }
+        end
+
+        return { 0.06, 0.06, 0.06, math.min(alpha, math.max(0.35, transp - 0.08)) }, { br, bg, bb, math.min(1, alpha + 0.05) }, { vr, vg, vb }
+    end
 
     if not enabled then
         return { 0.11, 0.11, 0.11, math.min(alpha, 0.78) }, { 0.32, 0.32, 0.32, math.min(1, alpha + 0.12) }, { 0.55, 0.55, 0.55 }
@@ -191,11 +284,26 @@ local BUTTON_DEFS = {
 }
 
 local function GetAnchorFrame()
+    local _, CH = GetElvUI()
+    if CH and CH.LeftChatWindow then
+        return CH.LeftChatWindow
+    end
+
     return _G.ChatFrame1 or DEFAULT_CHAT_FRAME
 end
 
 local function GetAnchorParent()
     local frame = GetAnchorFrame()
+    local _, CH = GetElvUI()
+
+    if frame and CH then
+        if CH.LeftChatWindow and frame == CH.LeftChatWindow and _G.LeftChatPanel then
+            return _G.LeftChatPanel
+        elseif CH.RightChatWindow and frame == CH.RightChatWindow and _G.RightChatPanel then
+            return _G.RightChatPanel
+        end
+    end
+
     if frame and frame.GetParent then
         return frame:GetParent() or UIParent
     end
@@ -348,6 +456,7 @@ local function LayoutButtons()
         return
     end
 
+    local E = GetElvUI()
     local db = GetDB()
     local configuredSize = 24
     local sideGap = 18
@@ -386,6 +495,10 @@ local function LayoutButtons()
     container:SetHeight(math.max(chatHeight, totalHeight))
     container:SetWidth(size + 4)
 
+    if E and container.SetFrameStrata then
+        container:SetFrameStrata("HIGH")
+    end
+
     local previous
     for _, def in ipairs(BUTTON_DEFS) do
         local button = buttons[def.key]
@@ -401,14 +514,22 @@ local function LayoutButtons()
 
             if button.Label then
                 local fontSize = math.max(10, math.floor(size * 0.48))
-                pcall(button.Label.SetFont, button.Label, STANDARD_TEXT_FONT, fontSize, "OUTLINE")
+                if E and type(button.Label.FontTemplate) == "function" then
+                    pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
+                else
+                    pcall(button.Label.SetFont, button.Label, STANDARD_TEXT_FONT, fontSize, "OUTLINE")
+                end
                 button.Label:ClearAllPoints()
                 button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
             end
 
             if button.Highlight then
                 button.Highlight:SetAllPoints(button)
-                button.Highlight:SetVertexColor(1.0, 0.85, 0.25, math.min(0.18, GetConfiguredAlpha() * 0.18))
+                local hr, hg, hb = 1.0, 0.85, 0.25
+                if E and E.media then
+                    hr, hg, hb = GetColorComponents(E.media.rgbvaluecolor, { 1.0, 0.85, 0.25 })
+                end
+                button.Highlight:SetVertexColor(hr, hg, hb, math.min(0.18, GetConfiguredAlpha() * 0.18))
             end
 
             previous = button
@@ -551,6 +672,57 @@ local function EnsureContainer()
     end
 end
 
+
+local function HookElvUIRefreshSignals()
+    if elvuiHooksInstalled or type(hooksecurefunc) ~= "function" then
+        return
+    end
+
+    local _, CH = GetElvUI()
+    if not CH then
+        return
+    end
+
+    local function hookMethod(name)
+        if type(CH[name]) == "function" then
+            hooksecurefunc(CH, name, function()
+                ScheduleRefresh(0)
+            end)
+        end
+    end
+
+    hookMethod("SetupChat")
+    hookMethod("PositionChat")
+    hookMethod("PositionChats")
+    hookMethod("UpdateSettings")
+    hookMethod("UpdateEditboxAnchors")
+    hookMethod("UpdateChatTabs")
+
+    if _G.LeftChatToggleButton and _G.LeftChatToggleButton.HookScript and not _G.LeftChatToggleButton.__chatifyElvUIHooked then
+        _G.LeftChatToggleButton:HookScript("OnClick", function() ScheduleRefresh(0) end)
+        _G.LeftChatToggleButton.__chatifyElvUIHooked = true
+    end
+
+    if _G.RightChatToggleButton and _G.RightChatToggleButton.HookScript and not _G.RightChatToggleButton.__chatifyElvUIHooked then
+        _G.RightChatToggleButton:HookScript("OnClick", function() ScheduleRefresh(0) end)
+        _G.RightChatToggleButton.__chatifyElvUIHooked = true
+    end
+
+    if _G.LeftChatPanel and _G.LeftChatPanel.HookScript and not _G.LeftChatPanel.__chatifyElvUIHooked then
+        _G.LeftChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        _G.LeftChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.LeftChatPanel.__chatifyElvUIHooked = true
+    end
+
+    if _G.RightChatPanel and _G.RightChatPanel.HookScript and not _G.RightChatPanel.__chatifyElvUIHooked then
+        _G.RightChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        _G.RightChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.RightChatPanel.__chatifyElvUIHooked = true
+    end
+
+    elvuiHooksInstalled = true
+end
+
 function ns.RefreshQuickChatButtons()
     local db = GetDB()
     if not db or db.quickChatButtons == false then
@@ -558,6 +730,10 @@ function ns.RefreshQuickChatButtons()
             container:Hide()
         end
         return
+    end
+
+    if HasElvUIChat() then
+        HookElvUIRefreshSignals()
     end
 
     EnsureContainer()
@@ -580,6 +756,15 @@ function QuickButtonsModule:OnEnable()
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("CHANNEL_UI_UPDATE", "Refresh")
+    self:RegisterEvent("ADDON_LOADED", function(_, addon)
+        if addon == "ElvUI" then
+            elvuiEngine = nil
+            elvuiChat = nil
+            elvuiHooksInstalled = false
+            ScheduleRefresh(0)
+            ScheduleRefresh(1)
+        end
+    end)
 
     ns.RefreshQuickChatButtons()
 
