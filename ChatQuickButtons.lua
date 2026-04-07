@@ -11,6 +11,9 @@ local hookedEditBox
 local hookedAnchorFrame
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 local GetConfiguredAlpha
+local GetConfiguredTheme
+local GetElvUIPanelColor
+local MixColor
 local elvuiEngine
 local elvuiChat
 local elvuiHooksInstalled = false
@@ -67,77 +70,165 @@ local function ScheduleRefresh(delay)
     end
 end
 
+local function EnsureButtonArt(button)
+    if not button or button.__chatifyArtReady then
+        return
+    end
+
+    local gloss = button:CreateTexture(nil, "ARTWORK")
+    gloss:SetTexture("Interface\\Buttons\\WHITE8x8")
+    gloss:SetBlendMode("ADD")
+    button.Gloss = gloss
+
+    local accent = button:CreateTexture(nil, "BORDER")
+    accent:SetTexture("Interface\\Buttons\\WHITE8x8")
+    button.Accent = accent
+
+    local shade = button:CreateTexture(nil, "OVERLAY")
+    shade:SetTexture("Interface\\Buttons\\WHITE8x8")
+    shade:SetVertexColor(0, 0, 0, 0)
+    shade:SetAllPoints(button)
+    button.Shade = shade
+
+    button.__chatifyArtReady = true
+end
+
 local function ApplyButtonBackdrop(button, bg, border)
     if not button then
         return
     end
 
-    local E = GetElvUI()
-    if E and type(button.SetTemplate) == "function" then
-        if not button._chatifyElvStyled then
+    local theme = GetConfiguredTheme()
+
+    if theme == "ELVUI" then
+        local E = GetElvUI()
+        if E and type(button.SetTemplate) == "function" and not button._chatifyElvTemplate then
             pcall(button.SetTemplate, button, "Transparent")
-            button._chatifyElvStyled = true
+            button._chatifyElvTemplate = true
         end
-
-        if type(button.SetBackdropColor) == "function" then
-            button:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
-        end
-        if type(button.SetBackdropBorderColor) == "function" then
-            button:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
-        end
-        return
     end
 
-    if type(button.SetBackdrop) ~= "function" then
-        return
-    end
+    if type(button.SetBackdrop) == "function" then
+        if not button._chatifyBackdropSet then
+            button:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                tile = false,
+                edgeSize = 1,
+                insets = { left = 1, right = 1, top = 1, bottom = 1 },
+            })
+            button._chatifyBackdropSet = true
+        end
 
-    if not button._chatifyBackdropSet then
-        button:SetBackdrop({
-            bgFile = "Interface\Buttons\WHITE8x8",
-            edgeFile = "Interface\Tooltips\UI-Tooltip-Border",
-            tile = true,
-            tileSize = 8,
-            edgeSize = 12,
-            insets = { left = 2, right = 2, top = 2, bottom = 2 },
-        })
-        button._chatifyBackdropSet = true
+        button:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+        button:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
     end
-
-    button:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
-    button:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
 end
+
 local function GetButtonPalette(button)
     local enabled = not (button and button.__chatifyDisabled)
     local selected = button and button.__chatifySelected
+    local hovered = button and button:IsMouseOver()
     local alpha = GetConfiguredAlpha()
-    local E = GetElvUI()
+    local theme = GetConfiguredTheme()
 
-    if E and E.media then
-        local vr, vg, vb = GetColorComponents(E.media.rgbvaluecolor, { 1.0, 0.82, 0.18 })
-        local br, bg, bb = GetColorComponents(E.media.bordercolor, { 0.32, 0.32, 0.32 })
-        local transp = type(E.GetMediaBackdropAlpha) == "function" and E:GetMediaBackdropAlpha("value") or 0.82
+    if theme == "ELVUI" then
+        local E = GetElvUI()
+        local vr, vg, vb = 0.20, 0.60, 1.00
+        local br, bgc, bb = 0.12, 0.12, 0.12
+        if E and E.media then
+            vr, vg, vb = GetColorComponents(E.media.rgbvaluecolor, { 0.20, 0.60, 1.00 })
+            br, bgc, bb = GetColorComponents(E.media.bordercolor, { 0.12, 0.12, 0.12 })
+        end
+
+        local pr, pg, pb, pa = GetElvUIPanelColor()
+        local base = { pr, pg, pb, math.min(1, math.max(pa, alpha * 0.92)) }
+        local text = { 0.92, 0.94, 0.98 }
 
         if not enabled then
-            return { 0.08, 0.08, 0.08, math.min(alpha, 0.72) }, { br, bg, bb, math.min(1, alpha + 0.08) }, { 0.58, 0.58, 0.58 }
+            return {
+                bg = { pr * 0.85, pg * 0.85, pb * 0.85, math.min(1, alpha * 0.78) },
+                border = { br, bgc, bb, 0.85 },
+                text = { 0.52, 0.55, 0.60 },
+                accent = { br, bgc, bb, 0.45 },
+                gloss = 0.00,
+                shade = 0.18,
+            }
         end
 
         if selected then
-            return { vr, vg, vb, math.max(transp, math.min(1, alpha)) }, { vr, vg, vb, 1.0 }, { 1.0, 1.0, 1.0 }
+            return {
+                bg = MixColor(base, { vr, vg, vb, math.min(1, alpha) }, 0.18),
+                border = { vr, vg, vb, 1.0 },
+                text = { 1.0, 1.0, 1.0 },
+                accent = { vr, vg, vb, 1.0 },
+                gloss = 0.16,
+                shade = 0.00,
+            }
         end
 
-        return { 0.06, 0.06, 0.06, math.min(alpha, math.max(0.35, transp - 0.08)) }, { br, bg, bb, math.min(1, alpha + 0.05) }, { vr, vg, vb }
+        if hovered then
+            return {
+                bg = MixColor(base, { vr, vg, vb, math.min(1, alpha) }, 0.08),
+                border = { vr, vg, vb, 0.88 },
+                text = { 1.0, 1.0, 1.0 },
+                accent = { vr, vg, vb, 0.90 },
+                gloss = 0.12,
+                shade = 0.00,
+            }
+        end
+
+        return {
+            bg = base,
+            border = { br, bgc, bb, 1.0 },
+            text = text,
+            accent = { vr, vg, vb, 0.78 },
+            gloss = 0.05,
+            shade = 0.00,
+        }
     end
 
     if not enabled then
-        return { 0.11, 0.11, 0.11, math.min(alpha, 0.78) }, { 0.32, 0.32, 0.32, math.min(1, alpha + 0.12) }, { 0.55, 0.55, 0.55 }
+        return {
+            bg = { 0.09, 0.09, 0.10, math.min(1, alpha * 0.76) },
+            border = { 0.24, 0.24, 0.24, 0.92 },
+            text = { 0.58, 0.58, 0.58 },
+            accent = { 0.32, 0.32, 0.32, 0.55 },
+            gloss = 0.00,
+            shade = 0.22,
+        }
     end
 
     if selected then
-        return { 0.17, 0.13, 0.05, math.min(1, alpha + 0.08) }, { 0.95, 0.78, 0.22, 1.0 }, { 1.0, 0.9, 0.45 }
+        return {
+            bg = { 0.19, 0.14, 0.05, math.min(1, alpha + 0.04) },
+            border = { 1.0, 0.82, 0.22, 1.0 },
+            text = { 1.0, 0.94, 0.60 },
+            accent = { 1.0, 0.82, 0.18, 1.0 },
+            gloss = 0.18,
+            shade = 0.00,
+        }
     end
 
-    return { 0.07, 0.07, 0.07, alpha }, { 0.72, 0.58, 0.18, math.min(1, alpha + 0.03) }, { 1.0, 0.82, 0.18 }
+    if hovered then
+        return {
+            bg = { 0.10, 0.09, 0.08, math.min(1, alpha + 0.02) },
+            border = { 0.86, 0.68, 0.22, 1.0 },
+            text = { 1.0, 0.90, 0.35 },
+            accent = { 1.0, 0.82, 0.18, 0.95 },
+            gloss = 0.13,
+            shade = 0.00,
+        }
+    end
+
+    return {
+        bg = { 0.07, 0.07, 0.08, alpha },
+        border = { 0.58, 0.44, 0.16, 0.95 },
+        text = { 1.0, 0.84, 0.22 },
+        accent = { 1.0, 0.82, 0.18, 0.85 },
+        gloss = 0.08,
+        shade = 0.00,
+    }
 end
 
 local function RefreshButtonLook(button)
@@ -145,15 +236,73 @@ local function RefreshButtonLook(button)
         return
     end
 
-    local bg, border, textColor = GetButtonPalette(button)
-    ApplyButtonBackdrop(button, bg, border)
+    EnsureButtonArt(button)
+
+    local palette = GetButtonPalette(button)
+    ApplyButtonBackdrop(button, palette.bg, palette.border)
 
     if button.Label then
-        button.Label:SetTextColor(textColor[1], textColor[2], textColor[3])
+        button.Label:SetTextColor(palette.text[1], palette.text[2], palette.text[3])
+    end
+
+    if button.Accent then
+        button.Accent:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.accent[4])
+    end
+
+    if button.Gloss then
+        button.Gloss:SetVertexColor(1, 1, 1, palette.gloss)
+    end
+
+    if button.Shade then
+        button.Shade:SetVertexColor(0, 0, 0, palette.shade)
     end
 
     if button.Highlight then
-        button.Highlight:SetShown(not button.__chatifyDisabled and button:IsMouseOver())
+        local highlightAlpha = 0
+        if not button.__chatifyDisabled and button:IsMouseOver() then
+            highlightAlpha = math.min(0.18, palette.accent[4] * 0.22)
+        end
+        button.Highlight:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], highlightAlpha)
+    end
+end
+
+local function ApplyContainerStyle()
+    if not container then
+        return
+    end
+
+    if GetConfiguredTheme() == "ELVUI" then
+        local E = GetElvUI()
+        if E and type(container.SetTemplate) == "function" and not container._chatifyElvTemplate then
+            pcall(container.SetTemplate, container, "Transparent")
+            container._chatifyElvTemplate = true
+        end
+
+        if type(container.SetBackdropColor) == "function" and type(container.SetBackdropBorderColor) == "function" then
+            local pr, pg, pb, pa = GetElvUIPanelColor()
+            local br, bgc, bb = 0.12, 0.12, 0.12
+            if E and E.media then
+                br, bgc, bb = GetColorComponents(E.media.bordercolor, { 0.12, 0.12, 0.12 })
+            end
+            container:SetBackdropColor(pr, pg, pb, math.min(1, math.max(pa, GetConfiguredAlpha() * 0.90)))
+            container:SetBackdropBorderColor(br, bgc, bb, 1.0)
+        end
+        return
+    end
+
+    if type(container.SetBackdrop) == "function" then
+        if not container._chatifyBackdropSet then
+            container:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                tile = false,
+                edgeSize = 1,
+                insets = { left = 1, right = 1, top = 1, bottom = 1 },
+            })
+            container._chatifyBackdropSet = true
+        end
+        container:SetBackdropColor(0, 0, 0, 0)
+        container:SetBackdropBorderColor(0, 0, 0, 0)
     end
 end
 
@@ -185,6 +334,46 @@ GetConfiguredAlpha = function()
     if alpha < 0.25 then alpha = 0.25 end
     if alpha > 1 then alpha = 1 end
     return alpha
+end
+
+GetConfiguredTheme = function()
+    local db = GetDB()
+    local theme = db and db.quickChatButtonTheme or "AUTO"
+    if theme ~= "AUTO" and theme ~= "STANDARD" and theme ~= "ELVUI" then
+        theme = "AUTO"
+    end
+
+    if theme == "ELVUI" then
+        return HasElvUIChat() and "ELVUI" or "STANDARD"
+    end
+
+    if theme == "AUTO" then
+        return HasElvUIChat() and "ELVUI" or "STANDARD"
+    end
+
+    return "STANDARD"
+end
+
+GetElvUIPanelColor = function()
+    local _, CH = GetElvUI()
+    local panelColor = CH and CH.db and CH.db.panelColor
+    if type(panelColor) == "table" then
+        return panelColor.r or panelColor[1] or 0.06,
+               panelColor.g or panelColor[2] or 0.06,
+               panelColor.b or panelColor[3] or 0.06,
+               panelColor.a or panelColor[4] or GetConfiguredAlpha()
+    end
+
+    return 0.06, 0.06, 0.06, GetConfiguredAlpha()
+end
+
+MixColor = function(fromColor, toColor, t)
+    return {
+        fromColor[1] + ((toColor[1] - fromColor[1]) * t),
+        fromColor[2] + ((toColor[2] - fromColor[2]) * t),
+        fromColor[3] + ((toColor[3] - fromColor[3]) * t),
+        fromColor[4] + ((toColor[4] - fromColor[4]) * t),
+    }
 end
 
 local BUTTON_DEFS = {
@@ -379,7 +568,10 @@ local function UpdateButtonState()
         local button = buttons[def.key]
         if button then
             local enabled = IsButtonEnabled(def)
-            button:SetEnabled(enabled)
+            button:SetEnabled(true)
+            if button.EnableMouse then
+                button:EnableMouse(true)
+            end
             button.__chatifyDisabled = not enabled
             button.__chatifySelected = enabled and (currentChatType == def.chatType or (def.altChatType and currentChatType == def.altChatType))
 
@@ -387,7 +579,7 @@ local function UpdateButtonState()
                 if enabled then
                     button.Label:SetAlpha(1)
                 else
-                    button.Label:SetAlpha(0.9)
+                    button.Label:SetAlpha(0.88)
                 end
             end
 
@@ -493,11 +685,16 @@ local function LayoutButtons()
     container:SetParent(GetAnchorParent())
     container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", sideGap, 0)
     container:SetHeight(math.max(chatHeight, totalHeight))
-    container:SetWidth(size + 4)
+    container:SetWidth(size + (GetConfiguredTheme() == "ELVUI" and 8 or 4))
 
-    if E and container.SetFrameStrata then
-        container:SetFrameStrata("HIGH")
+    if container.SetFrameStrata then
+        container:SetFrameStrata(E and "HIGH" or "MEDIUM")
     end
+    if frame.GetFrameLevel and container.SetFrameLevel then
+        container:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)
+    end
+
+    ApplyContainerStyle()
 
     local previous
     for _, def in ipairs(BUTTON_DEFS) do
@@ -514,10 +711,14 @@ local function LayoutButtons()
 
             if button.Label then
                 local fontSize = math.max(10, math.floor(size * 0.48))
-                if E and type(button.Label.FontTemplate) == "function" then
+                if GetConfiguredTheme() == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
                     pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
                 else
-                    pcall(button.Label.SetFont, button.Label, STANDARD_TEXT_FONT, fontSize, "OUTLINE")
+                    local fontPath = STANDARD_TEXT_FONT
+                    if ChatFontNormal and ChatFontNormal.GetFont then
+                        fontPath = ChatFontNormal:GetFont() or fontPath
+                    end
+                    pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
                 end
                 button.Label:ClearAllPoints()
                 button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
@@ -525,11 +726,24 @@ local function LayoutButtons()
 
             if button.Highlight then
                 button.Highlight:SetAllPoints(button)
-                local hr, hg, hb = 1.0, 0.85, 0.25
-                if E and E.media then
-                    hr, hg, hb = GetColorComponents(E.media.rgbvaluecolor, { 1.0, 0.85, 0.25 })
-                end
-                button.Highlight:SetVertexColor(hr, hg, hb, math.min(0.18, GetConfiguredAlpha() * 0.18))
+            end
+
+            if button.Accent then
+                button.Accent:ClearAllPoints()
+                button.Accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
+                button.Accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+                button.Accent:SetHeight(math.max(2, math.floor(size * 0.12)))
+            end
+
+            if button.Gloss then
+                button.Gloss:ClearAllPoints()
+                button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+                button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
+                button.Gloss:SetHeight(math.max(4, math.floor(size * 0.34)))
+            end
+
+            if button.Shade then
+                button.Shade:SetAllPoints(button)
             end
 
             previous = button
@@ -592,7 +806,8 @@ local function EnsureContainer()
 
         local highlight = button:CreateTexture(nil, "HIGHLIGHT")
         highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
-        highlight:SetVertexColor(1.0, 0.85, 0.25, 0.10)
+        highlight:SetBlendMode("ADD")
+        highlight:SetVertexColor(1.0, 0.85, 0.25, 0.00)
         highlight:SetAllPoints(button)
         button.Highlight = highlight
 
@@ -603,7 +818,10 @@ local function EnsureContainer()
         label:SetText(def.label)
         button.Label = label
 
-        button:SetScript("OnClick", function(_, mouseButton)
+        button:SetScript("OnClick", function(self, mouseButton)
+            if self.__chatifyDisabled then
+                return
+            end
             local useAlt = mouseButton == "LeftButton" and IsAltKeyDown()
             ActivateChatType(def, useAlt)
         end)
@@ -643,6 +861,7 @@ local function EnsureContainer()
                 end
 
                 AddTooltipLine("Position", "Right side of the chat frame", 0.72, 0.72, 0.72)
+                AddTooltipLine("Skin", GetConfiguredTheme() == "ELVUI" and "ElvUI" or "Standard", 0.72, 0.72, 0.72)
                 GameTooltip:Show()
             end
         end)

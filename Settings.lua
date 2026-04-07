@@ -164,8 +164,26 @@ function Chatify:GetOptions()
                         end,
                     },
 
-                    quickChatButtonSize = {
+                    quickChatButtonTheme = {
                         order = 7,
+                        name = "Quick Button Skin",
+                        desc = "Choose how quick chat buttons are styled. Auto uses the ElvUI skin only when ElvUI is loaded; otherwise it falls back to the standard Chatify style.",
+                        type = "select",
+                        width = "normal",
+                        values = {
+                            AUTO = "Auto",
+                            STANDARD = "Standard",
+                            ELVUI = "ElvUI",
+                        },
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.RefreshQuickChatButtons() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonTheme or "AUTO"
+                        end,
+                    },
+
+                    quickChatButtonSize = {
+                        order = 8,
                         name = "Quick Button Size",
                         desc = "Adjust the base size of the quick chat buttons. They still resize down automatically when the chat frame becomes smaller.",
                         type = "range",
@@ -180,7 +198,7 @@ function Chatify:GetOptions()
                     },
 
                     quickChatButtonGap = {
-                        order = 8,
+                        order = 9,
                         name = "Quick Button Offset",
                         desc = "Adjust how far the quick chat buttons sit from the right side of the chat frame.",
                         type = "range",
@@ -195,7 +213,7 @@ function Chatify:GetOptions()
                     },
 
                     quickChatButtonAlpha = {
-                        order = 9,
+                        order = 10,
                         name = "Quick Button Opacity",
                         desc = "Adjust the opacity of the quick chat buttons.",
                         type = "range",
@@ -210,10 +228,10 @@ function Chatify:GetOptions()
                         end,
                     },
 
-                    headerTime = { order = 10, type = "header", name = "Timestamps" },
+                    headerTime = { order = 11, type = "header", name = "Timestamps" },
 
                     timestampID = {
-                        order = 11,
+                        order = 12,
                         name = "Time Format",
                         type = "select",
                         width = "normal",
@@ -231,7 +249,7 @@ function Chatify:GetOptions()
                     },
                     
                     useServerTime = {
-                        order = 12,
+                        order = 13,
                         name = "Use Server Time",
                         desc = "If checked, uses Realm time.\nIf unchecked, uses Local Computer time.",
                         type = "toggle",
