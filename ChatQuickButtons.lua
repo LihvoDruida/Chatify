@@ -689,28 +689,22 @@ local function ActivateChatType(def, useAlt)
         pcall(ChatEdit_SetLastActiveWindow, frame)
     end
 
-    if type(ChatFrame_OpenChat) == "function" then
-        pcall(ChatFrame_OpenChat, "", frame)
-    end
-
     local editBox = GetActiveEditBox()
-    local success = false
+    local opened = false
 
-    if editBox and editBox.SetAttribute then
-        pcall(editBox.SetAttribute, editBox, "chatType", target.chatType)
-        pcall(editBox.SetAttribute, editBox, "tellTarget", nil)
-        pcall(editBox.SetAttribute, editBox, "channelTarget", nil)
-        if type(ChatEdit_UpdateHeader) == "function" then
-            pcall(ChatEdit_UpdateHeader, editBox)
-        end
-
-        if editBox.GetAttribute and editBox:GetAttribute("chatType") == target.chatType then
-            success = true
-        end
+    -- IMPORTANT:
+    -- Do not mutate chat edit box protected attributes here.
+    -- Direct SetAttribute("chatType"/"tellTarget"/"channelTarget") calls can taint
+    -- Blizzard's send flow and later break whispers/channels that require a target.
+    -- Always switch chat mode through Blizzard's own slash-command path instead.
+    if type(ChatFrame_OpenChat) == "function" and type(target.slash) == "string" then
+        local ok = pcall(ChatFrame_OpenChat, target.slash, frame)
+        opened = ok and true or false
+        editBox = GetActiveEditBox() or editBox
     end
 
-    if not success and type(ChatFrame_OpenChat) == "function" and type(target.slash) == "string" then
-        pcall(ChatFrame_OpenChat, target.slash, frame)
+    if not opened and type(ChatFrame_OpenChat) == "function" then
+        pcall(ChatFrame_OpenChat, "", frame)
         editBox = GetActiveEditBox() or editBox
     end
 
@@ -720,9 +714,6 @@ local function ActivateChatType(def, useAlt)
         end
         if editBox.SetFocus then
             pcall(editBox.SetFocus, editBox)
-        end
-        if type(ChatEdit_UpdateHeader) == "function" then
-            pcall(ChatEdit_UpdateHeader, editBox)
         end
     end
 
