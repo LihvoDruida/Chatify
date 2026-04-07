@@ -140,6 +140,8 @@ ns.defaults = {
         quickChatButtonGap = 18,    -- Відступ кнопок від правого краю чату
         quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
         quickChatButtonTheme = "AUTO", -- AUTO = ElvUI skin when available, otherwise standard
+        quickChatButtonSpacing = 4, -- Вертикальний відступ між кнопками швидкого чату
+        quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)

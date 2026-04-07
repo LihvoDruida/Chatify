@@ -155,7 +155,7 @@ function Chatify:GetOptions()
                         desc = "Show quick channel buttons on the right side of the chat frame, anchored from the bottom.",
                         type = "toggle",
                         width = "full",
-                        set = function(info, val) self.db.profile.quickChatButtons = val; ns.RefreshQuickChatButtons() end,
+                        set = function(info, val) self.db.profile.quickChatButtons = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             if self.db.profile.quickChatButtons == nil then
                                 return true
@@ -176,7 +176,7 @@ function Chatify:GetOptions()
                             ELVUI = "ElvUI",
                         },
                         disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.RefreshQuickChatButtons() end,
+                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             return self.db.profile.quickChatButtonTheme or "AUTO"
                         end,
@@ -191,14 +191,44 @@ function Chatify:GetOptions()
                         max = 40,
                         step = 1,
                         disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.RefreshQuickChatButtons() end,
+                        set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             return self.db.profile.quickChatButtonSize or 24
                         end,
                     },
 
-                    quickChatButtonGap = {
+                    quickChatButtonSpacing = {
                         order = 9,
+                        name = "Quick Button Spacing",
+                        desc = "Adjust the vertical spacing between quick chat buttons.",
+                        type = "range",
+                        min = 2,
+                        max = 10,
+                        step = 1,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonSpacing = val; ns.NotifyQuickChatSettingsChanged() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonSpacing or 4
+                        end,
+                    },
+
+                    quickChatButtonFontScale = {
+                        order = 10,
+                        name = "Quick Button Label Scale",
+                        desc = "Adjust the text scale inside the quick chat buttons.",
+                        type = "range",
+                        min = 0.8,
+                        max = 1.3,
+                        step = 0.05,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonFontScale = val; ns.NotifyQuickChatSettingsChanged() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonFontScale or 1
+                        end,
+                    },
+
+                    quickChatButtonGap = {
+                        order = 11,
                         name = "Quick Button Offset",
                         desc = "Adjust how far the quick chat buttons sit from the right side of the chat frame.",
                         type = "range",
@@ -206,14 +236,14 @@ function Chatify:GetOptions()
                         max = 36,
                         step = 1,
                         disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.RefreshQuickChatButtons() end,
+                        set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             return self.db.profile.quickChatButtonGap or 18
                         end,
                     },
 
                     quickChatButtonAlpha = {
-                        order = 10,
+                        order = 12,
                         name = "Quick Button Opacity",
                         desc = "Adjust the opacity of the quick chat buttons.",
                         type = "range",
@@ -222,16 +252,16 @@ function Chatify:GetOptions()
                         step = 0.05,
                         isPercent = true,
                         disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.RefreshQuickChatButtons() end,
+                        set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             return self.db.profile.quickChatButtonAlpha or 0.92
                         end,
                     },
 
-                    headerTime = { order = 11, type = "header", name = "Timestamps" },
+                    headerTime = { order = 13, type = "header", name = "Timestamps" },
 
                     timestampID = {
-                        order = 12,
+                        order = 16,
                         name = "Time Format",
                         type = "select",
                         width = "normal",
@@ -249,7 +279,7 @@ function Chatify:GetOptions()
                     },
                     
                     useServerTime = {
-                        order = 13,
+                        order = 15,
                         name = "Use Server Time",
                         desc = "If checked, uses Realm time.\nIf unchecked, uses Local Computer time.",
                         type = "toggle",
@@ -707,11 +737,13 @@ function Chatify:RefreshConfig()
     end
     if ns.ApplyVisuals then ns.ApplyVisuals() end
     if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Rebuild cache on profile change
+    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
 end
 
 function Chatify:OnEnable()
     if ns.ApplyVisuals then ns.ApplyVisuals() end
     if ns.UpdateSpamCache then ns.UpdateSpamCache() end
+    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
 end
 
 function Chatify:OpenConfig()

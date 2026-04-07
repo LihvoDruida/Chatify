@@ -9,7 +9,6 @@ local container
 local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
-local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 local GetConfiguredAlpha
 local GetConfiguredTheme
 local GetElvUIPanelColor
@@ -17,6 +16,8 @@ local MixColor
 local elvuiEngine
 local elvuiChat
 local elvuiHooksInstalled = false
+local refreshQueued = false
+local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
 
 local function GetColorComponents(color, fallback)
@@ -63,11 +64,27 @@ local function HasElvUIChat()
 end
 
 local function ScheduleRefresh(delay)
-    if C_Timer and C_Timer.After then
-        C_Timer.After(delay or 0, ns.RefreshQuickChatButtons)
-    else
+    delay = tonumber(delay) or 0
+
+    if not C_Timer or not C_Timer.After then
         ns.RefreshQuickChatButtons()
+        return
     end
+
+    if delay > 0 then
+        C_Timer.After(delay, ns.RefreshQuickChatButtons)
+        return
+    end
+
+    if refreshQueued then
+        return
+    end
+
+    refreshQueued = true
+    C_Timer.After(0, function()
+        refreshQueued = false
+        ns.RefreshQuickChatButtons()
+    end)
 end
 
 local function EnsureButtonArt(button)
@@ -84,6 +101,15 @@ local function EnsureButtonArt(button)
     accent:SetTexture("Interface\\Buttons\\WHITE8x8")
     button.Accent = accent
 
+    local inner = button:CreateTexture(nil, "ARTWORK")
+    inner:SetTexture("Interface\\Buttons\\WHITE8x8")
+    button.Inner = inner
+
+    local glow = button:CreateTexture(nil, "OVERLAY")
+    glow:SetTexture("Interface\\Buttons\\WHITE8x8")
+    glow:SetBlendMode("ADD")
+    button.Glow = glow
+
     local shade = button:CreateTexture(nil, "OVERLAY")
     shade:SetTexture("Interface\\Buttons\\WHITE8x8")
     shade:SetVertexColor(0, 0, 0, 0)
@@ -99,6 +125,10 @@ local function ApplyButtonBackdrop(button, bg, border)
     end
 
     local theme = GetConfiguredTheme()
+
+    if theme ~= "ELVUI" and button._chatifyElvTemplate then
+        button._chatifyElvTemplate = nil
+    end
 
     if theme == "ELVUI" then
         local E = GetElvUI()
@@ -151,7 +181,9 @@ local function GetButtonPalette(button)
                 border = { br, bgc, bb, 0.85 },
                 text = { 0.52, 0.55, 0.60 },
                 accent = { br, bgc, bb, 0.45 },
+                inner = 0.03,
                 gloss = 0.00,
+                glow = 0.00,
                 shade = 0.18,
             }
         end
@@ -162,7 +194,9 @@ local function GetButtonPalette(button)
                 border = { vr, vg, vb, 1.0 },
                 text = { 1.0, 1.0, 1.0 },
                 accent = { vr, vg, vb, 1.0 },
+                inner = 0.10,
                 gloss = 0.16,
+                glow = 0.12,
                 shade = 0.00,
             }
         end
@@ -173,7 +207,9 @@ local function GetButtonPalette(button)
                 border = { vr, vg, vb, 0.88 },
                 text = { 1.0, 1.0, 1.0 },
                 accent = { vr, vg, vb, 0.90 },
+                inner = 0.07,
                 gloss = 0.12,
+                glow = 0.08,
                 shade = 0.00,
             }
         end
@@ -183,7 +219,9 @@ local function GetButtonPalette(button)
             border = { br, bgc, bb, 1.0 },
             text = text,
             accent = { vr, vg, vb, 0.78 },
+            inner = 0.05,
             gloss = 0.05,
+            glow = 0.04,
             shade = 0.00,
         }
     end
@@ -194,7 +232,9 @@ local function GetButtonPalette(button)
             border = { 0.24, 0.24, 0.24, 0.92 },
             text = { 0.58, 0.58, 0.58 },
             accent = { 0.32, 0.32, 0.32, 0.55 },
+            inner = 0.02,
             gloss = 0.00,
+            glow = 0.00,
             shade = 0.22,
         }
     end
@@ -205,7 +245,9 @@ local function GetButtonPalette(button)
             border = { 1.0, 0.82, 0.22, 1.0 },
             text = { 1.0, 0.94, 0.60 },
             accent = { 1.0, 0.82, 0.18, 1.0 },
+            inner = 0.12,
             gloss = 0.18,
+            glow = 0.14,
             shade = 0.00,
         }
     end
@@ -216,7 +258,9 @@ local function GetButtonPalette(button)
             border = { 0.86, 0.68, 0.22, 1.0 },
             text = { 1.0, 0.90, 0.35 },
             accent = { 1.0, 0.82, 0.18, 0.95 },
+            inner = 0.08,
             gloss = 0.13,
+            glow = 0.10,
             shade = 0.00,
         }
     end
@@ -226,7 +270,9 @@ local function GetButtonPalette(button)
         border = { 0.58, 0.44, 0.16, 0.95 },
         text = { 1.0, 0.84, 0.22 },
         accent = { 1.0, 0.82, 0.18, 0.85 },
+        inner = 0.05,
         gloss = 0.08,
+        glow = 0.05,
         shade = 0.00,
     }
 end
@@ -249,8 +295,16 @@ local function RefreshButtonLook(button)
         button.Accent:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.accent[4])
     end
 
+    if button.Inner then
+        button.Inner:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.inner or 0)
+    end
+
     if button.Gloss then
         button.Gloss:SetVertexColor(1, 1, 1, palette.gloss)
+    end
+
+    if button.Glow then
+        button.Glow:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.glow or 0)
     end
 
     if button.Shade then
@@ -271,7 +325,13 @@ local function ApplyContainerStyle()
         return
     end
 
-    if GetConfiguredTheme() == "ELVUI" then
+    local theme = GetConfiguredTheme()
+
+    if theme ~= "ELVUI" and container._chatifyElvTemplate then
+        container._chatifyElvTemplate = nil
+    end
+
+    if theme == "ELVUI" then
         local E = GetElvUI()
         if E and type(container.SetTemplate) == "function" and not container._chatifyElvTemplate then
             pcall(container.SetTemplate, container, "Transparent")
@@ -301,8 +361,8 @@ local function ApplyContainerStyle()
             })
             container._chatifyBackdropSet = true
         end
-        container:SetBackdropColor(0, 0, 0, 0)
-        container:SetBackdropBorderColor(0, 0, 0, 0)
+        container:SetBackdropColor(0.02, 0.02, 0.03, math.min(0.22, GetConfiguredAlpha() * 0.22))
+        container:SetBackdropBorderColor(0.38, 0.28, 0.10, math.min(0.45, GetConfiguredAlpha() * 0.55))
     end
 end
 
@@ -352,6 +412,32 @@ GetConfiguredTheme = function()
     end
 
     return "STANDARD"
+end
+
+local function GetConfiguredSpacing()
+    local db = GetDB()
+    local spacing = db and db.quickChatButtonSpacing or 4
+    if type(spacing) ~= "number" then
+        spacing = 4
+    end
+    if spacing < 2 then spacing = 2 end
+    if spacing > 10 then spacing = 10 end
+    return math.floor(spacing + 0.5)
+end
+
+local function GetConfiguredFontScale()
+    local db = GetDB()
+    local scale = db and db.quickChatButtonFontScale or 1
+    if type(scale) ~= "number" then
+        scale = 1
+    end
+    if scale < 0.8 then scale = 0.8 end
+    if scale > 1.3 then scale = 1.3 end
+    return scale
+end
+
+function ns.NotifyQuickChatSettingsChanged()
+    ScheduleRefresh(0)
 end
 
 GetElvUIPanelColor = function()
@@ -664,11 +750,12 @@ local function LayoutButtons()
         return
     end
 
-    local spacing = 4
+    local spacing = GetConfiguredSpacing()
+    local outerPadding = GetConfiguredTheme() == "ELVUI" and 5 or 4
     local buttonCount = #BUTTON_DEFS
     local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
     local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
-    local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing)) / buttonCount)
+    local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing) - (outerPadding * 2)) / buttonCount)
     if maxUsableSize < 12 then
         maxUsableSize = 12
     end
@@ -680,12 +767,13 @@ local function LayoutButtons()
     end
 
     local totalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
+    local holderHeight = totalHeight + (outerPadding * 2)
 
     container:ClearAllPoints()
     container:SetParent(GetAnchorParent())
     container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", sideGap, 0)
-    container:SetHeight(math.max(chatHeight, totalHeight))
-    container:SetWidth(size + (GetConfiguredTheme() == "ELVUI" and 8 or 4))
+    container:SetHeight(math.max(chatHeight, holderHeight))
+    container:SetWidth(size + (GetConfiguredTheme() == "ELVUI" and 10 or 8))
 
     if container.SetFrameStrata then
         container:SetFrameStrata(E and "HIGH" or "MEDIUM")
@@ -706,11 +794,11 @@ local function LayoutButtons()
             if previous then
                 button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
             else
-                button:SetPoint("BOTTOM", container, "BOTTOM", 0, 0)
+                button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
             end
 
             if button.Label then
-                local fontSize = math.max(10, math.floor(size * 0.48))
+                local fontSize = math.max(10, math.floor(size * 0.48 * GetConfiguredFontScale()))
                 if GetConfiguredTheme() == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
                     pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
                 else
@@ -735,11 +823,23 @@ local function LayoutButtons()
                 button.Accent:SetHeight(math.max(2, math.floor(size * 0.12)))
             end
 
+            if button.Inner then
+                button.Inner:ClearAllPoints()
+                button.Inner:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+                button.Inner:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+            end
+
             if button.Gloss then
                 button.Gloss:ClearAllPoints()
                 button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
                 button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
                 button.Gloss:SetHeight(math.max(4, math.floor(size * 0.34)))
+            end
+
+            if button.Glow then
+                button.Glow:ClearAllPoints()
+                button.Glow:SetPoint("TOPLEFT", button, "TOPLEFT", -1, 1)
+                button.Glow:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 1, -1)
             end
 
             if button.Shade then
@@ -767,6 +867,7 @@ local function HookAnchorFrameSignals()
         end
     end)
     frame:HookScript("OnShow", ns.RefreshQuickChatButtons)
+    frame:HookScript("OnHide", ns.RefreshQuickChatButtons)
 end
 
 local function HookEditBoxSignals()
@@ -916,6 +1017,11 @@ local function HookElvUIRefreshSignals()
     hookMethod("UpdateSettings")
     hookMethod("UpdateEditboxAnchors")
     hookMethod("UpdateChatTabs")
+    hookMethod("Panel_ColorUpdate")
+    hookMethod("Panels_ColorUpdate")
+    hookMethod("UpdateChatTabColors")
+    hookMethod("StyleChat")
+    hookMethod("FCF_SetWindowAlpha")
 
     if _G.LeftChatToggleButton and _G.LeftChatToggleButton.HookScript and not _G.LeftChatToggleButton.__chatifyElvUIHooked then
         _G.LeftChatToggleButton:HookScript("OnClick", function() ScheduleRefresh(0) end)
@@ -975,6 +1081,13 @@ function QuickButtonsModule:OnEnable()
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("CHANNEL_UI_UPDATE", "Refresh")
+    self:RegisterEvent("MODIFIER_STATE_CHANGED", function() UpdateButtonState() end)
+    self:RegisterEvent("DISPLAY_SIZE_CHANGED", "Refresh")
+    self:RegisterEvent("CVAR_UPDATE", function(_, cvar)
+        if cvar == "useUiScale" or cvar == "uiScale" then
+            self:Refresh()
+        end
+    end)
     self:RegisterEvent("ADDON_LOADED", function(_, addon)
         if addon == "ElvUI" then
             elvuiEngine = nil
