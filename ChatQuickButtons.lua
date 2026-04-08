@@ -685,27 +685,85 @@ local function ActivateChatType(def, useAlt)
         return
     end
 
-    if type(ChatEdit_SetLastActiveWindow) == "function" then
-        pcall(ChatEdit_SetLastActiveWindow, frame)
+    local setLastActiveWindow = _G.ChatEdit_SetLastActiveWindow
+    if type(setLastActiveWindow) ~= "function" and _G.ChatFrameUtil and type(_G.ChatFrameUtil.SetLastActiveWindow) == "function" then
+        setLastActiveWindow = function(chatFrame)
+            return _G.ChatFrameUtil.SetLastActiveWindow(_G.ChatFrameUtil, chatFrame)
+        end
     end
 
-    local editBox = GetActiveEditBox()
-    local opened = false
+    if type(setLastActiveWindow) == "function" then
+        pcall(setLastActiveWindow, frame)
+    end
 
-    -- IMPORTANT:
-    -- Do not mutate chat edit box protected attributes here.
-    -- Direct SetAttribute("chatType"/"tellTarget"/"channelTarget") calls can taint
-    -- Blizzard's send flow and later break whispers/channels that require a target.
-    -- Always switch chat mode through Blizzard's own slash-command path instead.
-    if type(ChatFrame_OpenChat) == "function" and type(target.slash) == "string" then
-        local ok = pcall(ChatFrame_OpenChat, target.slash, frame)
+    local openChat = _G.ChatFrame_OpenChat
+    if type(openChat) ~= "function" and _G.ChatFrameUtil and type(_G.ChatFrameUtil.OpenChat) == "function" then
+        openChat = function(text, chatFrame)
+            return _G.ChatFrameUtil.OpenChat(_G.ChatFrameUtil, text, chatFrame)
+        end
+    end
+
+    local parseText = _G.ChatEdit_ParseText
+    if type(parseText) ~= "function" then
+        if _G.ChatFrameEditBoxMixin and type(_G.ChatFrameEditBoxMixin.ParseText) == "function" then
+            parseText = function(editBox, send)
+                return _G.ChatFrameEditBoxMixin.ParseText(editBox, send)
+            end
+        elseif _G.ChatFrameEditBoxBaseMixin and type(_G.ChatFrameEditBoxBaseMixin.ParseText) == "function" then
+            parseText = function(editBox, send)
+                return _G.ChatFrameEditBoxBaseMixin.ParseText(editBox, send)
+            end
+        end
+    end
+
+    local chooseBoxForSend = _G.ChatEdit_ChooseBoxForSend
+    local editBox = GetActiveEditBox()
+    if not editBox and type(chooseBoxForSend) == "function" then
+        local ok, chosen = pcall(chooseBoxForSend, frame)
+        if ok then
+            editBox = chosen
+        end
+    end
+
+    local existingText = ""
+    if editBox and type(editBox.GetText) == "function" then
+        local ok, text = pcall(editBox.GetText, editBox)
+        if ok and type(text) == "string" then
+            existingText = text
+        end
+    end
+
+    local opened = false
+    if type(openChat) == "function" and type(target.slash) == "string" then
+        local ok = pcall(openChat, target.slash, frame)
         opened = ok and true or false
         editBox = GetActiveEditBox() or editBox
     end
 
-    if not opened and type(ChatFrame_OpenChat) == "function" then
-        pcall(ChatFrame_OpenChat, "", frame)
+    if not opened and type(openChat) == "function" then
+        pcall(openChat, "", frame)
         editBox = GetActiveEditBox() or editBox
+    end
+
+    local switched = false
+    local currentChatType = GetCurrentChatType()
+    if currentChatType == target.chatType then
+        switched = true
+    end
+
+    if not switched and editBox and type(parseText) == "function" and type(target.slash) == "string" then
+        local parseBuffer = target.slash
+        if existingText and existingText ~= "" then
+            parseBuffer = target.slash .. existingText
+        end
+
+        if editBox.SetText then
+            pcall(editBox.SetText, editBox, parseBuffer)
+        end
+        pcall(parseText, editBox, 0)
+        editBox = GetActiveEditBox() or editBox
+        currentChatType = GetCurrentChatType()
+        switched = currentChatType == target.chatType
     end
 
     if editBox then
@@ -714,6 +772,15 @@ local function ActivateChatType(def, useAlt)
         end
         if editBox.SetFocus then
             pcall(editBox.SetFocus, editBox)
+        end
+        if editBox.HighlightText then
+            pcall(editBox.HighlightText, editBox, 0, 0)
+        end
+        if editBox.SetCursorPosition and type(editBox.GetText) == "function" then
+            local ok, text = pcall(editBox.GetText, editBox)
+            if ok and type(text) == "string" then
+                pcall(editBox.SetCursorPosition, editBox, #text)
+            end
         end
     end
 
