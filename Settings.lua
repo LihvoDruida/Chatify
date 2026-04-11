@@ -167,7 +167,7 @@ function Chatify:GetOptions()
                     quickChatButtonTheme = {
                         order = 7,
                         name = "Quick Button Skin",
-                        desc = "Choose how quick chat buttons are styled. Auto prefers GW2 UI when its chat module is active, otherwise ElvUI, otherwise the standard Chatify style.",
+                        desc = "Choose how quick chat buttons are styled. Auto follows detected chat addons, while Standard, ElvUI, and GW2 UI can be used as appearance-only skins even when those addons are not installed.",
                         type = "select",
                         width = "normal",
                         values = {

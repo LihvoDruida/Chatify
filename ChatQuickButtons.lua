@@ -24,7 +24,7 @@ local generalHooksInstalled = false
 local refreshQueued = false
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
-local GW2_TEXTURE_PATH = "Interface\\AddOns\\GW2_UI\\Textures\\chat\\"
+local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
 local TRANSPARENT_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local GW2_BUTTON_NORMAL = GW2_TEXTURE_PATH .. "channel_button_normal.png"
 local GW2_BUTTON_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_normal_highlight.png"
@@ -678,14 +678,6 @@ GetConfiguredTheme = function()
         theme = "AUTO"
     end
 
-    if theme == "GW2UI" then
-        return HasGW2Chat() and "GW2UI" or (HasElvUIChat() and "ELVUI" or "STANDARD")
-    end
-
-    if theme == "ELVUI" then
-        return HasElvUIChat() and "ELVUI" or (HasGW2Chat() and "GW2UI" or "STANDARD")
-    end
-
     if theme == "AUTO" then
         if HasGW2Chat() then
             return "GW2UI"
@@ -698,7 +690,7 @@ GetConfiguredTheme = function()
         return "STANDARD"
     end
 
-    return "STANDARD"
+    return theme
 end
 
 local function GetConfiguredSpacing()
@@ -879,11 +871,11 @@ local function GetAnchorVisualFrame()
     end
 
     local theme = GetConfiguredTheme()
-    if theme == "GW2UI" and frame.Container then
+    if theme == "GW2UI" and HasGW2Chat() and frame.Container then
         return frame.Container
     end
 
-    if theme == "ELVUI" then
+    if theme == "ELVUI" and HasElvUIChat() then
         return GetElvUIAnchorPanel(frame) or frame
     end
 

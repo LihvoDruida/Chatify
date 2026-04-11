@@ -139,7 +139,7 @@ ns.defaults = {
         quickChatButtonSize = 24,   -- Базовий розмір кнопок швидкого перемикання чату
         quickChatButtonGap = 18,    -- Відступ кнопок від правого краю чату
         quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
-        quickChatButtonTheme = "AUTO", -- AUTO = GW2 UI when available, otherwise ElvUI, otherwise standard
+        quickChatButtonTheme = "AUTO", -- AUTO follows active chat addons; manual skins are appearance-only and do not require those addons
         quickChatButtonSpacing = 4, -- Вертикальний відступ між кнопками швидкого чату
         quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату
 

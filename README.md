@@ -72,3 +72,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Compatibility
 - Includes `LibChatAnims` for Floating Chat Frame alert flash functions, following the Prat 3.0 approach to use animation groups instead of legacy `UIFrameFlash`.
+
+
+## Quick Button Skin Behavior
+
+Quick chat button skins can be forced to Standard, ElvUI, or GW2 UI even if those addons are not installed. In that case Chatify applies only the visual style and keeps its normal behavior, anchors, and chat logic. Auto mode still follows detected chat UI addons when they are active.
