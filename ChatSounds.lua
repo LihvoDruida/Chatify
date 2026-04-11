@@ -29,6 +29,7 @@ local adaptiveThrottle = MIN_THROTTLE
 
 local soundQueue = {}
 local isQueueProcessing = false
+local MAX_QUEUE_SIZE = 4
 
 local eventMap = {
     CHAT_MSG_WHISPER = "WHISPER",
@@ -64,6 +65,40 @@ local function GetSafeText(rawText)
     end
 
     return nil
+end
+
+local function EscapeLuaPattern(value)
+    if type(value) ~= "string" or value == "" then
+        return value
+    end
+    return (value:gsub("([%%%^%$%(%)%%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+local function NormalizePlayerName(value)
+    local safe = GetSafeText(value)
+    if type(safe) ~= "string" or safe == "" then
+        return nil, nil
+    end
+
+    local short = safe:match("([^%-]+)") or safe
+    return safe, short
+end
+
+local function IsSelfAuthor(author)
+    local _, shortAuthor = NormalizePlayerName(author)
+    if not shortAuthor or not myName then
+        return false
+    end
+
+    return strlower(shortAuthor) == myNameLower
+end
+
+local function UpdatePlayerIdentity()
+    local name = UnitName("player")
+    if type(name) == "string" and name ~= "" then
+        myName = name
+        myNameLower = strlower(name)
+    end
 end
 
 local function UpdateAdaptiveThrottle()
@@ -133,6 +168,16 @@ function Sounds:Play(soundName)
     end
 
     local channel = db.masterVolume and "Master" or "SFX"
+
+    local lastQueued = soundQueue[#soundQueue]
+    if lastQueued and lastQueued.file == soundFile and lastQueued.channel == channel then
+        return
+    end
+
+    if #soundQueue >= MAX_QUEUE_SIZE then
+        tremove(soundQueue, 1)
+    end
+
     tinsert(soundQueue, { file = soundFile, channel = channel })
     ProcessQueue()
 end
@@ -180,14 +225,7 @@ function Sounds:OnEvent(event, msg, author, ...)
     end
 
     local safeAuthor = GetSafeText(author)
-    local isSelf = false
-
-    if safeAuthor and myName then
-        local ok, result = pcall(function() return safeAuthor == myName end)
-        if ok and result then
-            isSelf = true
-        end
-    end
+    local isSelf = IsSelfAuthor(safeAuthor)
 
     if not isSelf and event == "CHAT_MSG_BN_WHISPER" then
         isSelf = IsBattleNetSelf(...)
@@ -196,7 +234,8 @@ function Sounds:OnEvent(event, msg, author, ...)
     if safeMsg and myNameLower then
         local okMention, isMention = pcall(function()
             local msgLower = strlower(safeMsg)
-            return strfind(msgLower, "%f[%w]" .. myNameLower .. "%f[%W]") ~= nil
+            local escapedName = EscapeLuaPattern(myNameLower)
+            return strfind(msgLower, "%f[%w]" .. escapedName .. "%f[%W]") ~= nil
         end)
         if okMention and isMention then
             if (now - lastMentionSound) >= MENTION_THROTTLE then
@@ -221,9 +260,5 @@ function Sounds:OnEnable()
         self:RegisterEvent(event, "OnEvent")
     end
 
-    local name = UnitName("player")
-    if name then
-        myName = name
-        myNameLower = strlower(name)
-    end
+    UpdatePlayerIdentity()
 end

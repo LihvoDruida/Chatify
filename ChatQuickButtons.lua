@@ -24,6 +24,7 @@ local gw2HooksInstalled = false
 local generalHooksInstalled = false
 local refreshQueued = false
 local stateUpdateQueued = false
+local lastLayoutSignature
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
 local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
@@ -1025,6 +1026,53 @@ GetAnchorFrame = function()
     return NormalizeChatFrame(_G.DEFAULT_CHAT_FRAME) or NormalizeChatFrame(_G.ChatFrame1) or _G.ChatFrame1 or DEFAULT_CHAT_FRAME
 end
 
+local function GetFrameIdentity(frame)
+    if not frame then
+        return "nil"
+    end
+
+    if type(frame.GetName) == "function" then
+        local ok, name = pcall(frame.GetName, frame)
+        if ok and type(name) == "string" and name ~= "" then
+            return name
+        end
+    end
+
+    return tostring(frame)
+end
+
+local function GetLayoutSignature()
+    local db = GetDB() or {}
+    local frame = GetAnchorFrame()
+    local visualFrame = GetAnchorVisualFrame() or frame
+    if not frame or not visualFrame then
+        return nil
+    end
+
+    local width = visualFrame.GetWidth and math.floor((visualFrame:GetWidth() or 0) + 0.5) or 0
+    local height = visualFrame.GetHeight and math.floor((visualFrame:GetHeight() or 0) + 0.5) or 0
+    local strata = visualFrame.GetFrameStrata and visualFrame:GetFrameStrata() or "MEDIUM"
+    local alpha = string.format("%.2f", GetConfiguredAlpha())
+    local spacing = GetConfiguredSpacing()
+    local scale = string.format("%.2f", GetConfiguredFontScale())
+    local size = type(db.quickChatButtonSize) == "number" and math.floor(db.quickChatButtonSize + 0.5) or 24
+    local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
+
+    return table.concat({
+        GetConfiguredTheme(),
+        GetFrameIdentity(frame),
+        GetFrameIdentity(visualFrame),
+        tostring(width),
+        tostring(height),
+        tostring(strata),
+        tostring(size),
+        tostring(gap),
+        tostring(spacing),
+        tostring(scale),
+        tostring(alpha),
+    }, "|")
+end
+
 local function GetAnchorParent()
     local visualFrame = GetAnchorVisualFrame()
     if visualFrame and visualFrame.GetParent then
@@ -1694,6 +1742,7 @@ end
 function ns.RefreshQuickChatButtons()
     local db = GetDB()
     if not db or db.quickChatButtons == false then
+        lastLayoutSignature = nil
         if container then
             container:Hide()
         end
@@ -1713,7 +1762,13 @@ function ns.RefreshQuickChatButtons()
     EnsureContainer()
     HookAnchorFrameSignals()
     HookEditBoxSignals()
-    LayoutButtons()
+
+    local layoutSignature = GetLayoutSignature()
+    if layoutSignature ~= lastLayoutSignature or not container:IsShown() then
+        LayoutButtons()
+        lastLayoutSignature = layoutSignature
+    end
+
     UpdateButtonState()
     container:Show()
 end

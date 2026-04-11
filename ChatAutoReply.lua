@@ -72,6 +72,17 @@ local function PlayerName()
     return UnitName("player")
 end
 
+local function IsPlayerSender(sender)
+    local playerName = PlayerName()
+    local safeSender = SafeChatText(sender)
+    if type(playerName) ~= "string" or playerName == "" or type(safeSender) ~= "string" or safeSender == "" then
+        return false
+    end
+
+    local shortSender = StripRealm(safeSender) or safeSender
+    return shortSender == playerName
+end
+
 local function StripRealm(name)
     if type(name) ~= "string" or name == "" then
         return nil
@@ -488,9 +499,7 @@ function AutoReply:OnEnable()
     EnsureCharState()
 
     self:RegisterEvent("CHAT_MSG_WHISPER", function(_, message, sender)
-        local playerName = PlayerName()
-        local shortSender = StripRealm(SafeChatText(sender) or "")
-        if playerName and shortSender == playerName then
+        if IsPlayerSender(sender) then
             return
         end
         SendAutoReply(sender, false, message)
@@ -503,9 +512,7 @@ function AutoReply:OnEnable()
     end)
 
     self:RegisterEvent("CHAT_MSG_GUILD", function(_, message, sender)
-        local playerName = PlayerName()
-        local shortSender = StripRealm(SafeChatText(sender) or "")
-        if playerName and shortSender == playerName then
+        if IsPlayerSender(sender) then
             return
         end
         if IsPlayerMentioned(message) then

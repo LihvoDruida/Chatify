@@ -731,20 +731,42 @@ function Chatify:OnInitialize()
     if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Critical: Build cache on load
 end
 
+local function RefreshRuntimeModules()
+    if ns.ApplyVisuals then ns.ApplyVisuals() end
+    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
+    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
+
+    local router = Chatify.GetModule and Chatify:GetModule("Router", true)
+    if router then
+        if type(router.ApplyToAllFrames) == "function" then
+            router:ApplyToAllFrames()
+        end
+        if type(router.RefreshProxies) == "function" then
+            router:RefreshProxies()
+        end
+    end
+
+    local visuals = Chatify.GetModule and Chatify:GetModule("Visuals", true)
+    if visuals and type(visuals.ApplyStyle) == "function" then
+        visuals:ApplyStyle()
+    end
+
+    local quickButtons = Chatify.GetModule and Chatify:GetModule("QuickButtons", true)
+    if quickButtons and type(quickButtons.Refresh) == "function" then
+        quickButtons:Refresh()
+    end
+end
+
 function Chatify:RefreshConfig()
     ns.db = self.db.profile
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
     end
-    if ns.ApplyVisuals then ns.ApplyVisuals() end
-    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Rebuild cache on profile change
-    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
+    RefreshRuntimeModules()
 end
 
 function Chatify:OnEnable()
-    if ns.ApplyVisuals then ns.ApplyVisuals() end
-    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
-    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
+    RefreshRuntimeModules()
 end
 
 function Chatify:OpenConfig()

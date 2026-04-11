@@ -586,8 +586,28 @@ local function HandleVirtualAddMessage(frame, text, ...)
     end
 end
 
+local function RestoreHookFrame(frame)
+    if not frame then
+        return
+    end
+
+    local original = originalAddMessage[frame]
+    if type(original) == "function" and frame.AddMessage ~= original then
+        frame.AddMessage = original
+    end
+
+    hookedFrames[frame] = nil
+    originalAddMessage[frame] = nil
+end
+
+local function RestoreAllHookedFrames()
+    for frame in pairs(hookedFrames) do
+        RestoreHookFrame(frame)
+    end
+end
+
 local function HookFrame(frame)
-    if not frame or hookedFrames[frame] or not frame.AddMessage then
+    if not frame or not frame.AddMessage then
         return
     end
 
@@ -597,11 +617,12 @@ local function HookFrame(frame)
 
     EnsureFrameHyperlinks(frame)
 
-    if IsRetailSecretValueBuild() then
-        -- Retail 12.x: never replace Blizzard-owned AddMessage on live chat frames.
-        -- Use ChatFrame_AddMessageEventFilter instead, which Blizzard routes through
-        -- a secure canaccessvalue(...) gate for inaccessible payloads.
-        hookedFrames[frame] = true
+    if IsRetailSecretValueBuild() or not IsVirtualEnabled() then
+        RestoreHookFrame(frame)
+        return
+    end
+
+    if hookedFrames[frame] then
         return
     end
 
@@ -614,11 +635,18 @@ local function HookFrame(frame)
 end
 
 function Router:ApplyToAllFrames()
+    local virtualEnabled = IsVirtualEnabled() and not IsRetailSecretValueBuild()
+    if not virtualEnabled then
+        RestoreAllHookedFrames()
+    end
+
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame" .. i]
         if frame then
             EnsureFrameHyperlinks(frame)
-            HookFrame(frame)
+            if virtualEnabled then
+                HookFrame(frame)
+            end
         end
     end
 end
