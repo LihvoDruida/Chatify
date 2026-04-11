@@ -18,10 +18,12 @@ local MixColor
 local elvuiEngine
 local elvuiChat
 local gw2Engine
+local UpdateButtonState
 local elvuiHooksInstalled = false
 local gw2HooksInstalled = false
 local generalHooksInstalled = false
 local refreshQueued = false
+local stateUpdateQueued = false
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
 local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
@@ -111,8 +113,13 @@ local function HasGW2Chat()
     return true
 end
 
+local delayedRefreshToken = 0
+
 local function ScheduleRefresh(delay)
     delay = tonumber(delay) or 0
+    if delay < 0 then
+        delay = 0
+    end
 
     if not C_Timer or not C_Timer.After then
         ns.RefreshQuickChatButtons()
@@ -120,7 +127,14 @@ local function ScheduleRefresh(delay)
     end
 
     if delay > 0 then
-        C_Timer.After(delay, ns.RefreshQuickChatButtons)
+        delayedRefreshToken = delayedRefreshToken + 1
+        local token = delayedRefreshToken
+        C_Timer.After(delay, function()
+            if token ~= delayedRefreshToken then
+                return
+            end
+            ns.RefreshQuickChatButtons()
+        end)
         return
     end
 
@@ -132,6 +146,23 @@ local function ScheduleRefresh(delay)
     C_Timer.After(0, function()
         refreshQueued = false
         ns.RefreshQuickChatButtons()
+    end)
+end
+
+local function ScheduleButtonStateUpdate()
+    if not C_Timer or not C_Timer.After then
+        UpdateButtonState()
+        return
+    end
+
+    if stateUpdateQueued then
+        return
+    end
+
+    stateUpdateQueued = true
+    C_Timer.After(0, function()
+        stateUpdateQueued = false
+        UpdateButtonState()
     end)
 end
 
@@ -882,13 +913,116 @@ local function GetAnchorVisualFrame()
     return frame
 end
 
-GetAnchorFrame = function()
-    local _, CH = GetElvUI()
-    if CH and CH.LeftChatWindow then
-        return CH.LeftChatWindow
+local function NormalizeChatFrame(candidate)
+    if not candidate then
+        return nil
     end
 
-    return _G.ChatFrame1 or DEFAULT_CHAT_FRAME
+    if type(candidate) == "table" and candidate.chatFrame then
+        candidate = candidate.chatFrame
+    end
+
+    if type(candidate) ~= "table" then
+        return nil
+    end
+
+    if type(candidate.GetObjectType) == "function" then
+        local ok, objectType = pcall(candidate.GetObjectType, candidate)
+        if ok and (objectType == "ScrollingMessageFrame" or objectType == "Frame") then
+            return candidate
+        end
+    end
+
+    if candidate.editBox and type(candidate.editBox) == "table" and candidate.editBox.chatFrame then
+        return candidate.editBox.chatFrame
+    end
+
+    return nil
+end
+
+local function GetSelectedDockFrame()
+    if type(_G.FCFDock_GetSelectedWindow) == "function" and _G.GeneralDockManager then
+        local ok, selected = pcall(_G.FCFDock_GetSelectedWindow, _G.GeneralDockManager)
+        if ok then
+            selected = NormalizeChatFrame(selected)
+            if selected then
+                return selected
+            end
+        end
+    end
+
+    if _G.GeneralDockManager then
+        local selected = NormalizeChatFrame(_G.GeneralDockManager.selected)
+        if selected then
+            return selected
+        end
+
+        local primary = NormalizeChatFrame(_G.GeneralDockManager.primary)
+        if primary then
+            return primary
+        end
+    end
+
+    return nil
+end
+
+local function GetLastActiveChatFrame()
+    if type(_G.ChatEdit_GetLastActiveWindow) == "function" then
+        local ok, result = pcall(_G.ChatEdit_GetLastActiveWindow)
+        if ok then
+            result = NormalizeChatFrame(result)
+            if result then
+                return result
+            end
+        end
+    end
+
+    if _G.ChatFrameUtil then
+        local util = _G.ChatFrameUtil
+        if type(util.GetLastActiveWindow) == "function" then
+            local ok, result = pcall(util.GetLastActiveWindow, util)
+            if ok then
+                result = NormalizeChatFrame(result)
+                if result then
+                    return result
+                end
+            end
+        end
+
+        if type(util.GetActiveChatFrame) == "function" then
+            local ok, result = pcall(util.GetActiveChatFrame, util)
+            if ok then
+                result = NormalizeChatFrame(result)
+                if result then
+                    return result
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+GetAnchorFrame = function()
+    local activeFrame = GetLastActiveChatFrame() or GetSelectedDockFrame()
+    if activeFrame then
+        return activeFrame
+    end
+
+    local _, CH = GetElvUI()
+    if CH then
+        local left = NormalizeChatFrame(CH.LeftChatWindow)
+        if left then
+            return left
+        end
+
+        local right = NormalizeChatFrame(CH.RightChatWindow)
+        if right then
+            return right
+        end
+    end
+
+    return NormalizeChatFrame(_G.DEFAULT_CHAT_FRAME) or NormalizeChatFrame(_G.ChatFrame1) or _G.ChatFrame1 or DEFAULT_CHAT_FRAME
 end
 
 local function GetAnchorParent()
@@ -954,8 +1088,19 @@ end
 
 local function GetCurrentChatType()
     local editBox = GetActiveEditBox()
-    if editBox and editBox.IsShown and editBox:IsShown() and editBox.GetAttribute then
-        local chatType = editBox:GetAttribute("chatType")
+    if editBox then
+        local chatType
+        if editBox.GetAttribute then
+            local ok, value = pcall(editBox.GetAttribute, editBox, "chatType")
+            if ok and type(value) == "string" then
+                chatType = value
+            end
+        end
+
+        if type(chatType) ~= "string" and type(editBox.chatType) == "string" then
+            chatType = editBox.chatType
+        end
+
         if type(chatType) == "string" then
             return chatType
         end
@@ -963,7 +1108,7 @@ local function GetCurrentChatType()
     return nil
 end
 
-local function UpdateButtonState()
+UpdateButtonState = function()
     if not container then
         return
     end
@@ -1103,7 +1248,7 @@ local function ActivateChatType(def, useAlt)
         end
     end
 
-    UpdateButtonState()
+    ScheduleButtonStateUpdate()
 end
 
 local function LayoutButtons()
@@ -1155,7 +1300,8 @@ local function LayoutButtons()
     container:SetWidth(size + (theme == "ELVUI" and 10 or (theme == "GW2UI" and 6 or 8)))
 
     if container.SetFrameStrata then
-        container:SetFrameStrata(E and "HIGH" or "MEDIUM")
+        local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
+        container:SetFrameStrata(strata)
     end
     if frame.GetFrameLevel and container.SetFrameLevel then
         container:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)
@@ -1239,14 +1385,10 @@ local function HookAnchorFrameSignals()
 
     hookedAnchorFrame = frame
     frame:HookScript("OnSizeChanged", function()
-        if C_Timer and C_Timer.After then
-            C_Timer.After(0, ns.RefreshQuickChatButtons)
-        else
-            ns.RefreshQuickChatButtons()
-        end
+        ScheduleRefresh(0.05)
     end)
-    frame:HookScript("OnShow", ns.RefreshQuickChatButtons)
-    frame:HookScript("OnHide", ns.RefreshQuickChatButtons)
+    frame:HookScript("OnShow", function() ScheduleRefresh(0) end)
+    frame:HookScript("OnHide", function() ScheduleRefresh(0) end)
 end
 
 local function HookEditBoxSignals()
@@ -1256,17 +1398,11 @@ local function HookEditBoxSignals()
     end
 
     hookedEditBox = editBox
-    editBox:HookScript("OnShow", UpdateButtonState)
-    editBox:HookScript("OnHide", UpdateButtonState)
-    editBox:HookScript("OnEditFocusGained", UpdateButtonState)
-    editBox:HookScript("OnEditFocusLost", UpdateButtonState)
-    editBox:HookScript("OnTextChanged", function()
-        if C_Timer and C_Timer.After then
-            C_Timer.After(0, UpdateButtonState)
-        else
-            UpdateButtonState()
-        end
-    end)
+    editBox:HookScript("OnShow", ScheduleButtonStateUpdate)
+    editBox:HookScript("OnHide", ScheduleButtonStateUpdate)
+    editBox:HookScript("OnEditFocusGained", ScheduleButtonStateUpdate)
+    editBox:HookScript("OnEditFocusLost", ScheduleButtonStateUpdate)
+    editBox:HookScript("OnTextChanged", ScheduleButtonStateUpdate)
 end
 
 local function EnsureContainer()
@@ -1389,6 +1525,20 @@ local function HookGeneralRefreshSignals()
         end)
     end
 
+    if type(_G.FCFDock_SelectWindow) == "function" then
+        hooksecurefunc("FCFDock_SelectWindow", function()
+            ScheduleRefresh(0)
+            ScheduleButtonStateUpdate()
+        end)
+    end
+
+    if type(_G.FCF_SelectDockFrame) == "function" then
+        hooksecurefunc("FCF_SelectDockFrame", function()
+            ScheduleRefresh(0)
+            ScheduleButtonStateUpdate()
+        end)
+    end
+
     if type(_G.FloatingChatFrame_Update) == "function" then
         hooksecurefunc("FloatingChatFrame_Update", function()
             ScheduleRefresh(0)
@@ -1397,8 +1547,50 @@ local function HookGeneralRefreshSignals()
 
     if type(_G.ChatEdit_UpdateHeader) == "function" then
         hooksecurefunc("ChatEdit_UpdateHeader", function()
-            ScheduleRefresh(0)
+            ScheduleButtonStateUpdate()
         end)
+    end
+
+    if _G.ChatFrameUtil then
+        if type(_G.ChatFrameUtil.ActivateChat) == "function" then
+            hooksecurefunc(_G.ChatFrameUtil, "ActivateChat", function()
+                ScheduleRefresh(0)
+                ScheduleButtonStateUpdate()
+            end)
+        end
+
+        if type(_G.ChatFrameUtil.DeactivateChat) == "function" then
+            hooksecurefunc(_G.ChatFrameUtil, "DeactivateChat", function()
+                ScheduleButtonStateUpdate()
+            end)
+        end
+
+        if type(_G.ChatFrameUtil.SetLastActiveWindow) == "function" then
+            hooksecurefunc(_G.ChatFrameUtil, "SetLastActiveWindow", function()
+                ScheduleRefresh(0)
+                ScheduleButtonStateUpdate()
+            end)
+        end
+    else
+        if type(_G.ChatEdit_ActivateChat) == "function" then
+            hooksecurefunc("ChatEdit_ActivateChat", function()
+                ScheduleRefresh(0)
+                ScheduleButtonStateUpdate()
+            end)
+        end
+
+        if type(_G.ChatEdit_DeactivateChat) == "function" then
+            hooksecurefunc("ChatEdit_DeactivateChat", function()
+                ScheduleButtonStateUpdate()
+            end)
+        end
+
+        if type(_G.ChatEdit_SetLastActiveWindow) == "function" then
+            hooksecurefunc("ChatEdit_SetLastActiveWindow", function()
+                ScheduleRefresh(0)
+                ScheduleButtonStateUpdate()
+            end)
+        end
     end
 
     generalHooksInstalled = true
@@ -1424,20 +1616,20 @@ local function HookGW2RefreshSignals()
     if frame and frame.Container and frame.Container.HookScript and not frame.Container.__chatifyGW2Hooked then
         frame.Container:HookScript("OnShow", function() ScheduleRefresh(0) end)
         frame.Container:HookScript("OnHide", function() ScheduleRefresh(0) end)
-        frame.Container:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        frame.Container:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
         frame.Container.__chatifyGW2Hooked = true
     end
 
     local background = frame and frame.GetName and _G[frame:GetName() .. "Background"]
     if background and background.HookScript and not background.__chatifyGW2Hooked then
         background:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        background:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        background:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
         background.__chatifyGW2Hooked = true
     end
 
     if _G.GeneralDockManager and _G.GeneralDockManager.HookScript and not _G.GeneralDockManager.__chatifyGW2Hooked then
         _G.GeneralDockManager:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.GeneralDockManager:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.GeneralDockManager:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
         _G.GeneralDockManager.__chatifyGW2Hooked = true
     end
 
@@ -1486,13 +1678,13 @@ local function HookElvUIRefreshSignals()
 
     if _G.LeftChatPanel and _G.LeftChatPanel.HookScript and not _G.LeftChatPanel.__chatifyElvUIHooked then
         _G.LeftChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.LeftChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.LeftChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
         _G.LeftChatPanel.__chatifyElvUIHooked = true
     end
 
     if _G.RightChatPanel and _G.RightChatPanel.HookScript and not _G.RightChatPanel.__chatifyElvUIHooked then
         _G.RightChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.RightChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.RightChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
         _G.RightChatPanel.__chatifyElvUIHooked = true
     end
 
@@ -1538,7 +1730,7 @@ function QuickButtonsModule:OnEnable()
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
     self:RegisterEvent("CHANNEL_UI_UPDATE", "Refresh")
-    self:RegisterEvent("MODIFIER_STATE_CHANGED", function() UpdateButtonState() end)
+    self:RegisterEvent("MODIFIER_STATE_CHANGED", function() ScheduleButtonStateUpdate() end)
     self:RegisterEvent("DISPLAY_SIZE_CHANGED", "Refresh")
     self:RegisterEvent("CVAR_UPDATE", function(_, cvar)
         if cvar == "useUiScale" or cvar == "uiScale" then
