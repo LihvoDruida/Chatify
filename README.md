@@ -67,3 +67,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - ElvUI chat panels are now detected automatically. Quick channel buttons refresh after ElvUI chat layout updates and can use Auto, Standard, or ElvUI skin modes without losing the default Blizzard-compatible fallback.
 - Auto Reply is now actually loaded from the TOC, so its settings are no longer dead UI.
 - Extra TOC variants were added for TBC/Wrath/Vanilla packaging.
+
+
+## Compatibility
+- Includes `LibChatAnims` for Floating Chat Frame alert flash functions, following the Prat 3.0 approach to use animation groups instead of legacy `UIFrameFlash`.
