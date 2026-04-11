@@ -24,7 +24,8 @@ local generalHooksInstalled = false
 local refreshQueued = false
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
-local GW2_TEXTURE_PATH = "Interface\\AddOns\\GW2_UI\\textures\\chat\\"
+local GW2_TEXTURE_PATH = "Interface\\AddOns\\GW2_UI\\Textures\\chat\\"
+local TRANSPARENT_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local GW2_BUTTON_NORMAL = GW2_TEXTURE_PATH .. "channel_button_normal.png"
 local GW2_BUTTON_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_normal_highlight.png"
 local GW2_BUTTON_ACTIVE = GW2_TEXTURE_PATH .. "channel_button_vc.png"
@@ -143,23 +144,40 @@ local function ApplyTextureToRegion(region, path)
     region:SetAllPoints(region:GetParent() or region)
 end
 
+local function ResetManagedButtonTexture(button, getterName, setterName, layer)
+    if not button then
+        return
+    end
+
+    local getter = button[getterName]
+    local setter = button[setterName]
+    local region = type(getter) == "function" and getter(button) or nil
+
+    if not region and type(setter) == "function" then
+        pcall(setter, button, TRANSPARENT_TEXTURE, layer)
+        region = type(getter) == "function" and getter(button) or nil
+    end
+
+    if region then
+        region:SetTexture(TRANSPARENT_TEXTURE)
+        region:SetAlpha(0)
+        if type(region.SetVertexColor) == "function" then
+            region:SetVertexColor(1, 1, 1, 0)
+        end
+        region:ClearAllPoints()
+        region:SetAllPoints(button)
+    end
+end
+
 local function ResetButtonThemeState(button)
     if not button then
         return
     end
 
-    if type(button.SetNormalTexture) == "function" then
-        button:SetNormalTexture(nil)
-    end
-    if type(button.SetPushedTexture) == "function" then
-        button:SetPushedTexture(nil)
-    end
-    if type(button.SetDisabledTexture) == "function" then
-        button:SetDisabledTexture(nil)
-    end
-    if type(button.SetHighlightTexture) == "function" then
-        button:SetHighlightTexture(nil)
-    end
+    ResetManagedButtonTexture(button, "GetNormalTexture", "SetNormalTexture")
+    ResetManagedButtonTexture(button, "GetPushedTexture", "SetPushedTexture")
+    ResetManagedButtonTexture(button, "GetDisabledTexture", "SetDisabledTexture")
+    ResetManagedButtonTexture(button, "GetHighlightTexture", "SetHighlightTexture", "ADD")
 end
 
 local function EnsureContainerArt()
