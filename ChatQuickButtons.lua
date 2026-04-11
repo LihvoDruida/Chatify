@@ -12,12 +12,25 @@ local hookedAnchorFrame
 local GetConfiguredAlpha
 local GetConfiguredTheme
 local GetElvUIPanelColor
+local GetGW2ChatFont
+local GetAnchorFrame
 local MixColor
 local elvuiEngine
 local elvuiChat
+local gw2Engine
 local elvuiHooksInstalled = false
+local gw2HooksInstalled = false
+local generalHooksInstalled = false
 local refreshQueued = false
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
+
+local GW2_TEXTURE_PATH = "Interface\\AddOns\\GW2_UI\\textures\\chat\\"
+local GW2_BUTTON_NORMAL = GW2_TEXTURE_PATH .. "channel_button_normal.png"
+local GW2_BUTTON_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_normal_highlight.png"
+local GW2_BUTTON_ACTIVE = GW2_TEXTURE_PATH .. "channel_button_vc.png"
+local GW2_BUTTON_ACTIVE_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_vc_highlight.png"
+local GW2_CONTAINER_BG = GW2_TEXTURE_PATH .. "chatframebackground.png"
+local GW2_CONTAINER_BORDER = GW2_TEXTURE_PATH .. "chatframeborder.png"
 
 
 local function GetColorComponents(color, fallback)
@@ -63,6 +76,40 @@ local function HasElvUIChat()
     return E ~= nil and CH ~= nil
 end
 
+local function GetGW2()
+    if type(IsAddOnLoaded) ~= "function" or not IsAddOnLoaded("GW2_UI") or not _G.GW then
+        gw2Engine = nil
+        return nil
+    end
+
+    if not gw2Engine then
+        gw2Engine = _G.GW
+    end
+
+    return gw2Engine
+end
+
+local function HasGW2Chat()
+    local GW = GetGW2()
+    if not GW then
+        return false
+    end
+
+    local settings = GW.settings
+    if type(settings) == "table" and settings.CHATFRAME_ENABLED == false then
+        return false
+    end
+
+    if type(GW.ShouldBlockIncompatibleAddon) == "function" then
+        local ok, blocked = pcall(GW.ShouldBlockIncompatibleAddon, "Chat")
+        if ok and blocked then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function ScheduleRefresh(delay)
     delay = tonumber(delay) or 0
 
@@ -85,6 +132,67 @@ local function ScheduleRefresh(delay)
         refreshQueued = false
         ns.RefreshQuickChatButtons()
     end)
+end
+
+local function ApplyTextureToRegion(region, path)
+    if not region or type(path) ~= "string" then
+        return
+    end
+
+    region:SetTexture(path)
+    region:SetAllPoints(region:GetParent() or region)
+end
+
+local function ResetButtonThemeState(button)
+    if not button then
+        return
+    end
+
+    if type(button.SetNormalTexture) == "function" then
+        button:SetNormalTexture(nil)
+    end
+    if type(button.SetPushedTexture) == "function" then
+        button:SetPushedTexture(nil)
+    end
+    if type(button.SetDisabledTexture) == "function" then
+        button:SetDisabledTexture(nil)
+    end
+    if type(button.SetHighlightTexture) == "function" then
+        button:SetHighlightTexture(nil)
+    end
+end
+
+local function EnsureContainerArt()
+    if not container or container.__chatifyArtReady then
+        return
+    end
+
+    local bg = container:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    bg:SetAllPoints(container)
+    container.GW2Bg = bg
+
+    local left = container:CreateTexture(nil, "BORDER")
+    left:SetTexture(GW2_CONTAINER_BORDER)
+    container.GW2BorderLeft = left
+
+    local right = container:CreateTexture(nil, "BORDER")
+    right:SetTexture(GW2_CONTAINER_BORDER)
+    container.GW2BorderRight = right
+
+    container.__chatifyArtReady = true
+end
+
+local function HideContainerThemeTextures()
+    if not container then
+        return
+    end
+
+    EnsureContainerArt()
+
+    if container.GW2Bg then container.GW2Bg:Hide() end
+    if container.GW2BorderLeft then container.GW2BorderLeft:Hide() end
+    if container.GW2BorderRight then container.GW2BorderRight:Hide() end
 end
 
 local function EnsureButtonArt(button)
@@ -130,6 +238,28 @@ local function ApplyButtonBackdrop(button, bg, border)
         button._chatifyElvTemplate = nil
     end
 
+    if theme == "GW2UI" then
+        ResetButtonThemeState(button)
+        if type(button.SetBackdrop) == "function" and not button._chatifyBackdropSet then
+            button:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                tile = false,
+                edgeSize = 1,
+                insets = { left = 1, right = 1, top = 1, bottom = 1 },
+            })
+            button._chatifyBackdropSet = true
+        end
+
+        if type(button.SetBackdropColor) == "function" and type(button.SetBackdropBorderColor) == "function" then
+            button:SetBackdropColor(0, 0, 0, 0)
+            button:SetBackdropBorderColor(0, 0, 0, 0)
+        end
+        return
+    end
+
+    ResetButtonThemeState(button)
+
     if theme == "ELVUI" then
         local E = GetElvUI()
         if E and type(button.SetTemplate) == "function" and not button._chatifyElvTemplate then
@@ -161,6 +291,58 @@ local function GetButtonPalette(button)
     local hovered = button and button:IsMouseOver()
     local alpha = GetConfiguredAlpha()
     local theme = GetConfiguredTheme()
+
+    if theme == "GW2UI" then
+        if not enabled then
+            return {
+                bg = { 0.08, 0.08, 0.09, math.min(1, alpha * 0.75) },
+                border = { 0.30, 0.30, 0.32, 0.85 },
+                text = { 0.62, 0.64, 0.68 },
+                accent = { 0.32, 0.32, 0.36, 0.0 },
+                inner = 0.0,
+                gloss = 0.0,
+                glow = 0.0,
+                shade = 0.22,
+            }
+        end
+
+        if selected then
+            return {
+                bg = { 0.16, 0.24, 0.34, math.min(1, alpha) },
+                border = { 0.42, 0.72, 1.0, 1.0 },
+                text = { 1.0, 1.0, 1.0 },
+                accent = { 0.42, 0.72, 1.0, 0.0 },
+                inner = 0.0,
+                gloss = 0.0,
+                glow = 0.0,
+                shade = 0.0,
+            }
+        end
+
+        if hovered then
+            return {
+                bg = { 0.15, 0.16, 0.20, math.min(1, alpha) },
+                border = { 0.70, 0.70, 0.76, 1.0 },
+                text = { 1.0, 1.0, 1.0 },
+                accent = { 0.70, 0.70, 0.76, 0.0 },
+                inner = 0.0,
+                gloss = 0.0,
+                glow = 0.0,
+                shade = 0.0,
+            }
+        end
+
+        return {
+            bg = { 0.10, 0.10, 0.12, alpha },
+            border = { 0.46, 0.46, 0.50, 1.0 },
+            text = { 0.92, 0.92, 0.94 },
+            accent = { 0.46, 0.46, 0.50, 0.0 },
+            inner = 0.0,
+            gloss = 0.0,
+            glow = 0.0,
+            shade = 0.0,
+        }
+    end
 
     if theme == "ELVUI" then
         local E = GetElvUI()
@@ -285,26 +467,68 @@ local function RefreshButtonLook(button)
     EnsureButtonArt(button)
 
     local palette = GetButtonPalette(button)
+    local theme = GetConfiguredTheme()
     ApplyButtonBackdrop(button, palette.bg, palette.border)
+
+    if theme == "GW2UI" then
+        local normalTexture = button.__chatifySelected and GW2_BUTTON_ACTIVE or GW2_BUTTON_NORMAL
+        local pushedTexture = button.__chatifySelected and GW2_BUTTON_ACTIVE_HIGHLIGHT or GW2_BUTTON_HIGHLIGHT
+        local highlightTexture = button.__chatifySelected and GW2_BUTTON_ACTIVE_HIGHLIGHT or GW2_BUTTON_HIGHLIGHT
+
+        if button.__chatifyDisabled then
+            normalTexture = GW2_BUTTON_NORMAL
+            pushedTexture = GW2_BUTTON_NORMAL
+            highlightTexture = GW2_BUTTON_HIGHLIGHT
+        end
+
+        if type(button.SetNormalTexture) == "function" then
+            button:SetNormalTexture(normalTexture)
+            local region = button:GetNormalTexture()
+            if region then
+                region:SetAllPoints(button)
+                region:SetAlpha(button.__chatifyDisabled and 0.55 or 1)
+            end
+        end
+
+        if type(button.SetPushedTexture) == "function" then
+            button:SetPushedTexture(pushedTexture)
+            local region = button:GetPushedTexture()
+            if region then
+                region:SetAllPoints(button)
+                region:SetAlpha(button.__chatifyDisabled and 0.55 or 1)
+            end
+        end
+
+        if type(button.SetHighlightTexture) == "function" then
+            button:SetHighlightTexture(highlightTexture, "ADD")
+            local region = button:GetHighlightTexture()
+            if region then
+                region:SetAllPoints(button)
+                region:SetAlpha(button.__chatifyDisabled and 0 or (button.__chatifySelected and 0.45 or 0.35))
+            end
+        end
+    end
 
     if button.Label then
         button.Label:SetTextColor(palette.text[1], palette.text[2], palette.text[3])
     end
 
+    local auxiliaryAlpha = theme == "GW2UI" and 0 or 1
+
     if button.Accent then
-        button.Accent:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.accent[4])
+        button.Accent:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], (palette.accent[4] or 0) * auxiliaryAlpha)
     end
 
     if button.Inner then
-        button.Inner:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.inner or 0)
+        button.Inner:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], (palette.inner or 0) * auxiliaryAlpha)
     end
 
     if button.Gloss then
-        button.Gloss:SetVertexColor(1, 1, 1, palette.gloss)
+        button.Gloss:SetVertexColor(1, 1, 1, (palette.gloss or 0) * auxiliaryAlpha)
     end
 
     if button.Glow then
-        button.Glow:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.glow or 0)
+        button.Glow:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], (palette.glow or 0) * auxiliaryAlpha)
     end
 
     if button.Shade then
@@ -313,8 +537,8 @@ local function RefreshButtonLook(button)
 
     if button.Highlight then
         local highlightAlpha = 0
-        if not button.__chatifyDisabled and button:IsMouseOver() then
-            highlightAlpha = math.min(0.18, palette.accent[4] * 0.22)
+        if theme ~= "GW2UI" and not button.__chatifyDisabled and button:IsMouseOver() then
+            highlightAlpha = math.min(0.18, (palette.accent[4] or 0) * 0.22)
         end
         button.Highlight:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], highlightAlpha)
     end
@@ -326,10 +550,43 @@ local function ApplyContainerStyle()
     end
 
     local theme = GetConfiguredTheme()
+    EnsureContainerArt()
 
     if theme ~= "ELVUI" and container._chatifyElvTemplate then
         container._chatifyElvTemplate = nil
     end
+
+    if theme == "GW2UI" then
+        HideContainerThemeTextures()
+        if container.GW2Bg then
+            container.GW2Bg:SetTexture(GW2_CONTAINER_BG)
+            container.GW2Bg:SetVertexColor(1, 1, 1, math.min(0.92, GetConfiguredAlpha()))
+            container.GW2Bg:Show()
+        end
+        if container.GW2BorderLeft then
+            container.GW2BorderLeft:ClearAllPoints()
+            container.GW2BorderLeft:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+            container.GW2BorderLeft:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
+            container.GW2BorderLeft:SetWidth(2)
+            container.GW2BorderLeft:Show()
+        end
+        if container.GW2BorderRight then
+            container.GW2BorderRight:ClearAllPoints()
+            container.GW2BorderRight:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
+            container.GW2BorderRight:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+            container.GW2BorderRight:SetWidth(2)
+            container.GW2BorderRight:SetTexCoord(1, 0, 0, 1)
+            container.GW2BorderRight:Show()
+        end
+
+        if type(container.SetBackdropColor) == "function" and type(container.SetBackdropBorderColor) == "function" then
+            container:SetBackdropColor(0, 0, 0, 0)
+            container:SetBackdropBorderColor(0, 0, 0, 0)
+        end
+        return
+    end
+
+    HideContainerThemeTextures()
 
     if theme == "ELVUI" then
         local E = GetElvUI()
@@ -399,16 +656,28 @@ end
 GetConfiguredTheme = function()
     local db = GetDB()
     local theme = db and db.quickChatButtonTheme or "AUTO"
-    if theme ~= "AUTO" and theme ~= "STANDARD" and theme ~= "ELVUI" then
+    if theme ~= "AUTO" and theme ~= "STANDARD" and theme ~= "ELVUI" and theme ~= "GW2UI" then
         theme = "AUTO"
     end
 
+    if theme == "GW2UI" then
+        return HasGW2Chat() and "GW2UI" or (HasElvUIChat() and "ELVUI" or "STANDARD")
+    end
+
     if theme == "ELVUI" then
-        return HasElvUIChat() and "ELVUI" or "STANDARD"
+        return HasElvUIChat() and "ELVUI" or (HasGW2Chat() and "GW2UI" or "STANDARD")
     end
 
     if theme == "AUTO" then
-        return HasElvUIChat() and "ELVUI" or "STANDARD"
+        if HasGW2Chat() then
+            return "GW2UI"
+        end
+
+        if HasElvUIChat() then
+            return "ELVUI"
+        end
+
+        return "STANDARD"
     end
 
     return "STANDARD"
@@ -451,6 +720,18 @@ GetElvUIPanelColor = function()
     end
 
     return 0.06, 0.06, 0.06, GetConfiguredAlpha()
+end
+
+GetGW2ChatFont = function()
+    local GW = GetGW2()
+    if GW and GW.Libs and GW.Libs.LSM and type(GW.Libs.LSM.Fetch) == "function" then
+        local ok, fontPath = pcall(GW.Libs.LSM.Fetch, GW.Libs.LSM, "font", "GW2_UI_Chat")
+        if ok and type(fontPath) == "string" and fontPath ~= "" then
+            return fontPath
+        end
+    end
+
+    return STANDARD_TEXT_FONT
 end
 
 MixColor = function(fromColor, toColor, t)
@@ -558,7 +839,40 @@ local BUTTON_DEFS = {
     },
 }
 
-local function GetAnchorFrame()
+local function GetElvUIAnchorPanel(frame)
+    local _, CH = GetElvUI()
+    if not CH or not frame then
+        return nil
+    end
+
+    if CH.LeftChatWindow and frame == CH.LeftChatWindow and _G.LeftChatPanel then
+        return _G.LeftChatPanel
+    elseif CH.RightChatWindow and frame == CH.RightChatWindow and _G.RightChatPanel then
+        return _G.RightChatPanel
+    end
+
+    return nil
+end
+
+local function GetAnchorVisualFrame()
+    local frame = GetAnchorFrame()
+    if not frame then
+        return nil
+    end
+
+    local theme = GetConfiguredTheme()
+    if theme == "GW2UI" and frame.Container then
+        return frame.Container
+    end
+
+    if theme == "ELVUI" then
+        return GetElvUIAnchorPanel(frame) or frame
+    end
+
+    return frame
+end
+
+GetAnchorFrame = function()
     local _, CH = GetElvUI()
     if CH and CH.LeftChatWindow then
         return CH.LeftChatWindow
@@ -568,17 +882,12 @@ local function GetAnchorFrame()
 end
 
 local function GetAnchorParent()
-    local frame = GetAnchorFrame()
-    local _, CH = GetElvUI()
-
-    if frame and CH then
-        if CH.LeftChatWindow and frame == CH.LeftChatWindow and _G.LeftChatPanel then
-            return _G.LeftChatPanel
-        elseif CH.RightChatWindow and frame == CH.RightChatWindow and _G.RightChatPanel then
-            return _G.RightChatPanel
-        end
+    local visualFrame = GetAnchorVisualFrame()
+    if visualFrame and visualFrame.GetParent then
+        return visualFrame:GetParent() or UIParent
     end
 
+    local frame = GetAnchorFrame()
     if frame and frame.GetParent then
         return frame:GetParent() or UIParent
     end
@@ -804,14 +1113,16 @@ local function LayoutButtons()
     end
 
     local frame = GetAnchorFrame()
-    if not frame then
+    local visualFrame = GetAnchorVisualFrame()
+    if not frame or not visualFrame then
         return
     end
 
     local spacing = GetConfiguredSpacing()
-    local outerPadding = GetConfiguredTheme() == "ELVUI" and 5 or 4
+    local theme = GetConfiguredTheme()
+    local outerPadding = theme == "ELVUI" and 5 or (theme == "GW2UI" and 3 or 4)
     local buttonCount = #BUTTON_DEFS
-    local chatHeight = math.max(1, math.floor((frame.GetHeight and frame:GetHeight()) or 180))
+    local chatHeight = math.max(1, math.floor((visualFrame.GetHeight and visualFrame:GetHeight()) or (frame.GetHeight and frame:GetHeight()) or 180))
     local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
     local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing) - (outerPadding * 2)) / buttonCount)
     if maxUsableSize < 12 then
@@ -829,9 +1140,9 @@ local function LayoutButtons()
 
     container:ClearAllPoints()
     container:SetParent(GetAnchorParent())
-    container:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", sideGap, 0)
+    container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, 0)
     container:SetHeight(math.max(chatHeight, holderHeight))
-    container:SetWidth(size + (GetConfiguredTheme() == "ELVUI" and 10 or 8))
+    container:SetWidth(size + (theme == "ELVUI" and 10 or (theme == "GW2UI" and 6 or 8)))
 
     if container.SetFrameStrata then
         container:SetFrameStrata(E and "HIGH" or "MEDIUM")
@@ -857,14 +1168,14 @@ local function LayoutButtons()
 
             if button.Label then
                 local fontSize = math.max(10, math.floor(size * 0.48 * GetConfiguredFontScale()))
-                if GetConfiguredTheme() == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
+                if theme == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
                     pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
                 else
-                    local fontPath = STANDARD_TEXT_FONT
-                    if ChatFontNormal and ChatFontNormal.GetFont then
+                    local fontPath = theme == "GW2UI" and GetGW2ChatFont() or STANDARD_TEXT_FONT
+                    if theme ~= "GW2UI" and ChatFontNormal and ChatFontNormal.GetFont then
                         fontPath = ChatFontNormal:GetFont() or fontPath
                     end
-                    pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+                    pcall(button.Label.SetFont, button.Label, fontPath, fontSize, theme == "GW2UI" and "" or "OUTLINE")
                 end
                 button.Label:ClearAllPoints()
                 button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
@@ -911,7 +1222,7 @@ local function LayoutButtons()
 end
 
 local function HookAnchorFrameSignals()
-    local frame = GetAnchorFrame()
+    local frame = GetAnchorVisualFrame() or GetAnchorFrame()
     if not frame or frame == hookedAnchorFrame or not frame.HookScript then
         return
     end
@@ -1020,7 +1331,13 @@ local function EnsureContainer()
                 end
 
                 AddTooltipLine("Position", "Right side of the chat frame", 0.72, 0.72, 0.72)
-                AddTooltipLine("Skin", GetConfiguredTheme() == "ELVUI" and "ElvUI" or "Standard", 0.72, 0.72, 0.72)
+                local skinLabel = "Standard"
+                if GetConfiguredTheme() == "ELVUI" then
+                    skinLabel = "ElvUI"
+                elseif GetConfiguredTheme() == "GW2UI" then
+                    skinLabel = "GW2 UI"
+                end
+                AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
                 GameTooltip:Show()
             end
         end)
@@ -1050,6 +1367,72 @@ local function EnsureContainer()
     end
 end
 
+
+local function HookGeneralRefreshSignals()
+    if generalHooksInstalled or type(hooksecurefunc) ~= "function" then
+        return
+    end
+
+    if type(_G.FCF_DockUpdate) == "function" then
+        hooksecurefunc("FCF_DockUpdate", function()
+            ScheduleRefresh(0)
+        end)
+    end
+
+    if type(_G.FloatingChatFrame_Update) == "function" then
+        hooksecurefunc("FloatingChatFrame_Update", function()
+            ScheduleRefresh(0)
+        end)
+    end
+
+    if type(_G.ChatEdit_UpdateHeader) == "function" then
+        hooksecurefunc("ChatEdit_UpdateHeader", function()
+            ScheduleRefresh(0)
+        end)
+    end
+
+    generalHooksInstalled = true
+end
+
+local function HookGW2RefreshSignals()
+    if type(hooksecurefunc) ~= "function" then
+        return
+    end
+
+    local GW = GetGW2()
+    if not GW then
+        return
+    end
+
+    if not gw2HooksInstalled and type(GW.UpdateChatSettings) == "function" then
+        hooksecurefunc(GW, "UpdateChatSettings", function()
+            ScheduleRefresh(0)
+        end)
+    end
+
+    local frame = GetAnchorFrame()
+    if frame and frame.Container and frame.Container.HookScript and not frame.Container.__chatifyGW2Hooked then
+        frame.Container:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        frame.Container:HookScript("OnHide", function() ScheduleRefresh(0) end)
+        frame.Container:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        frame.Container.__chatifyGW2Hooked = true
+    end
+
+    local background = frame and frame.GetName and _G[frame:GetName() .. "Background"]
+    if background and background.HookScript and not background.__chatifyGW2Hooked then
+        background:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        background:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        background.__chatifyGW2Hooked = true
+    end
+
+    if _G.GeneralDockManager and _G.GeneralDockManager.HookScript and not _G.GeneralDockManager.__chatifyGW2Hooked then
+        _G.GeneralDockManager:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        _G.GeneralDockManager:HookScript("OnSizeChanged", function() ScheduleRefresh(0) end)
+        _G.GeneralDockManager.__chatifyGW2Hooked = true
+    end
+
+    gw2HooksInstalled = true
+end
 
 local function HookElvUIRefreshSignals()
     if elvuiHooksInstalled or type(hooksecurefunc) ~= "function" then
@@ -1115,6 +1498,12 @@ function ns.RefreshQuickChatButtons()
         return
     end
 
+    HookGeneralRefreshSignals()
+
+    if HasGW2Chat() then
+        HookGW2RefreshSignals()
+    end
+
     if HasElvUIChat() then
         HookElvUIRefreshSignals()
     end
@@ -1151,6 +1540,11 @@ function QuickButtonsModule:OnEnable()
             elvuiEngine = nil
             elvuiChat = nil
             elvuiHooksInstalled = false
+            ScheduleRefresh(0)
+            ScheduleRefresh(1)
+        elseif addon == "GW2_UI" then
+            gw2Engine = nil
+            gw2HooksInstalled = false
             ScheduleRefresh(0)
             ScheduleRefresh(1)
         end

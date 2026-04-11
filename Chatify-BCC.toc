@@ -15,7 +15,7 @@
 ## X-Website: https://legacy.curseforge.com/wow/addons/chatify-chat-enhancer
 ## X-Curse-Project-ID: 1458193
 
-## OptionalDeps: Ace3, ElvUI, LibChatAnims
+## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
 
 libs\_manifest.xml
 

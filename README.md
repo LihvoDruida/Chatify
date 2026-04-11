@@ -64,7 +64,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Compatibility Notes
 
 - Retail 12.x uses a restricted safe path inspired by modern Prat patterns: filters stay on Blizzard's secure message pipeline, while risky direct chat-frame rewrites stay disabled.
-- ElvUI chat panels are now detected automatically. Quick channel buttons refresh after ElvUI chat layout updates and can use Auto, Standard, or ElvUI skin modes without losing the default Blizzard-compatible fallback.
+- ElvUI chat panels are now detected automatically. Quick channel buttons refresh after ElvUI chat layout updates and can use Auto, Standard, ElvUI, or GW2 UI skin modes without losing the default Blizzard-compatible fallback.
+- GW2 UI chat is now detected through its custom chat container flow. Quick channel buttons anchor to the rebuilt GW2 chat frame, use GW2-style textures and font, and refresh after GW2 chat settings updates without needing `/reload`.
 - Auto Reply is now actually loaded from the TOC, so its settings are no longer dead UI.
 - Extra TOC variants were added for TBC/Wrath/Vanilla packaging.
 

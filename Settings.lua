@@ -167,13 +167,14 @@ function Chatify:GetOptions()
                     quickChatButtonTheme = {
                         order = 7,
                         name = "Quick Button Skin",
-                        desc = "Choose how quick chat buttons are styled. Auto uses the ElvUI skin only when ElvUI is loaded; otherwise it falls back to the standard Chatify style.",
+                        desc = "Choose how quick chat buttons are styled. Auto prefers GW2 UI when its chat module is active, otherwise ElvUI, otherwise the standard Chatify style.",
                         type = "select",
                         width = "normal",
                         values = {
                             AUTO = "Auto",
                             STANDARD = "Standard",
                             ELVUI = "ElvUI",
+                            GW2UI = "GW2 UI",
                         },
                         disabled = function() return self.db.profile.quickChatButtons == false end,
                         set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
