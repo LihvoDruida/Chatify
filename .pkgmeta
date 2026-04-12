@@ -77,4 +77,5 @@ externals:
 
   # === CHAT ANIMATION COMPAT ===
   libs/LibChatAnims:
-    url: https://repos.wowace.com/wow/libchatanims/trunk/LibChatAnims
+    url: svn://svn.wowace.com/wow/libchatanims/mainline/trunk/LibChatAnims
+    tag: latest
