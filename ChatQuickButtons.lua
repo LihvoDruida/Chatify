@@ -8,6 +8,8 @@ local unpack = unpack or table.unpack
 local container
 local settingsContainer
 local settingsButton
+local socialButton
+local socialButtonHooked = false
 local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
@@ -798,6 +800,20 @@ local function ShouldShowSettingsButton()
     return db.quickChatSettingsButton == true
 end
 
+local function GetSocialSidebarButton()
+    if QuickJoinToastButton then
+        return QuickJoinToastButton
+    end
+    if FriendsMicroButton then
+        return FriendsMicroButton
+    end
+    return nil
+end
+
+local function ShouldShowSidebarMenu()
+    return GetSocialSidebarButton() ~= nil or ShouldShowSettingsButton()
+end
+
 local BUTTON_DEFS
 
 local function GetOrderedButtons()
@@ -1388,6 +1404,38 @@ local function ActivateChatType(def, useAlt)
 end
 
 
+local function EnsureSocialSidebarButton()
+    if not settingsContainer then
+        return nil
+    end
+
+    local button = GetSocialSidebarButton()
+    socialButton = button
+    if not button then
+        return nil
+    end
+
+    button:SetParent(settingsContainer)
+    button:SetScript("OnMouseDown", nil)
+    button:SetScript("OnMouseUp", nil)
+    button:ClearAllPoints()
+    button:SetFrameStrata("HIGH")
+
+    if not socialButtonHooked and type(hooksecurefunc) == "function" then
+        socialButtonHooked = true
+        local originalSetPoint = button.SetPoint
+        hooksecurefunc(button, "SetPoint", function(_, _, frame)
+            if settingsContainer and frame ~= settingsContainer then
+                button:SetParent(settingsContainer)
+                button:ClearAllPoints()
+                originalSetPoint(button, "TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+            end
+        end)
+    end
+
+    return button
+end
+
 local function EnsureSettingsButtonVisual(self)
     if not self then
         return
@@ -1474,11 +1522,17 @@ local function LayoutSettingsButton()
 
     if not frame or not visualFrame then
         settingsContainer:Hide()
+        settingsButton:Hide()
+        if socialButton then
+            socialButton:Hide()
+        end
         return
     end
 
+    local social = EnsureSocialSidebarButton()
     local showSettings = ShouldShowSettingsButton()
-    if not showSettings then
+    local showSidebar = social ~= nil or showSettings
+    if not showSidebar then
         settingsContainer:Hide()
         settingsButton:Hide()
         return
@@ -1491,23 +1545,50 @@ local function LayoutSettingsButton()
     end
 
     local socialOffsetY = 20
+    local spacing = 5
+    local buttonWidth = 26
+    local buttonHeight = 28
+    local totalHeight = buttonHeight
+    if social and showSettings then
+        totalHeight = (buttonHeight * 2) + spacing
+    end
+
     local parent = GetAnchorParent()
     local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
 
     settingsContainer:SetParent(parent)
     settingsContainer:ClearAllPoints()
     settingsContainer:SetPoint("TOPLEFT", visualFrame, "TOPRIGHT", sideGap, socialOffsetY)
-    settingsContainer:SetSize(26, 28)
+    settingsContainer:SetSize(buttonWidth, totalHeight)
     settingsContainer:SetFrameStrata(strata)
     if frame.GetFrameLevel and settingsContainer.SetFrameLevel then
         settingsContainer:SetFrameLevel((frame:GetFrameLevel() or 1) + 12)
     end
 
-    settingsButton:ClearAllPoints()
-    settingsButton:SetAllPoints(settingsContainer)
-    RefreshSettingsButtonLook()
-    settingsButton:SetFrameStrata("HIGH")
-    settingsButton:Show()
+    local currentAnchor = settingsContainer
+    if social then
+        social:ClearAllPoints()
+        social:SetPoint("TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+        social:SetSize(buttonWidth, buttonHeight)
+        social:Show()
+        currentAnchor = social
+    end
+
+    if showSettings then
+        settingsButton:ClearAllPoints()
+        if social then
+            settingsButton:SetPoint("TOPLEFT", social, "BOTTOMLEFT", 0, -spacing)
+        else
+            settingsButton:SetPoint("TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+        end
+        settingsButton:SetSize(buttonWidth, buttonHeight)
+        RefreshSettingsButtonLook()
+        settingsButton:SetFrameStrata("HIGH")
+        settingsButton:Show()
+    else
+        settingsButton:Hide()
+    end
+
     settingsContainer:Show()
 end
 
@@ -1828,7 +1909,7 @@ local function EnsureContainer()
             GameTooltip:ClearLines()
             GameTooltip:AddLine("Chatify Settings", 1.00, 0.82, 0.18, true)
             AddTooltipLine("Left Click", "Open Chatify configuration", 0.95, 0.95, 0.95)
-            AddTooltipLine("Position", "Right chat menu", 0.72, 0.72, 0.72)
+            AddTooltipLine("Position", "Blizzard side menu", 0.72, 0.72, 0.72)
             AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
@@ -2024,8 +2105,9 @@ function ns.RefreshQuickChatButtons()
     local db = GetDB()
     local showQuickButtons = db and db.quickChatButtons ~= false
     local showSettingsButton = ShouldShowSettingsButton()
+    local showSidebarMenu = ShouldShowSidebarMenu()
 
-    if not db or (not showQuickButtons and not showSettingsButton) then
+    if not db or (not showQuickButtons and not showSidebarMenu) then
         lastLayoutSignature = nil
         if container then
             container:Hide()
@@ -2051,7 +2133,7 @@ function ns.RefreshQuickChatButtons()
 
     EnsureContainer()
     local layoutSignature = GetLayoutSignature()
-    if layoutSignature ~= lastLayoutSignature or not container:IsShown() or (showSettingsButton and settingsContainer and not settingsContainer:IsShown()) then
+    if layoutSignature ~= lastLayoutSignature or not container:IsShown() or (showSidebarMenu and settingsContainer and not settingsContainer:IsShown()) then
         LayoutButtons()
         LayoutSettingsButton()
         lastLayoutSignature = layoutSignature
@@ -2065,7 +2147,7 @@ function ns.RefreshQuickChatButtons()
         container:Hide()
     end
 
-    if showSettingsButton then
+    if showSidebarMenu then
         LayoutSettingsButton()
     elseif settingsContainer then
         settingsContainer:Hide()
