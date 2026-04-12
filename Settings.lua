@@ -164,6 +164,21 @@ function Chatify:GetOptions()
                         end,
                     },
 
+                    quickChatSettingsButton = {
+                        order = 6.5,
+                        name = "Show Left Settings Button",
+                        desc = "Show a Chattynator-style settings button on the left side of the active chat frame. This opens Chatify settings only and does not replace Blizzard, ElvUI, or GW2 chat behavior.",
+                        type = "toggle",
+                        width = "full",
+                        set = function(info, val) self.db.profile.quickChatSettingsButton = val; ns.NotifyQuickChatSettingsChanged() end,
+                        get = function(info)
+                            if self.db.profile.quickChatSettingsButton == nil then
+                                return true
+                            end
+                            return self.db.profile.quickChatSettingsButton
+                        end,
+                    },
+
                     quickChatButtonTheme = {
                         order = 7,
                         name = "Quick Button Skin",
@@ -770,15 +785,22 @@ function Chatify:OnEnable()
 end
 
 function Chatify:OpenConfig()
+    local frame = self.optionsFrame
+    if not frame then
+        return
+    end
+
+    local category = frame.name or frame
+
     if Settings and Settings.OpenToCategory then
-        Settings.OpenToCategory(self.optionsFrame.name)
-        Settings.OpenToCategory(self.optionsFrame.name)
+        pcall(Settings.OpenToCategory, category)
+        pcall(Settings.OpenToCategory, category)
         return
     end
 
     if InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
-        InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
+        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
+        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
     end
 end
 
