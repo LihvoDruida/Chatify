@@ -6,9 +6,7 @@ local C_Timer = C_Timer
 local hooksecurefunc = hooksecurefunc
 local unpack = unpack or table.unpack
 local container
-local utilityContainer
 local buttons = {}
-local utilityButtons = {}
 local hookedEditBox
 local hookedAnchorFrame
 local GetConfiguredAlpha
@@ -27,7 +25,6 @@ local generalHooksInstalled = false
 local refreshQueued = false
 local stateUpdateQueued = false
 local lastLayoutSignature
-local lastUtilityLayoutSignature
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
 local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
@@ -584,6 +581,26 @@ local function RefreshButtonLook(button)
         button.Label:SetTextColor(palette.text[1], palette.text[2], palette.text[3])
     end
 
+    if button.Icon then
+        button.Icon:SetTexture(SETTINGS_ICON)
+        button.Icon:ClearAllPoints()
+        button.Icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+
+        local iconSize = math.max(12, math.floor((button:GetWidth() or 24) * (theme == "GW2UI" and 0.78 or 0.58)))
+        if theme == "ELVUI" then
+            iconSize = math.max(13, math.floor((button:GetWidth() or 24) * 0.62))
+        end
+        button.Icon:SetSize(iconSize, iconSize)
+
+        if theme == "GW2UI" then
+            button.Icon:SetVertexColor(0.88, 0.88, 0.90, button:IsMouseOver() and 1 or 0.92)
+        elseif theme == "ELVUI" then
+            button.Icon:SetVertexColor(palette.text[1], palette.text[2], palette.text[3], 0.96)
+        else
+            button.Icon:SetVertexColor(1.0, 0.86, 0.24, 0.96)
+        end
+    end
+
     local auxiliaryAlpha = theme == "GW2UI" and 0 or 1
 
     if button.Accent then
@@ -778,6 +795,27 @@ local function ShouldShowSettingsButton()
     end
     return db.quickChatSettingsButton == true
 end
+
+local function GetOrderedButtons()
+    local ordered = {}
+    local db = GetDB() or {}
+
+    if db.quickChatButtons ~= false then
+        for _, def in ipairs(BUTTON_DEFS) do
+            local button = buttons[def.key]
+            if button then
+                table.insert(ordered, button)
+            end
+        end
+    end
+
+    if ShouldShowSettingsButton() and buttons.SETTINGS then
+        table.insert(ordered, buttons.SETTINGS)
+    end
+
+    return ordered
+end
+
 
 function ns.NotifyQuickChatSettingsChanged()
     ScheduleRefresh(0)
@@ -1089,6 +1127,8 @@ local function GetLayoutSignature()
     local scale = string.format("%.2f", GetConfiguredFontScale())
     local size = type(db.quickChatButtonSize) == "number" and math.floor(db.quickChatButtonSize + 0.5) or 24
     local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
+    local showQuickButtons = db.quickChatButtons ~= false
+    local showSettingsButton = ShouldShowSettingsButton()
 
     return table.concat({
         GetConfiguredTheme(),
@@ -1102,6 +1142,8 @@ local function GetLayoutSignature()
         tostring(spacing),
         tostring(scale),
         tostring(alpha),
+        tostring(showQuickButtons),
+        tostring(showSettingsButton),
     }, "|")
 end
 
@@ -1215,6 +1257,17 @@ UpdateButtonState = function()
 
             RefreshButtonLook(button)
         end
+    end
+
+    local settingsButton = buttons.SETTINGS
+    if settingsButton then
+        settingsButton:SetEnabled(true)
+        if settingsButton.EnableMouse then
+            settingsButton:EnableMouse(true)
+        end
+        settingsButton.__chatifyDisabled = false
+        settingsButton.__chatifySelected = false
+        RefreshButtonLook(settingsButton)
     end
 end
 
@@ -1356,7 +1409,17 @@ local function LayoutButtons()
     local spacing = GetConfiguredSpacing()
     local theme = GetConfiguredTheme()
     local outerPadding = theme == "ELVUI" and 5 or (theme == "GW2UI" and 3 or 4)
-    local buttonCount = #BUTTON_DEFS
+    local orderedButtons = GetOrderedButtons()
+    local buttonCount = #orderedButtons
+    if buttonCount == 0 then
+        container:SetSize(1, 1)
+        for _, button in pairs(buttons) do
+            if button then
+                button:Hide()
+            end
+        end
+        return
+    end
     local chatHeight = math.max(1, math.floor((visualFrame.GetHeight and visualFrame:GetHeight()) or (frame.GetHeight and frame:GetHeight()) or 180))
     local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
     local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing) - (outerPadding * 2)) / buttonCount)
@@ -1389,235 +1452,89 @@ local function LayoutButtons()
 
     ApplyContainerStyle()
 
-    local previous
-    for _, def in ipairs(BUTTON_DEFS) do
-        local button = buttons[def.key]
+    local activeButtons = {}
+    for _, button in ipairs(orderedButtons) do
+        activeButtons[button] = true
+    end
+
+    for _, button in pairs(buttons) do
         if button then
-            button:ClearAllPoints()
-            button:SetSize(size, size)
-
-            if previous then
-                button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
+            if activeButtons[button] then
+                button:Show()
             else
-                button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
+                button:Hide()
             end
-
-            if button.Label then
-                local fontSize = math.max(10, math.floor(size * 0.48 * GetConfiguredFontScale()))
-                if theme == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
-                    pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
-                else
-                    local fontPath = theme == "GW2UI" and GetGW2ChatFont() or STANDARD_TEXT_FONT
-                    if theme ~= "GW2UI" and ChatFontNormal and ChatFontNormal.GetFont then
-                        fontPath = ChatFontNormal:GetFont() or fontPath
-                    end
-                    pcall(button.Label.SetFont, button.Label, fontPath, fontSize, theme == "GW2UI" and "" or "OUTLINE")
-                end
-                button.Label:ClearAllPoints()
-                button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
-            end
-
-            if button.Highlight then
-                button.Highlight:SetAllPoints(button)
-            end
-
-            if button.Accent then
-                button.Accent:ClearAllPoints()
-                button.Accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
-                button.Accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-                button.Accent:SetHeight(math.max(2, math.floor(size * 0.12)))
-            end
-
-            if button.Inner then
-                button.Inner:ClearAllPoints()
-                button.Inner:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
-                button.Inner:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
-            end
-
-            if button.Gloss then
-                button.Gloss:ClearAllPoints()
-                button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
-                button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
-                button.Gloss:SetHeight(math.max(4, math.floor(size * 0.34)))
-            end
-
-            if button.Glow then
-                button.Glow:ClearAllPoints()
-                button.Glow:SetPoint("TOPLEFT", button, "TOPLEFT", -1, 1)
-                button.Glow:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 1, -1)
-            end
-
-            if button.Shade then
-                button.Shade:SetAllPoints(button)
-            end
-
-            previous = button
-            RefreshButtonLook(button)
         end
     end
-end
 
-local function RefreshUtilityButtonLook(button)
-    if not button then
-        return
-    end
+    local previous
+    for _, button in ipairs(orderedButtons) do
+        button:ClearAllPoints()
+        button:SetSize(size, size)
 
-    button.__chatifyDisabled = false
-    button.__chatifySelected = false
-    RefreshButtonLook(button)
-
-    if button.Icon then
-        local theme = GetConfiguredTheme()
-        local palette = GetButtonPalette(button)
-        button.Icon:SetTexture(SETTINGS_ICON)
-        button.Icon:SetPoint("CENTER", button, "CENTER", 0, 0)
-
-        local iconSize = math.max(12, math.floor((button:GetWidth() or 24) * (theme == "GW2UI" and 0.78 or 0.58)))
-        if theme == "ELVUI" then
-            iconSize = math.max(13, math.floor((button:GetWidth() or 24) * 0.62))
-        end
-        button.Icon:SetSize(iconSize, iconSize)
-
-        if theme == "GW2UI" then
-            button.Icon:SetVertexColor(0.88, 0.88, 0.90, button:IsMouseOver() and 1 or 0.92)
-        elseif theme == "ELVUI" then
-            button.Icon:SetVertexColor(palette.text[1], palette.text[2], palette.text[3], 0.96)
+        if previous then
+            button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
         else
-            button.Icon:SetVertexColor(1.0, 0.86, 0.24, 0.96)
+            button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
         end
-    end
-end
 
-local function GetUtilityLayoutSignature()
-    if not ShouldShowSettingsButton() then
-        return "hidden"
-    end
-
-    local frame = GetAnchorFrame()
-    local visualFrame = GetAnchorVisualFrame() or frame
-    if not frame or not visualFrame then
-        return nil
-    end
-
-    local width = visualFrame.GetWidth and math.floor((visualFrame:GetWidth() or 0) + 0.5) or 0
-    local height = visualFrame.GetHeight and math.floor((visualFrame:GetHeight() or 0) + 0.5) or 0
-    local size = GetDB() and GetDB().quickChatButtonSize or 24
-
-    return table.concat({
-        GetConfiguredTheme(),
-        "settings",
-        GetFrameIdentity(frame),
-        GetFrameIdentity(visualFrame),
-        tostring(width),
-        tostring(height),
-        tostring(math.floor(size + 0.5)),
-        string.format("%.2f", GetConfiguredAlpha()),
-    }, "|")
-end
-
-local function EnsureUtilityContainer()
-    if utilityContainer then
-        return
-    end
-
-    local parent = GetAnchorParent()
-    utilityContainer = CreateFrame("Frame", "ChatifyUtilityButtons", parent, backdropTemplate)
-    utilityContainer:SetFrameStrata("HIGH")
-    utilityContainer:SetClampedToScreen(true)
-
-    local button = CreateFrame("Button", "ChatifyUtilityButtonSettings", utilityContainer, backdropTemplate)
-    button:RegisterForClicks("LeftButtonUp")
-    button:SetHitRectInsets(0, 0, 0, 0)
-
-    local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetTexture("Interface\\Buttons\\WHITE8x8")
-    highlight:SetBlendMode("ADD")
-    highlight:SetVertexColor(1.0, 0.85, 0.25, 0.00)
-    highlight:SetAllPoints(button)
-    button.Highlight = highlight
-
-    local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(SETTINGS_ICON)
-    icon:SetPoint("CENTER")
-    button.Icon = icon
-
-    button:SetScript("OnClick", function()
-        if Chatify and type(Chatify.OpenConfig) == "function" then
-            Chatify:OpenConfig()
+        if button.Label then
+            local fontSize = math.max(10, math.floor(size * 0.48 * GetConfiguredFontScale()))
+            if theme == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
+                pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
+            else
+                local fontPath = theme == "GW2UI" and GetGW2ChatFont() or STANDARD_TEXT_FONT
+                if theme ~= "GW2UI" and ChatFontNormal and ChatFontNormal.GetFont then
+                    fontPath = ChatFontNormal:GetFont() or fontPath
+                end
+                pcall(button.Label.SetFont, button.Label, fontPath, fontSize, theme == "GW2UI" and "" or "OUTLINE")
+            end
+            button.Label:ClearAllPoints()
+            button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
         end
-    end)
 
-    button:SetScript("OnEnter", function(self)
-        RefreshUtilityButtonLook(self)
-        if GameTooltip then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:ClearLines()
-            GameTooltip:AddLine("Chatify Settings", 1.00, 0.82, 0.18, true)
-            AddTooltipLine("Left Click", "Open Chatify configuration", 0.95, 0.95, 0.95)
-            AddTooltipLine("Style", GetConfiguredTheme() == "GW2UI" and "GW2 UI" or (GetConfiguredTheme() == "ELVUI" and "ElvUI" or "Standard"), 0.72, 0.72, 0.72)
-            GameTooltip:Show()
+        if button.Icon then
+            button.Icon:ClearAllPoints()
+            button.Icon:SetPoint("CENTER", button, "CENTER", 0, 0)
         end
-    end)
 
-    button:SetScript("OnLeave", function(self)
-        RefreshUtilityButtonLook(self)
-        if GameTooltip then
-            GameTooltip:Hide()
+        if button.Highlight then
+            button.Highlight:SetAllPoints(button)
         end
-    end)
 
-    button:SetScript("OnMouseDown", function(self)
-        if self.Icon then
-            self.Icon:ClearAllPoints()
-            self.Icon:SetPoint("CENTER", self, "CENTER", 1, -1)
+        if button.Accent then
+            button.Accent:ClearAllPoints()
+            button.Accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
+            button.Accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+            button.Accent:SetHeight(math.max(2, math.floor(size * 0.12)))
         end
-    end)
 
-    button:SetScript("OnMouseUp", function(self)
-        if self.Icon then
-            self.Icon:ClearAllPoints()
-            self.Icon:SetPoint("CENTER", self, "CENTER", 0, 0)
+        if button.Inner then
+            button.Inner:ClearAllPoints()
+            button.Inner:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+            button.Inner:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
         end
-    end)
 
-    utilityButtons.SETTINGS = button
-end
+        if button.Gloss then
+            button.Gloss:ClearAllPoints()
+            button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+            button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
+            button.Gloss:SetHeight(math.max(4, math.floor(size * 0.34)))
+        end
 
-local function LayoutUtilityButtons()
-    if not utilityContainer or not ShouldShowSettingsButton() then
-        return
+        if button.Glow then
+            button.Glow:ClearAllPoints()
+            button.Glow:SetPoint("TOPLEFT", button, "TOPLEFT", -1, 1)
+            button.Glow:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 1, -1)
+        end
+
+        if button.Shade then
+            button.Shade:SetAllPoints(button)
+        end
+
+        previous = button
+        RefreshButtonLook(button)
     end
-
-    local frame = GetAnchorFrame()
-    local visualFrame = GetAnchorVisualFrame() or frame
-    if not frame or not visualFrame then
-        return
-    end
-
-    local db = GetDB() or {}
-    local size = type(db.quickChatButtonSize) == "number" and math.max(18, math.min(40, math.floor(db.quickChatButtonSize + 0.5))) or 24
-
-    utilityContainer:ClearAllPoints()
-    utilityContainer:SetParent(GetAnchorParent())
-    utilityContainer:SetPoint("TOPRIGHT", visualFrame, "TOPLEFT", -5, 20)
-    utilityContainer:SetSize(size, size)
-
-    if visualFrame.GetFrameStrata and utilityContainer.SetFrameStrata then
-        utilityContainer:SetFrameStrata(visualFrame:GetFrameStrata() or "HIGH")
-    end
-    if frame.GetFrameLevel and utilityContainer.SetFrameLevel then
-        utilityContainer:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)
-    end
-
-    local button = utilityButtons.SETTINGS
-    if not button then
-        return
-    end
-
-    button:ClearAllPoints()
-    button:SetPoint("TOPLEFT", utilityContainer, "TOPLEFT", 0, 0)
-    button:SetSize(size, size)
-    RefreshUtilityButtonLook(button)
 end
 
 local function HookAnchorFrameSignals()
@@ -1754,6 +1671,71 @@ local function EnsureContainer()
 
         buttons[def.key] = button
     end
+
+    local settingsButton = CreateFrame("Button", "ChatifyQuickChatButtonSettings", container, backdropTemplate)
+    settingsButton:RegisterForClicks("LeftButtonUp")
+    settingsButton:SetHitRectInsets(0, 0, 0, 0)
+
+    local settingsHighlight = settingsButton:CreateTexture(nil, "HIGHLIGHT")
+    settingsHighlight:SetTexture("Interface\Buttons\WHITE8x8")
+    settingsHighlight:SetBlendMode("ADD")
+    settingsHighlight:SetVertexColor(1.0, 0.85, 0.25, 0.00)
+    settingsHighlight:SetAllPoints(settingsButton)
+    settingsButton.Highlight = settingsHighlight
+
+    local settingsIcon = settingsButton:CreateTexture(nil, "OVERLAY")
+    settingsIcon:SetTexture(SETTINGS_ICON)
+    settingsIcon:SetPoint("CENTER")
+    settingsButton.Icon = settingsIcon
+
+    settingsButton:SetScript("OnClick", function()
+        if Chatify and type(Chatify.OpenConfig) == "function" then
+            Chatify:OpenConfig()
+        end
+    end)
+
+    settingsButton:SetScript("OnEnter", function(self)
+        RefreshButtonLook(self)
+        if GameTooltip then
+            local skinLabel = "Standard"
+            if GetConfiguredTheme() == "ELVUI" then
+                skinLabel = "ElvUI"
+            elseif GetConfiguredTheme() == "GW2UI" then
+                skinLabel = "GW2 UI"
+            end
+
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine("Chatify Settings", 1.00, 0.82, 0.18, true)
+            AddTooltipLine("Left Click", "Open Chatify configuration", 0.95, 0.95, 0.95)
+            AddTooltipLine("Position", "Right side of the chat frame", 0.72, 0.72, 0.72)
+            AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
+            GameTooltip:Show()
+        end
+    end)
+
+    settingsButton:SetScript("OnLeave", function(self)
+        RefreshButtonLook(self)
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+
+    settingsButton:SetScript("OnMouseDown", function(self)
+        if self.Icon then
+            self.Icon:ClearAllPoints()
+            self.Icon:SetPoint("CENTER", self, "CENTER", 1, -1)
+        end
+    end)
+
+    settingsButton:SetScript("OnMouseUp", function(self)
+        if self.Icon then
+            self.Icon:ClearAllPoints()
+            self.Icon:SetPoint("CENTER", self, "CENTER", 0, 0)
+        end
+    end)
+
+    buttons.SETTINGS = settingsButton
 end
 
 
@@ -1941,12 +1923,8 @@ function ns.RefreshQuickChatButtons()
 
     if not db or (not showQuickButtons and not showSettingsButton) then
         lastLayoutSignature = nil
-        lastUtilityLayoutSignature = nil
         if container then
             container:Hide()
-        end
-        if utilityContainer then
-            utilityContainer:Hide()
         end
         return
     end
@@ -1964,39 +1942,15 @@ function ns.RefreshQuickChatButtons()
     HookAnchorFrameSignals()
     HookEditBoxSignals()
 
-    if showQuickButtons then
-        EnsureContainer()
-        local layoutSignature = GetLayoutSignature()
-        if layoutSignature ~= lastLayoutSignature or not container:IsShown() then
-            LayoutButtons()
-            lastLayoutSignature = layoutSignature
-        end
-
-        UpdateButtonState()
-        container:Show()
-    else
-        lastLayoutSignature = nil
-        if container then
-            container:Hide()
-        end
+    EnsureContainer()
+    local layoutSignature = GetLayoutSignature()
+    if layoutSignature ~= lastLayoutSignature or not container:IsShown() then
+        LayoutButtons()
+        lastLayoutSignature = layoutSignature
     end
 
-    if showSettingsButton then
-        EnsureUtilityContainer()
-        local utilityLayoutSignature = GetUtilityLayoutSignature()
-        if utilityLayoutSignature ~= lastUtilityLayoutSignature or not utilityContainer:IsShown() then
-            LayoutUtilityButtons()
-            lastUtilityLayoutSignature = utilityLayoutSignature
-        else
-            RefreshUtilityButtonLook(utilityButtons.SETTINGS)
-        end
-        utilityContainer:Show()
-    else
-        lastUtilityLayoutSignature = nil
-        if utilityContainer then
-            utilityContainer:Hide()
-        end
-    end
+    UpdateButtonState()
+    container:Show()
 end
 
 function QuickButtonsModule:Refresh()
