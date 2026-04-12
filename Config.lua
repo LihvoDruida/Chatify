@@ -136,9 +136,10 @@ ns.defaults = {
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
         quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
-        quickChatButtonSize = 24,   -- Базовий розмір кнопок швидкого перемикання чату
+        quickChatButtonSize = 26,   -- Базова ширина кнопок швидкого перемикання чату у пропорціях Blizzard sidebar
         quickChatButtonGap = 18,    -- Відступ кнопок від правого краю чату
         quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
+        quickChatPanelAlpha = 0.0, -- Прозорість фону контейнера швидких кнопок (0 = повністю прозорий)
         quickChatButtonTheme = "AUTO", -- AUTO follows active chat addons; manual skins are appearance-only and do not require those addons
         quickChatButtonSpacing = 4, -- Вертикальний відступ між кнопками швидкого чату
         quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату

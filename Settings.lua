@@ -178,30 +178,26 @@ function Chatify:GetOptions()
                             return self.db.profile.quickChatSettingsButton
                         end,
                     },
-
-                    quickChatButtonTheme = {
+                    quickChatPanelAlpha = {
                         order = 7,
-                        name = "Quick Button Skin",
-                        desc = "Choose how quick chat buttons look. Auto follows the active chat layout, while Standard, ElvUI, and GW2 UI can also be used as appearance-only skins.",
-                        type = "select",
-                        width = "normal",
-                        values = {
-                            AUTO = "Auto",
-                            STANDARD = "Standard",
-                            ELVUI = "ElvUI",
-                            GW2UI = "GW2 UI",
-                        },
+                        name = "Quick Panel Background Opacity",
+                        desc = "Adjust the background opacity of the quick chat panel container. The default value is fully transparent.",
+                        type = "range",
+                        min = 0,
+                        max = 1,
+                        step = 0.05,
+                        isPercent = true,
                         disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
+                        set = function(info, val) self.db.profile.quickChatPanelAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
-                            return self.db.profile.quickChatButtonTheme or "AUTO"
+                            return self.db.profile.quickChatPanelAlpha or 0
                         end,
                     },
 
                     quickChatButtonSize = {
                         order = 8,
                         name = "Quick Button Size",
-                        desc = "Adjust the base size of the quick chat buttons. They still resize down automatically when the chat frame becomes smaller.",
+                        desc = "Adjust the base width of the quick chat buttons. By default they match the standard Blizzard sidebar button proportions and still resize down automatically when the chat frame becomes smaller.",
                         type = "range",
                         min = 16,
                         max = 40,
@@ -209,7 +205,7 @@ function Chatify:GetOptions()
                         disabled = function() return self.db.profile.quickChatButtons == false end,
                         set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
-                            return self.db.profile.quickChatButtonSize or 24
+                            return self.db.profile.quickChatButtonSize or 26
                         end,
                     },
 
