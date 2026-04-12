@@ -554,6 +554,8 @@ local function GetButtonPalette(button)
     }
 end
 
+local GetConfiguredFontScale
+
 local function RefreshButtonLook(button)
     if not button then
         return
@@ -715,7 +717,7 @@ local function GetConfiguredSpacing()
     return math.floor(spacing + 0.5)
 end
 
-local function GetConfiguredFontScale()
+GetConfiguredFontScale = function()
     local db = GetDB()
     local scale = db and db.quickChatButtonFontScale or 1
     if type(scale) ~= "number" then
