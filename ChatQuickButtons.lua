@@ -796,6 +796,8 @@ local function ShouldShowSettingsButton()
     return db.quickChatSettingsButton == true
 end
 
+local BUTTON_DEFS
+
 local function GetOrderedButtons()
     local ordered = {}
     local db = GetDB() or {}
@@ -855,7 +857,7 @@ MixColor = function(fromColor, toColor, t)
     }
 end
 
-local BUTTON_DEFS = {
+BUTTON_DEFS = {
     {
         key = "GUILD",
         chatType = "GUILD",
