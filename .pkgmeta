@@ -20,62 +20,58 @@ ignore:
   - .DS_Store
 
 externals:
-  # === CORE ===
   libs/LibStub:
-    url: svn://svn.wowace.com/wow/libstub/mainline/trunk
+    url: https://repos.wowace.com/wow/libstub/trunk
     tag: latest
 
   libs/CallbackHandler-1.0:
-    url: svn://svn.wowace.com/wow/callbackhandler/mainline/trunk/CallbackHandler-1.0
+    url: https://repos.wowace.com/wow/callbackhandler/trunk/CallbackHandler-1.0
     tag: latest
 
-  # === ACE3 FRAMEWORK ===
   libs/AceAddon-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceAddon-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceAddon-3.0
     tag: latest
 
   libs/AceEvent-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceEvent-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceEvent-3.0
     tag: latest
 
   libs/AceHook-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceHook-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceHook-3.0
     tag: latest
 
   libs/AceDB-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceDB-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceDB-3.0
     tag: latest
 
   libs/AceDBOptions-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceDBOptions-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceDBOptions-3.0
     tag: latest
 
   libs/AceConsole-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceConsole-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceConsole-3.0
     tag: latest
 
   libs/AceGUI-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceGUI-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceGUI-3.0
     tag: latest
 
   libs/AceConfig-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceConfig-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceConfig-3.0
     tag: latest
 
   libs/AceLocale-3.0:
-    url: svn://svn.wowace.com/wow/ace3/mainline/trunk/AceLocale-3.0
+    url: https://repos.wowace.com/wow/ace3/trunk/AceLocale-3.0
     tag: latest
 
-  # === MEDIA & SOUNDS ===
   libs/LibSharedMedia-3.0:
-    url: svn://svn.wowace.com/wow/libsharedmedia-3-0/mainline/trunk/LibSharedMedia-3.0
+    url: https://repos.wowace.com/wow/libsharedmedia-3-0/trunk/LibSharedMedia-3.0
     tag: latest
 
   libs/AceGUI-3.0-SharedMediaWidgets:
-    url: svn://svn.wowace.com/wow/ace-gui-3-0-shared-media-widgets/mainline/trunk/AceGUI-3.0-SharedMediaWidgets
+    url: https://repos.wowace.com/wow/ace-gui-3-0-shared-media-widgets/trunk/AceGUI-3.0-SharedMediaWidgets
     tag: latest
 
-  # === CHAT ANIMATION COMPAT ===
   libs/LibChatAnims:
-    url: svn://svn.wowace.com/wow/libchatanims/mainline/trunk/LibChatAnims
+    url: https://repos.wowace.com/wow/libchatanims/trunk/LibChatAnims
     tag: latest
