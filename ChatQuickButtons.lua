@@ -38,7 +38,7 @@ local GW2_BUTTON_ACTIVE = GW2_TEXTURE_PATH .. "channel_button_vc.png"
 local GW2_BUTTON_ACTIVE_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_vc_highlight.png"
 local GW2_CONTAINER_BG = GW2_TEXTURE_PATH .. "chatframebackground.png"
 local GW2_CONTAINER_BORDER = GW2_TEXTURE_PATH .. "chatframeborder.png"
-local SETTINGS_ICON = "Interface\AddOns\Chatify\assets\icons\SettingsCog.png"
+local SETTINGS_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\SettingsCog.png"
 
 
 local function GetColorComponents(color, fallback)
@@ -214,6 +214,46 @@ local function ResetButtonThemeState(button)
     ResetManagedButtonTexture(button, "GetPushedTexture", "SetPushedTexture")
     ResetManagedButtonTexture(button, "GetDisabledTexture", "SetDisabledTexture")
     ResetManagedButtonTexture(button, "GetHighlightTexture", "SetHighlightTexture", "ADD")
+end
+
+local function ApplyRegionToButton(region, button, alpha)
+    if not region or not button then
+        return
+    end
+
+    if type(region.SetAllPoints) == "function" then
+        region:SetAllPoints(button)
+    end
+    if type(region.SetAlpha) == "function" and type(alpha) == "number" then
+        region:SetAlpha(alpha)
+    end
+end
+
+local function SafeSetManagedTexture(button, setterName, getterName, texturePath, layer, alpha)
+    if not button or type(texturePath) ~= "string" or texturePath == "" then
+        return nil
+    end
+
+    local setter = button[setterName]
+    if type(setter) ~= "function" then
+        return nil
+    end
+
+    local ok
+    if layer ~= nil then
+        ok = pcall(setter, button, texturePath, layer)
+    else
+        ok = pcall(setter, button, texturePath)
+    end
+
+    if not ok then
+        return nil
+    end
+
+    local getter = button[getterName]
+    local region = type(getter) == "function" and getter(button) or nil
+    ApplyRegionToButton(region, button, alpha)
+    return region
 end
 
 local function EnsureContainerArt()
@@ -535,32 +575,9 @@ local function RefreshButtonLook(button)
             highlightTexture = GW2_BUTTON_HIGHLIGHT
         end
 
-        if type(button.SetNormalTexture) == "function" then
-            button:SetNormalTexture(normalTexture)
-            local region = button:GetNormalTexture()
-            if region then
-                region:SetAllPoints(button)
-                region:SetAlpha(button.__chatifyDisabled and 0.55 or 1)
-            end
-        end
-
-        if type(button.SetPushedTexture) == "function" then
-            button:SetPushedTexture(pushedTexture)
-            local region = button:GetPushedTexture()
-            if region then
-                region:SetAllPoints(button)
-                region:SetAlpha(button.__chatifyDisabled and 0.55 or 1)
-            end
-        end
-
-        if type(button.SetHighlightTexture) == "function" then
-            button:SetHighlightTexture(highlightTexture, "ADD")
-            local region = button:GetHighlightTexture()
-            if region then
-                region:SetAllPoints(button)
-                region:SetAlpha(button.__chatifyDisabled and 0 or (button.__chatifySelected and 0.45 or 0.35))
-            end
-        end
+        SafeSetManagedTexture(button, "SetNormalTexture", "GetNormalTexture", normalTexture, nil, button.__chatifyDisabled and 0.55 or 1)
+        SafeSetManagedTexture(button, "SetPushedTexture", "GetPushedTexture", pushedTexture, nil, button.__chatifyDisabled and 0.55 or 1)
+        SafeSetManagedTexture(button, "SetHighlightTexture", "GetHighlightTexture", highlightTexture, "ADD", button.__chatifyDisabled and 0 or (button.__chatifySelected and 0.45 or 0.35))
     end
 
     if button.Label then
@@ -1996,6 +2013,7 @@ function QuickButtonsModule:OnEnable()
     self:RegisterEvent("CHANNEL_UI_UPDATE", "Refresh")
     self:RegisterEvent("MODIFIER_STATE_CHANGED", function() ScheduleButtonStateUpdate() end)
     self:RegisterEvent("DISPLAY_SIZE_CHANGED", "Refresh")
+    self:RegisterEvent("UI_SCALE_CHANGED", "Refresh")
     self:RegisterEvent("CVAR_UPDATE", function(_, cvar)
         if cvar == "useUiScale" or cvar == "uiScale" then
             self:Refresh()

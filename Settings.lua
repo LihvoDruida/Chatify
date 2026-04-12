@@ -167,7 +167,7 @@ function Chatify:GetOptions()
                     quickChatSettingsButton = {
                         order = 6.5,
                         name = "Show Left Settings Button",
-                        desc = "Show a Chattynator-style settings button on the left side of the active chat frame. This opens Chatify settings only and does not replace Blizzard, ElvUI, or GW2 chat behavior.",
+                        desc = "Show a dedicated settings button on the left side of the active chat frame. It opens Chatify settings without replacing the default chat behavior.",
                         type = "toggle",
                         width = "full",
                         set = function(info, val) self.db.profile.quickChatSettingsButton = val; ns.NotifyQuickChatSettingsChanged() end,
@@ -182,7 +182,7 @@ function Chatify:GetOptions()
                     quickChatButtonTheme = {
                         order = 7,
                         name = "Quick Button Skin",
-                        desc = "Choose how quick chat buttons are styled. Auto follows detected chat addons, while Standard, ElvUI, and GW2 UI can be used as appearance-only skins even when those addons are not installed.",
+                        desc = "Choose how quick chat buttons look. Auto follows the active chat layout, while Standard, ElvUI, and GW2 UI can also be used as appearance-only skins.",
                         type = "select",
                         width = "normal",
                         values = {
@@ -435,7 +435,7 @@ function Chatify:GetOptions()
                             hideSystemSpam = {
                                 order = 3,
                                 name = "Hide Join/Leave Messages",
-                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the same safe message filter path as Prat-style processing.|r",
+                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the secure message filter path.|r",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.hideSystemSpam = val end,
                                 get = function(info) return self.db.profile.hideSystemSpam end,
