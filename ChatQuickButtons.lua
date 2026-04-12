@@ -1441,48 +1441,18 @@ local function RefreshSettingsButtonLook()
 
     EnsureSettingsButtonVisual(settingsButton)
 
-    local theme = GetConfiguredTheme()
     settingsButton:SetSize(26, 28)
-
-    if theme == "ELVUI" then
-        settingsButton:ClearNormalTexture()
-        settingsButton:ClearPushedTexture()
-        settingsButton:ClearHighlightTexture()
-        if settingsButton.Icon then
-            settingsButton.Icon:SetSize(15, 15)
-            if settingsButton:IsMouseOver() then
-                settingsButton.Icon:SetVertexColor(1.0, 0.82, 0.18)
-            else
-                settingsButton.Icon:SetVertexColor(1.0, 1.0, 1.0)
-            end
-        end
-    elseif theme == "GW2UI" then
-        settingsButton:SetNormalTexture("chatframe-button-up")
-        settingsButton:SetPushedTexture("chatframe-button-down")
-        settingsButton:SetHighlightTexture("chatframe-button-highlight")
-        if settingsButton.Icon then
-            settingsButton.Icon:SetSize(14, 14)
-            if settingsButton:IsMouseOver() then
-                settingsButton.Icon:SetVertexColor(1.0, 0.90, 0.20)
-            else
-                settingsButton.Icon:SetVertexColor(0.92, 0.92, 0.92)
-            end
-        end
-    else
-        settingsButton:SetNormalTexture("chatframe-button-up")
-        settingsButton:SetPushedTexture("chatframe-button-down")
-        settingsButton:SetHighlightTexture("chatframe-button-highlight")
-        if settingsButton.Icon then
-            settingsButton.Icon:SetSize(12, 12)
-            if settingsButton:IsMouseOver() then
-                settingsButton.Icon:SetVertexColor(1.0, 0.90, 0.20)
-            else
-                settingsButton.Icon:SetVertexColor(0.925, 0.804, 0.063)
-            end
-        end
-    end
+    settingsButton:SetNormalTexture("chatframe-button-up")
+    settingsButton:SetPushedTexture("chatframe-button-down")
+    settingsButton:SetHighlightTexture("chatframe-button-highlight")
 
     if settingsButton.Icon then
+        settingsButton.Icon:SetSize(12, 12)
+        if settingsButton:IsMouseOver() then
+            settingsButton.Icon:SetVertexColor(1.0, 0.90, 0.20)
+        else
+            settingsButton.Icon:SetVertexColor(0.925, 0.804, 0.063)
+        end
         settingsButton.Icon:ClearAllPoints()
         settingsButton.Icon:SetPoint("CENTER")
     end
@@ -1514,11 +1484,19 @@ local function LayoutSettingsButton()
         return
     end
 
-    local parent = visualFrame.GetParent and (visualFrame:GetParent() or UIParent) or UIParent
+    local db = GetDB() or {}
+    local sideGap = 18
+    if type(db.quickChatButtonGap) == "number" then
+        sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
+    end
+
+    local socialOffsetY = 20
+    local parent = GetAnchorParent()
     local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
+
     settingsContainer:SetParent(parent)
     settingsContainer:ClearAllPoints()
-    settingsContainer:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", 4, 0)
+    settingsContainer:SetPoint("TOPLEFT", visualFrame, "TOPRIGHT", sideGap, socialOffsetY)
     settingsContainer:SetSize(26, 28)
     settingsContainer:SetFrameStrata(strata)
     if frame.GetFrameLevel and settingsContainer.SetFrameLevel then
@@ -1528,6 +1506,7 @@ local function LayoutSettingsButton()
     settingsButton:ClearAllPoints()
     settingsButton:SetAllPoints(settingsContainer)
     RefreshSettingsButtonLook()
+    settingsButton:SetFrameStrata("HIGH")
     settingsButton:Show()
     settingsContainer:Show()
 end
