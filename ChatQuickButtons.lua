@@ -1112,6 +1112,33 @@ GetAnchorFrame = function()
     return NormalizeChatFrame(_G.DEFAULT_CHAT_FRAME) or NormalizeChatFrame(_G.ChatFrame1) or _G.ChatFrame1 or DEFAULT_CHAT_FRAME
 end
 
+local function GetMainSidebarHostFrame()
+    return NormalizeChatFrame(_G.DEFAULT_CHAT_FRAME) or NormalizeChatFrame(_G.ChatFrame1) or _G.ChatFrame1 or DEFAULT_CHAT_FRAME
+end
+
+local function GetMainSidebarButtonFrame()
+    local frame = GetMainSidebarHostFrame()
+    if not frame then
+        return nil, nil
+    end
+
+    if frame.ButtonFrame then
+        return frame.ButtonFrame, frame
+    end
+
+    if type(frame.GetName) == "function" then
+        local ok, name = pcall(frame.GetName, frame)
+        if ok and type(name) == "string" and name ~= "" then
+            local buttonFrame = _G[name .. "ButtonFrame"]
+            if buttonFrame then
+                return buttonFrame, frame
+            end
+        end
+    end
+
+    return nil, frame
+end
+
 local function GetFrameIdentity(frame)
     if not frame then
         return "nil"
@@ -1405,7 +1432,9 @@ end
 
 
 local function EnsureSocialSidebarButton()
-    if not settingsContainer then
+    local sidebarFrame = GetMainSidebarButtonFrame()
+    if not sidebarFrame then
+        socialButton = nil
         return nil
     end
 
@@ -1415,20 +1444,24 @@ local function EnsureSocialSidebarButton()
         return nil
     end
 
-    button:SetParent(settingsContainer)
+    button:SetParent(sidebarFrame)
     button:SetScript("OnMouseDown", nil)
     button:SetScript("OnMouseUp", nil)
     button:ClearAllPoints()
-    button:SetFrameStrata("HIGH")
+    button:SetFrameStrata((sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH")
+    if sidebarFrame.GetFrameLevel and button.SetFrameLevel then
+        button:SetFrameLevel((sidebarFrame:GetFrameLevel() or 1) + 2)
+    end
 
     if not socialButtonHooked and type(hooksecurefunc) == "function" then
         socialButtonHooked = true
         local originalSetPoint = button.SetPoint
         hooksecurefunc(button, "SetPoint", function(_, _, frame)
-            if settingsContainer and frame ~= settingsContainer then
-                button:SetParent(settingsContainer)
+            local currentSidebar = GetMainSidebarButtonFrame()
+            if currentSidebar and frame ~= currentSidebar then
+                button:SetParent(currentSidebar)
                 button:ClearAllPoints()
-                originalSetPoint(button, "TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+                originalSetPoint(button, "TOP", currentSidebar, "TOP", 0, 0)
             end
         end)
     end
@@ -1507,21 +1540,15 @@ local function RefreshSettingsButtonLook()
 end
 
 local function LayoutSettingsButton()
-    if not settingsContainer or not settingsButton then
+    if not settingsButton then
         return
     end
 
-    local frame = NormalizeChatFrame(_G.DEFAULT_CHAT_FRAME) or NormalizeChatFrame(_G.ChatFrame1) or _G.ChatFrame1 or GetAnchorFrame()
-    local visualFrame = frame
-    local theme = GetConfiguredTheme()
-    if theme == "GW2UI" and HasGW2Chat() and frame and frame.Container then
-        visualFrame = frame.Container
-    elseif theme == "ELVUI" and HasElvUIChat() then
-        visualFrame = GetElvUIAnchorPanel(frame) or frame
-    end
-
-    if not frame or not visualFrame then
-        settingsContainer:Hide()
+    local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
+    if not sidebarFrame or not hostFrame then
+        if settingsContainer then
+            settingsContainer:Hide()
+        end
         settingsButton:Hide()
         if socialButton then
             socialButton:Hide()
@@ -1530,66 +1557,83 @@ local function LayoutSettingsButton()
     end
 
     local social = EnsureSocialSidebarButton()
+    local channelButton = _G.ChatFrameChannelButton
     local showSettings = ShouldShowSettingsButton()
     local showSidebar = social ~= nil or showSettings
     if not showSidebar then
-        settingsContainer:Hide()
+        if settingsContainer then
+            settingsContainer:Hide()
+        end
         settingsButton:Hide()
         return
     end
 
-    local db = GetDB() or {}
-    local sideGap = 18
-    if type(db.quickChatButtonGap) == "number" then
-        sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
-    end
-
-    local socialOffsetY = 20
-    local spacing = 5
     local buttonWidth = 26
     local buttonHeight = 28
-    local totalHeight = buttonHeight
-    if social and showSettings then
-        totalHeight = (buttonHeight * 2) + spacing
+    local spacing = 2
+    local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
+    local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
+
+    if settingsContainer then
+        settingsContainer:SetParent(sidebarFrame)
+        settingsContainer:ClearAllPoints()
+        settingsContainer:SetAllPoints(sidebarFrame)
+        settingsContainer:SetFrameStrata(strata)
+        settingsContainer:SetFrameLevel(frameLevel + 1)
+        settingsContainer:Show()
     end
 
-    local parent = GetAnchorParent()
-    local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
-
-    settingsContainer:SetParent(parent)
-    settingsContainer:ClearAllPoints()
-    settingsContainer:SetPoint("TOPLEFT", visualFrame, "TOPRIGHT", sideGap, socialOffsetY)
-    settingsContainer:SetSize(buttonWidth, totalHeight)
-    settingsContainer:SetFrameStrata(strata)
-    if frame.GetFrameLevel and settingsContainer.SetFrameLevel then
-        settingsContainer:SetFrameLevel((frame:GetFrameLevel() or 1) + 12)
+    if channelButton then
+        channelButton:SetParent(sidebarFrame)
+        channelButton:ClearAllPoints()
+        channelButton:SetFrameStrata(strata)
+        if channelButton.SetFrameLevel then
+            channelButton:SetFrameLevel(frameLevel + 2)
+        end
+        channelButton:SetSize(buttonWidth, buttonHeight)
     end
 
-    local currentAnchor = settingsContainer
+    local previousButton = nil
+
     if social then
         social:ClearAllPoints()
-        social:SetPoint("TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+        social:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
         social:SetSize(buttonWidth, buttonHeight)
+        social:SetFrameStrata(strata)
+        if social.SetFrameLevel then
+            social:SetFrameLevel(frameLevel + 2)
+        end
         social:Show()
-        currentAnchor = social
+        previousButton = social
+    end
+
+    if channelButton then
+        if previousButton then
+            channelButton:SetPoint("TOP", previousButton, "BOTTOM", 0, -spacing)
+        else
+            channelButton:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
+        end
+        previousButton = channelButton
     end
 
     if showSettings then
+        settingsButton:SetParent(sidebarFrame)
         settingsButton:ClearAllPoints()
-        if social then
-            settingsButton:SetPoint("TOPLEFT", social, "BOTTOMLEFT", 0, -spacing)
+        if previousButton then
+            settingsButton:SetPoint("TOP", previousButton, "BOTTOM", 0, -spacing)
         else
-            settingsButton:SetPoint("TOPLEFT", settingsContainer, "TOPLEFT", 0, 0)
+            settingsButton:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
         end
         settingsButton:SetSize(buttonWidth, buttonHeight)
+        settingsButton:SetFrameStrata(strata)
+        if settingsButton.SetFrameLevel then
+            settingsButton:SetFrameLevel(frameLevel + 2)
+        end
         RefreshSettingsButtonLook()
-        settingsButton:SetFrameStrata("HIGH")
         settingsButton:Show()
     else
         settingsButton:Hide()
     end
-
-    settingsContainer:Show()
 end
 
 local function LayoutButtons()
@@ -1909,7 +1953,7 @@ local function EnsureContainer()
             GameTooltip:ClearLines()
             GameTooltip:AddLine("Chatify Settings", 1.00, 0.82, 0.18, true)
             AddTooltipLine("Left Click", "Open Chatify configuration", 0.95, 0.95, 0.95)
-            AddTooltipLine("Position", "Blizzard side menu", 0.72, 0.72, 0.72)
+            AddTooltipLine("Position", "Main chat button panel", 0.72, 0.72, 0.72)
             AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
