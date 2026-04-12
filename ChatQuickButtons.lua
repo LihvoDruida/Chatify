@@ -259,6 +259,55 @@ local function SafeSetManagedTexture(button, setterName, getterName, texturePath
     return region
 end
 
+local function RestoreManagedTextureRegion(region, button, alpha, blendMode, visible)
+    if not region or not button then
+        return
+    end
+
+    region:ClearAllPoints()
+    region:SetAllPoints(button)
+
+    if type(region.SetBlendMode) == "function" and type(blendMode) == "string" then
+        region:SetBlendMode(blendMode)
+    end
+
+    if type(region.SetVertexColor) == "function" then
+        region:SetVertexColor(1, 1, 1, 1)
+    end
+
+    if type(region.SetAlpha) == "function" then
+        region:SetAlpha(type(alpha) == "number" and alpha or 1)
+    end
+
+    if visible == true and type(region.Show) == "function" then
+        region:Show()
+    elseif visible == false and type(region.Hide) == "function" then
+        region:Hide()
+    end
+end
+
+local function ApplyStandardButtonTextures(button, enabled, selected, pressed, hovered)
+    if not button then
+        return
+    end
+
+    local normalTexture = (selected or pressed) and "chatframe-button-down" or "chatframe-button-up"
+    local highlightAlpha = 0
+    if enabled and hovered then
+        highlightAlpha = selected and 0.8 or 1
+    end
+
+    pcall(button.SetNormalTexture, button, normalTexture)
+    pcall(button.SetPushedTexture, button, "chatframe-button-down")
+    pcall(button.SetDisabledTexture, button, "chatframe-button-up")
+    pcall(button.SetHighlightTexture, button, "chatframe-button-highlight")
+
+    RestoreManagedTextureRegion(type(button.GetNormalTexture) == "function" and button:GetNormalTexture() or nil, button, enabled and 1 or 0.92, "BLEND", true)
+    RestoreManagedTextureRegion(type(button.GetPushedTexture) == "function" and button:GetPushedTexture() or nil, button, 1, "BLEND", pressed == true)
+    RestoreManagedTextureRegion(type(button.GetDisabledTexture) == "function" and button:GetDisabledTexture() or nil, button, 0, "BLEND", false)
+    RestoreManagedTextureRegion(type(button.GetHighlightTexture) == "function" and button:GetHighlightTexture() or nil, button, highlightAlpha, "ADD", hovered == true and enabled == true)
+end
+
 local function EnsureContainerArt()
     if not container or container.__chatifyArtReady then
         return
@@ -589,6 +638,7 @@ local function RefreshButtonLook(button)
         SafeSetManagedTexture(button, "SetHighlightTexture", "GetHighlightTexture", highlightTexture, "ADD", hovered and 0.92 or 0.72)
         if button.Highlight then
             button.Highlight:SetVertexColor(1, 1, 1, 0)
+            button.Highlight:Show()
         end
         ApplyButtonBackdrop(button, palette.bg, palette.border)
     elseif theme == "ELVUI" then
@@ -599,11 +649,10 @@ local function RefreshButtonLook(button)
             button.Highlight:SetAllPoints(button)
             button.Highlight:SetBlendMode("ADD")
             button.Highlight:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], hovered and 0.10 or 0.0)
+            button.Highlight:Show()
         end
     else
-        button:SetNormalTexture((selected or pressed) and "chatframe-button-down" or "chatframe-button-up")
-        button:SetPushedTexture("chatframe-button-down")
-        button:SetHighlightTexture("chatframe-button-highlight")
+        ApplyStandardButtonTextures(button, enabled, selected, pressed, hovered)
         if type(button.SetBackdropColor) == "function" then
             button:SetBackdropColor(0, 0, 0, 0)
         end
@@ -614,7 +663,8 @@ local function RefreshButtonLook(button)
             button.Highlight:SetTexture(TRANSPARENT_TEXTURE)
             button.Highlight:SetAllPoints(button)
             button.Highlight:SetBlendMode("ADD")
-            button.Highlight:SetVertexColor(1.0, 0.82, 0.18, hovered and 0.08 or 0.0)
+            button.Highlight:SetVertexColor(1.0, 0.82, 0.18, 0.0)
+            button.Highlight:Hide()
         end
     end
 
@@ -684,7 +734,11 @@ local function RefreshButtonLook(button)
 
         local textColor = palette.text
         if theme == "STANDARD" then
-            if hovered then
+            if not enabled then
+                textColor = { 0.62, 0.54, 0.20 }
+            elseif pressed then
+                textColor = { 1.0, 0.94, 0.30 }
+            elseif hovered then
                 textColor = { 1.0, 0.90, 0.20 }
             elseif selected then
                 textColor = { 1.0, 0.92, 0.24 }
@@ -692,7 +746,7 @@ local function RefreshButtonLook(button)
                 textColor = { 0.925, 0.804, 0.063 }
             end
         end
-        button.Label:SetTextColor(textColor[1], textColor[2], textColor[3], enabled and 1 or 0.92)
+        button.Label:SetTextColor(textColor[1], textColor[2], textColor[3], enabled and 1 or 0.90)
     end
 end
 
