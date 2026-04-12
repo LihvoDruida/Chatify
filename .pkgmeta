@@ -75,15 +75,6 @@ externals:
     url: svn://svn.wowace.com/wow/ace-gui-3-0-shared-media-widgets/mainline/trunk/AceGUI-3.0-SharedMediaWidgets
     tag: latest
 
-  # === DATA BROKER ===
-  libs/LibDataBroker-1.1:
-    url: https://github.com/tekkub/libdatabroker-1-1
-    tag: master
-
-  libs/LibDBIcon-1.0:
-    url: svn://svn.wowace.com/wow/libdbicon-1-0/mainline/trunk/LibDBIcon-1.0
-    tag: latest
-
   # === CHAT ANIMATION COMPAT ===
   libs/LibChatAnims:
     url: https://repos.wowace.com/wow/libchatanims/trunk/LibChatAnims
