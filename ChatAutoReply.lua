@@ -16,6 +16,7 @@ local tonumber = tonumber
 local tostring = tostring
 local pcall = pcall
 local math_floor = math.floor
+local Ambiguate = Ambiguate
 
 local activityTicker = nil
 local lastGuildReplyTime = 0
@@ -72,6 +73,22 @@ local function PlayerName()
     return UnitName("player")
 end
 
+local function NormalizePlayerName(name, ambiguity)
+    local safeName = SafeChatText(name)
+    if type(safeName) ~= "string" or safeName == "" then
+        return nil
+    end
+
+    if type(Ambiguate) == "function" then
+        local ok, result = pcall(Ambiguate, safeName, ambiguity or "none")
+        if ok and type(result) == "string" and result ~= "" then
+            return result
+        end
+    end
+
+    return select(1, strsplit("-", safeName))
+end
+
 local function IsPlayerSender(sender)
     local playerName = PlayerName()
     local safeSender = SafeChatText(sender)
@@ -79,15 +96,9 @@ local function IsPlayerSender(sender)
         return false
     end
 
-    local shortSender = StripRealm(safeSender) or safeSender
-    return shortSender == playerName
-end
-
-local function StripRealm(name)
-    if type(name) ~= "string" or name == "" then
-        return nil
-    end
-    return select(1, strsplit("-", name))
+    local shortSender = NormalizePlayerName(safeSender, "none") or safeSender
+    local shortPlayer = NormalizePlayerName(playerName, "none") or playerName
+    return shortSender == shortPlayer
 end
 
 local function MakeStorageKey(sender, isBNet)
@@ -256,7 +267,7 @@ local function IsAllowedSender(sender, isBNet)
         return false
     end
 
-    local shortName = StripRealm(safeSender) or safeSender
+    local shortName = NormalizePlayerName(safeSender, "none") or safeSender
 
     if C_FriendList and C_FriendList.IsFriend then
         local ok, isFriend = pcall(C_FriendList.IsFriend, safeSender)
@@ -315,7 +326,7 @@ local function RemovePending(sender, isBNet)
         return
     end
 
-    local shortName = StripRealm(safeTarget)
+    local shortName = NormalizePlayerName(safeTarget, "none")
     char.pendingWhispers[safeTarget] = nil
     char.pendingGuildMentions[safeTarget] = nil
     if shortName then
