@@ -178,6 +178,25 @@ function Chatify:GetOptions()
                             return self.db.profile.quickChatSettingsButton
                         end,
                     },
+
+                    quickChatButtonTheme = {
+                        order = 6.75,
+                        name = "Quick Button Theme",
+                        desc = "Choose the appearance for the quick chat buttons. Automatic follows supported chat UI addons when they are loaded; Standard keeps the Blizzard-style text buttons.",
+                        type = "select",
+                        width = "normal",
+                        values = {
+                            AUTO = "Automatic",
+                            STANDARD = "Standard",
+                            ELVUI = "ElvUI Style",
+                            GW2UI = "GW2 Style",
+                        },
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
+                        get = function(info)
+                            return self.db.profile.quickChatButtonTheme or "AUTO"
+                        end,
+                    },
                     quickChatPanelAlpha = {
                         order = 7,
                         name = "Quick Panel Background Opacity",
@@ -251,6 +270,24 @@ function Chatify:GetOptions()
                         set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.NotifyQuickChatSettingsChanged() end,
                         get = function(info)
                             return self.db.profile.quickChatButtonGap or 18
+                        end,
+                    },
+
+                    quickChatButtonYOffset = {
+                        order = 11.5,
+                        name = "Quick Button Vertical Offset",
+                        desc = "Move the quick chat stack a little higher or lower while keeping it anchored from the bottom edge of the chat frame.",
+                        type = "range",
+                        min = -24,
+                        max = 16,
+                        step = 1,
+                        disabled = function() return self.db.profile.quickChatButtons == false end,
+                        set = function(info, val) self.db.profile.quickChatButtonYOffset = val; ns.NotifyQuickChatSettingsChanged() end,
+                        get = function(info)
+                            if self.db.profile.quickChatButtonYOffset == nil then
+                                return -4
+                            end
+                            return self.db.profile.quickChatButtonYOffset
                         end,
                     },
 

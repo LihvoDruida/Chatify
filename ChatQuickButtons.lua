@@ -14,7 +14,9 @@ local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
 local GetConfiguredAlpha
+local GetConfiguredPanelAlpha
 local GetConfiguredTheme
+local GetConfiguredButtonYOffset
 local GetElvUIPanelColor
 local GetGW2ChatFont
 local GetAnchorFrame
@@ -263,16 +265,24 @@ local function EnsureContainerArt()
     end
 
     local bg = container:CreateTexture(nil, "BACKGROUND")
-    bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    bg:SetTexture(GW2_CONTAINER_BG)
     bg:SetAllPoints(container)
     container.GW2Bg = bg
 
     local left = container:CreateTexture(nil, "BORDER")
     left:SetTexture(GW2_CONTAINER_BORDER)
+    left:SetPoint("TOPLEFT", container, "TOPLEFT", -3, 0)
+    left:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", -3, 0)
+    left:SetWidth(8)
+    left:SetTexCoord(0, 0.5, 0, 1)
     container.GW2BorderLeft = left
 
     local right = container:CreateTexture(nil, "BORDER")
     right:SetTexture(GW2_CONTAINER_BORDER)
+    right:SetPoint("TOPRIGHT", container, "TOPRIGHT", 3, 0)
+    right:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 3, 0)
+    right:SetWidth(8)
+    right:SetTexCoord(0.5, 1, 0, 1)
     container.GW2BorderRight = right
 
     container.__chatifyArtReady = true
@@ -564,28 +574,98 @@ local function RefreshButtonLook(button)
     local enabled = not button.__chatifyDisabled
     local selected = button.__chatifySelected
     local hovered = button:IsMouseOver()
+    local pressed = button.__chatifyPressed
     local alpha = enabled and GetConfiguredAlpha() or math.max(0.45, GetConfiguredAlpha() * 0.75)
+    local theme = GetConfiguredTheme()
+    local palette = GetButtonPalette(button)
 
-    local normalTexture = selected and "chatframe-button-down" or "chatframe-button-up"
-    local pushedTexture = "chatframe-button-down"
-    local highlightTexture = "chatframe-button-highlight"
+    EnsureButtonArt(button)
 
-    button:SetNormalTexture(normalTexture)
-    button:SetPushedTexture(pushedTexture)
-    button:SetHighlightTexture(highlightTexture)
-    button:SetAlpha(alpha)
-
-    if button.Highlight then
-        button.Highlight:SetVertexColor(1, 1, 1, 0)
+    if theme == "GW2UI" then
+        local normalTexture = (selected or pressed) and GW2_BUTTON_ACTIVE or GW2_BUTTON_NORMAL
+        local highlightTexture = (selected or pressed) and GW2_BUTTON_ACTIVE_HIGHLIGHT or GW2_BUTTON_HIGHLIGHT
+        SafeSetManagedTexture(button, "SetNormalTexture", "GetNormalTexture", normalTexture, nil, alpha)
+        SafeSetManagedTexture(button, "SetPushedTexture", "GetPushedTexture", GW2_BUTTON_ACTIVE, nil, alpha)
+        SafeSetManagedTexture(button, "SetHighlightTexture", "GetHighlightTexture", highlightTexture, "ADD", hovered and 0.92 or 0.72)
+        if button.Highlight then
+            button.Highlight:SetVertexColor(1, 1, 1, 0)
+        end
+        ApplyButtonBackdrop(button, palette.bg, palette.border)
+    elseif theme == "ELVUI" then
+        ResetButtonThemeState(button)
+        ApplyButtonBackdrop(button, palette.bg, palette.border)
+        if button.Highlight then
+            button.Highlight:SetTexture(TRANSPARENT_TEXTURE)
+            button.Highlight:SetAllPoints(button)
+            button.Highlight:SetBlendMode("ADD")
+            button.Highlight:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], hovered and 0.10 or 0.0)
+        end
+    else
+        button:SetNormalTexture((selected or pressed) and "chatframe-button-down" or "chatframe-button-up")
+        button:SetPushedTexture("chatframe-button-down")
+        button:SetHighlightTexture("chatframe-button-highlight")
+        if type(button.SetBackdropColor) == "function" then
+            button:SetBackdropColor(0, 0, 0, 0)
+        end
+        if type(button.SetBackdropBorderColor) == "function" then
+            button:SetBackdropBorderColor(0, 0, 0, 0)
+        end
+        if button.Highlight then
+            button.Highlight:SetTexture(TRANSPARENT_TEXTURE)
+            button.Highlight:SetAllPoints(button)
+            button.Highlight:SetBlendMode("ADD")
+            button.Highlight:SetVertexColor(1.0, 0.82, 0.18, hovered and 0.08 or 0.0)
+        end
     end
-    if button.Accent then button.Accent:Hide() end
-    if button.Inner then button.Inner:Hide() end
-    if button.Gloss then button.Gloss:Hide() end
-    if button.Glow then button.Glow:Hide() end
-    if button.Shade then button.Shade:Hide() end
+
+    button:SetAlpha(alpha)
 
     if button.Icon then
         button.Icon:Hide()
+    end
+
+    if button.Inner then
+        button.Inner:ClearAllPoints()
+        button.Inner:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+        button.Inner:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+        button.Inner:SetVertexColor(palette.bg[1], palette.bg[2], palette.bg[3], math.max(0, palette.inner or 0))
+        button.Inner:SetShown((palette.inner or 0) > 0.001 and theme ~= "STANDARD")
+    end
+
+    if button.Accent then
+        button.Accent:ClearAllPoints()
+        button.Accent:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+        button.Accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 2)
+        button.Accent:SetWidth(1)
+        button.Accent:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], palette.accent[4] or 0)
+        button.Accent:SetShown((palette.accent[4] or 0) > 0.001 and theme ~= "STANDARD")
+    end
+
+    if button.Gloss then
+        button.Gloss:ClearAllPoints()
+        button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+        button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
+        button.Gloss:SetHeight(math.max(2, math.floor((button:GetHeight() or 18) * 0.42)))
+        button.Gloss:SetVertexColor(1, 1, 1, math.max(0, palette.gloss or 0))
+        button.Gloss:SetShown((palette.gloss or 0) > 0.001 and theme ~= "STANDARD")
+    end
+
+    if button.Glow then
+        button.Glow:ClearAllPoints()
+        button.Glow:SetAllPoints(button)
+        button.Glow:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], math.max(0, palette.glow or 0))
+        button.Glow:SetShown((palette.glow or 0) > 0.001 and theme ~= "STANDARD")
+    end
+
+    if button.Shade then
+        button.Shade:ClearAllPoints()
+        button.Shade:SetAllPoints(button)
+        local shadeAlpha = math.max(0, palette.shade or 0)
+        if pressed and enabled then
+            shadeAlpha = math.min(0.24, shadeAlpha + 0.10)
+        end
+        button.Shade:SetVertexColor(0, 0, 0, shadeAlpha)
+        button.Shade:SetShown(shadeAlpha > 0.001)
     end
 
     if button.Label then
@@ -593,22 +673,22 @@ local function RefreshButtonLook(button)
         local height = math.max(1, button:GetHeight() or 28)
         local fontSize = math.max(10, math.floor(math.min(width, height) * 0.56 * GetConfiguredFontScale()))
         local fontPath = STANDARD_TEXT_FONT
-        if ChatFontNormal and ChatFontNormal.GetFont then
+        if theme == "GW2UI" then
+            fontPath = GetGW2ChatFont() or fontPath
+        elseif ChatFontNormal and ChatFontNormal.GetFont then
             fontPath = ChatFontNormal:GetFont() or fontPath
         end
         pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
         button.Label:ClearAllPoints()
-        button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
+        button.Label:SetPoint("CENTER", button, "CENTER", pressed and 1 or 0, pressed and -1 or 0)
 
-        if not enabled then
-            button.Label:SetTextColor(0.62, 0.62, 0.62)
-        elseif selected then
-            button.Label:SetTextColor(1.0, 0.92, 0.38)
-        elseif hovered then
-            button.Label:SetTextColor(1.0, 0.88, 0.28)
-        else
-            button.Label:SetTextColor(0.94, 0.80, 0.18)
+        local textColor = palette.text
+        if hovered and theme == "STANDARD" then
+            textColor = { 1.0, 0.90, 0.35 }
+        elseif selected and theme == "STANDARD" then
+            textColor = { 1.0, 0.94, 0.50 }
         end
+        button.Label:SetTextColor(textColor[1], textColor[2], textColor[3], enabled and 1 or 0.92)
     end
 end
 
@@ -620,12 +700,36 @@ local function ApplyContainerStyle()
     HideContainerThemeTextures()
 
     local panelAlpha = GetConfiguredPanelAlpha()
+    local theme = GetConfiguredTheme()
+
+    if theme == "GW2UI" then
+        EnsureContainerArt()
+        if container.GW2Bg then
+            container.GW2Bg:Show()
+            container.GW2Bg:SetVertexColor(1, 1, 1, panelAlpha)
+        end
+        if container.GW2BorderLeft then
+            container.GW2BorderLeft:Show()
+            container.GW2BorderLeft:SetAlpha(math.min(1, panelAlpha * 1.8))
+        end
+        if container.GW2BorderRight then
+            container.GW2BorderRight:Show()
+            container.GW2BorderRight:SetAlpha(math.min(1, panelAlpha * 1.8))
+        end
+        if type(container.SetBackdropColor) == "function" then
+            container:SetBackdropColor(0, 0, 0, 0)
+        end
+        if type(container.SetBackdropBorderColor) == "function" then
+            container:SetBackdropBorderColor(0, 0, 0, 0)
+        end
+        return
+    end
 
     if type(container.SetBackdrop) == "function" then
         if not container._chatifyBackdropSet then
             container:SetBackdrop({
-                bgFile = "Interface\\Buttons\\WHITE8x8",
-                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                bgFile = "Interface\Buttons\WHITE8x8",
+                edgeFile = "Interface\Buttons\WHITE8x8",
                 tile = false,
                 edgeSize = 1,
                 insets = { left = 1, right = 1, top = 1, bottom = 1 },
@@ -636,6 +740,18 @@ local function ApplyContainerStyle()
         if panelAlpha <= 0.01 then
             container:SetBackdropColor(0, 0, 0, 0)
             container:SetBackdropBorderColor(0, 0, 0, 0)
+            return
+        end
+
+        if theme == "ELVUI" then
+            local pr, pg, pb, pa = GetElvUIPanelColor()
+            local E = GetElvUI()
+            local br, bgc, bb = 0.12, 0.12, 0.12
+            if E and E.media then
+                br, bgc, bb = GetColorComponents(E.media.bordercolor, { 0.12, 0.12, 0.12 })
+            end
+            container:SetBackdropColor(pr, pg, pb, math.min(1, math.max(panelAlpha, pa * 0.92)))
+            container:SetBackdropBorderColor(br, bgc, bb, math.min(1, 0.88 + (panelAlpha * 0.12)))
         else
             container:SetBackdropColor(0.02, 0.02, 0.03, panelAlpha)
             container:SetBackdropBorderColor(0.38, 0.28, 0.10, math.min(1, panelAlpha * 1.8))
@@ -726,6 +842,17 @@ GetConfiguredFontScale = function()
     if scale < 0.8 then scale = 0.8 end
     if scale > 1.3 then scale = 1.3 end
     return scale
+end
+
+GetConfiguredButtonYOffset = function()
+    local db = GetDB()
+    local offset = db and db.quickChatButtonYOffset or -4
+    if type(offset) ~= "number" then
+        offset = -4
+    end
+    if offset < -24 then offset = -24 end
+    if offset > 16 then offset = 16 end
+    return math.floor(offset + 0.5)
 end
 
 local function ShouldShowSettingsButton()
@@ -1132,6 +1259,8 @@ local function GetLayoutSignature()
     local scale = string.format("%.2f", GetConfiguredFontScale())
     local size = type(db.quickChatButtonSize) == "number" and math.floor(db.quickChatButtonSize + 0.5) or 24
     local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
+    local yOffset = GetConfiguredButtonYOffset()
+    local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
     local showQuickButtons = db.quickChatButtons ~= false
     local showSettingsButton = ShouldShowSettingsButton()
 
@@ -1144,9 +1273,11 @@ local function GetLayoutSignature()
         tostring(strata),
         tostring(size),
         tostring(gap),
+        tostring(yOffset),
         tostring(spacing),
         tostring(scale),
         tostring(alpha),
+        tostring(panelAlpha),
         tostring(showQuickButtons),
         tostring(showSettingsButton),
     }, "|")
@@ -1658,7 +1789,7 @@ local function LayoutButtons()
 
     container:ClearAllPoints()
     container:SetParent(GetAnchorParent())
-    container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, 0)
+    container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, GetConfiguredButtonYOffset())
     container:SetHeight(math.max(chatHeight, holderHeight))
     container:SetWidth(buttonWidth + 4)
 
@@ -1701,7 +1832,9 @@ local function LayoutButtons()
         if button.Label then
             local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * GetConfiguredFontScale()))
             local fontPath = STANDARD_TEXT_FONT
-            if ChatFontNormal and ChatFontNormal.GetFont then
+            if GetConfiguredTheme() == "GW2UI" then
+                fontPath = GetGW2ChatFont() or fontPath
+            elseif ChatFontNormal and ChatFontNormal.GetFont then
                 fontPath = ChatFontNormal:GetFont() or fontPath
             end
             pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
@@ -1715,14 +1848,7 @@ local function LayoutButtons()
 
         if button.Highlight then
             button.Highlight:SetAllPoints(button)
-            button.Highlight:SetVertexColor(1, 1, 1, 0)
         end
-
-        if button.Accent then button.Accent:Hide() end
-        if button.Inner then button.Inner:Hide() end
-        if button.Gloss then button.Gloss:Hide() end
-        if button.Glow then button.Glow:Hide() end
-        if button.Shade then button.Shade:Hide() end
 
         previous = button
         RefreshButtonLook(button)
@@ -1841,6 +1967,7 @@ local function EnsureContainer()
         end)
 
         button:SetScript("OnLeave", function(self)
+            self.__chatifyPressed = false
             RefreshButtonLook(self)
             if GameTooltip then
                 GameTooltip:Hide()
@@ -1848,17 +1975,21 @@ local function EnsureContainer()
         end)
 
         button:SetScript("OnMouseDown", function(self)
+            self.__chatifyPressed = true
             if self.Label then
                 self.Label:ClearAllPoints()
                 self.Label:SetPoint("CENTER", self, "CENTER", 1, -1)
             end
+            RefreshButtonLook(self)
         end)
 
         button:SetScript("OnMouseUp", function(self)
+            self.__chatifyPressed = false
             if self.Label then
                 self.Label:ClearAllPoints()
                 self.Label:SetPoint("CENTER", self, "CENTER", 0, 0)
             end
+            RefreshButtonLook(self)
         end)
 
         buttons[def.key] = button
