@@ -554,8 +554,79 @@ local function GetButtonPalette(button)
     }
 end
 
+local function ApplyStandardQuickButtonLook(button)
+    if not button then
+        return
+    end
+
+    EnsureButtonArt(button)
+
+    button:SetNormalTexture("chatframe-button-up")
+    button:SetPushedTexture("chatframe-button-down")
+    button:SetHighlightTexture("chatframe-button-highlight")
+
+    local normalTexture = type(button.GetNormalTexture) == "function" and button:GetNormalTexture() or nil
+    if normalTexture then
+        normalTexture:ClearAllPoints()
+        normalTexture:SetAllPoints(button)
+        normalTexture:SetVertexColor(1, 1, 1, 1)
+    end
+
+    local pushedTexture = type(button.GetPushedTexture) == "function" and button:GetPushedTexture() or nil
+    if pushedTexture then
+        pushedTexture:ClearAllPoints()
+        pushedTexture:SetAllPoints(button)
+        pushedTexture:SetVertexColor(1, 1, 1, 1)
+    end
+
+    local highlightTexture = type(button.GetHighlightTexture) == "function" and button:GetHighlightTexture() or nil
+    if highlightTexture then
+        highlightTexture:ClearAllPoints()
+        highlightTexture:SetAllPoints(button)
+        highlightTexture:SetBlendMode("ADD")
+        highlightTexture:SetVertexColor(1, 1, 1, button:IsMouseOver() and 1 or 0.95)
+    end
+
+    if type(button.SetBackdropColor) == "function" and type(button.SetBackdropBorderColor) == "function" then
+        button:SetBackdropColor(0, 0, 0, 0)
+        button:SetBackdropBorderColor(0, 0, 0, 0)
+    end
+
+    if button.Highlight then
+        button.Highlight:SetVertexColor(1, 1, 1, 0)
+        button.Highlight:Hide()
+    end
+    if button.Accent then button.Accent:Hide() end
+    if button.Inner then button.Inner:Hide() end
+    if button.Gloss then button.Gloss:Hide() end
+    if button.Glow then button.Glow:Hide() end
+    if button.Shade then button.Shade:Hide() end
+
+    if button.Icon then
+        button.Icon:Hide()
+    end
+
+    if button.Label then
+        local fontSize = math.max(11, math.floor(((button:GetHeight() or 28) * 0.46) * GetConfiguredFontScale()))
+        local fontPath = STANDARD_TEXT_FONT
+        if ChatFontNormal and type(ChatFontNormal.GetFont) == "function" then
+            fontPath = ChatFontNormal:GetFont() or fontPath
+        end
+        pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+        button.Label:SetTextColor(1.0, 0.82, 0.18)
+        button.Label:ClearAllPoints()
+        button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
+        button.Label:Show()
+    end
+end
+
 local function RefreshButtonLook(button)
     if not button then
+        return
+    end
+
+    if button.__chatifyUseStandardChatButton then
+        ApplyStandardQuickButtonLook(button)
         return
     end
 
@@ -1515,6 +1586,42 @@ local function EnsureSettingsButtonVisual(self)
     end)
 end
 
+local function GetSidebarButtonMetrics()
+    local width, height, spacing = 26, 28, 2
+    local sidebarFrame = select(1, GetMainSidebarButtonFrame())
+
+    local candidates = {
+        socialButton,
+        _G.ChatFrameChannelButton,
+        _G.ChatFrameMenuButton,
+        _G.ChatFrameToggleVoiceMuteButton,
+        _G.ChatFrameToggleVoiceDeafenButton,
+    }
+
+    for _, candidate in ipairs(candidates) do
+        if candidate and candidate.GetWidth and candidate.GetHeight then
+            local candidateWidth = math.floor((candidate:GetWidth() or 0) + 0.5)
+            local candidateHeight = math.floor((candidate:GetHeight() or 0) + 0.5)
+            if candidateWidth > 0 then
+                width = candidateWidth
+            end
+            if candidateHeight > 0 then
+                height = candidateHeight
+            end
+            break
+        end
+    end
+
+    if sidebarFrame and sidebarFrame.GetScale and sidebarFrame.GetEffectiveScale then
+        local scale = sidebarFrame:GetScale() or sidebarFrame:GetEffectiveScale() or 1
+        if scale and scale > 1.15 then
+            spacing = 1
+        end
+    end
+
+    return width, height, spacing
+end
+
 local function RefreshSettingsButtonLook()
     if not settingsButton then
         return
@@ -1522,7 +1629,8 @@ local function RefreshSettingsButtonLook()
 
     EnsureSettingsButtonVisual(settingsButton)
 
-    settingsButton:SetSize(26, 28)
+    local buttonWidth, buttonHeight = GetSidebarButtonMetrics()
+    settingsButton:SetSize(buttonWidth, buttonHeight)
     settingsButton:SetNormalTexture("chatframe-button-up")
     settingsButton:SetPushedTexture("chatframe-button-down")
     settingsButton:SetHighlightTexture("chatframe-button-highlight")
@@ -1568,9 +1676,7 @@ local function LayoutSettingsButton()
         return
     end
 
-    local buttonWidth = 26
-    local buttonHeight = 28
-    local spacing = 2
+    local buttonWidth, buttonHeight, spacing = GetSidebarButtonMetrics()
     local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
     local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
 
@@ -1643,13 +1749,11 @@ local function LayoutButtons()
 
     local E = GetElvUI()
     local db = GetDB()
-    local configuredSize = 24
-    local sideGap = 18
-    if db and type(db.quickChatButtonSize) == "number" then
-        configuredSize = math.max(16, math.min(40, math.floor(db.quickChatButtonSize + 0.5)))
-    end
+    local sidebarFrame = select(1, GetMainSidebarButtonFrame())
+    local buttonWidth, buttonHeight, buttonSpacing = GetSidebarButtonMetrics()
+    local sideGap = 2
     if db and type(db.quickChatButtonGap) == "number" then
-        sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
+        sideGap = math.max(0, math.min(12, math.floor(db.quickChatButtonGap + 0.5)))
     end
 
     local frame = GetAnchorFrame()
@@ -1658,9 +1762,9 @@ local function LayoutButtons()
         return
     end
 
-    local spacing = GetConfiguredSpacing()
+    local spacing = buttonSpacing
     local theme = GetConfiguredTheme()
-    local outerPadding = theme == "ELVUI" and 5 or (theme == "GW2UI" and 3 or 4)
+    local outerPadding = 0
     local orderedButtons = GetOrderedButtons()
     local buttonCount = #orderedButtons
     if buttonCount == 0 then
@@ -1673,26 +1777,27 @@ local function LayoutButtons()
         return
     end
     local chatHeight = math.max(1, math.floor((visualFrame.GetHeight and visualFrame:GetHeight()) or (frame.GetHeight and frame:GetHeight()) or 180))
-    local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
+    local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.10))
     local maxUsableSize = math.floor((fitHeight - ((buttonCount - 1) * spacing) - (outerPadding * 2)) / buttonCount)
     if maxUsableSize < 12 then
         maxUsableSize = 12
     end
 
-    local size = math.max(12, math.min(configuredSize, 48))
-    local desiredTotalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
-    if desiredTotalHeight > fitHeight then
-        size = math.max(12, math.min(size, maxUsableSize))
-    end
-
-    local totalHeight = (size * buttonCount) + (spacing * (buttonCount - 1))
+    local sizeHeight = math.max(12, math.min(buttonHeight, maxUsableSize))
+    local sizeWidth = math.max(12, math.floor(buttonWidth * (sizeHeight / math.max(buttonHeight, 1)) + 0.5))
+    local totalHeight = (sizeHeight * buttonCount) + (spacing * (buttonCount - 1))
     local holderHeight = totalHeight + (outerPadding * 2)
 
     container:ClearAllPoints()
-    container:SetParent(GetAnchorParent())
-    container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, 0)
-    container:SetHeight(math.max(chatHeight, holderHeight))
-    container:SetWidth(size + (theme == "ELVUI" and 10 or (theme == "GW2UI" and 6 or 8)))
+    if sidebarFrame and sidebarFrame.GetParent then
+        container:SetParent(sidebarFrame:GetParent() or GetAnchorParent())
+        container:SetPoint("BOTTOMLEFT", sidebarFrame, "BOTTOMRIGHT", sideGap, 0)
+    else
+        container:SetParent(GetAnchorParent())
+        container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, 0)
+    end
+    container:SetHeight(holderHeight)
+    container:SetWidth(sizeWidth)
 
     if container.SetFrameStrata then
         local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
@@ -1703,6 +1808,13 @@ local function LayoutButtons()
     end
 
     ApplyContainerStyle()
+    if type(container.SetBackdropColor) == "function" and type(container.SetBackdropBorderColor) == "function" then
+        container:SetBackdropColor(0, 0, 0, 0)
+        container:SetBackdropBorderColor(0, 0, 0, 0)
+    end
+    if container.GW2Bg then container.GW2Bg:Hide() end
+    if container.GW2BorderLeft then container.GW2BorderLeft:Hide() end
+    if container.GW2BorderRight then container.GW2BorderRight:Hide() end
 
     local activeButtons = {}
     for _, button in ipairs(orderedButtons) do
@@ -1722,7 +1834,7 @@ local function LayoutButtons()
     local previous
     for _, button in ipairs(orderedButtons) do
         button:ClearAllPoints()
-        button:SetSize(size, size)
+        button:SetSize(sizeWidth, sizeHeight)
 
         if previous then
             button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
@@ -1731,7 +1843,7 @@ local function LayoutButtons()
         end
 
         if button.Label then
-            local fontSize = math.max(10, math.floor(size * 0.48 * GetConfiguredFontScale()))
+            local fontSize = math.max(10, math.floor(sizeHeight * 0.48 * GetConfiguredFontScale()))
             if theme == "ELVUI" and E and type(button.Label.FontTemplate) == "function" then
                 pcall(button.Label.FontTemplate, button.Label, nil, fontSize, "OUTLINE")
             else
@@ -1758,7 +1870,7 @@ local function LayoutButtons()
             button.Accent:ClearAllPoints()
             button.Accent:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
             button.Accent:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-            button.Accent:SetHeight(math.max(2, math.floor(size * 0.12)))
+            button.Accent:SetHeight(math.max(2, math.floor(sizeHeight * 0.12)))
         end
 
         if button.Inner then
@@ -1771,7 +1883,7 @@ local function LayoutButtons()
             button.Gloss:ClearAllPoints()
             button.Gloss:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
             button.Gloss:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
-            button.Gloss:SetHeight(math.max(4, math.floor(size * 0.34)))
+            button.Gloss:SetHeight(math.max(4, math.floor(sizeHeight * 0.34)))
         end
 
         if button.Glow then
@@ -1838,6 +1950,7 @@ local function EnsureContainer()
         highlight:SetVertexColor(1.0, 0.85, 0.25, 0.00)
         highlight:SetAllPoints(button)
         button.Highlight = highlight
+        button.__chatifyUseStandardChatButton = true
 
         local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetJustifyH("CENTER")
