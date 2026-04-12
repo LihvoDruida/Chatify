@@ -517,7 +517,7 @@ local function GetButtonPalette(button)
         return {
             bg = { 0.09, 0.09, 0.10, math.min(1, alpha * 0.76) },
             border = { 0.24, 0.24, 0.24, 0.92 },
-            text = { 0.58, 0.58, 0.58 },
+            text = { 0.62, 0.54, 0.20 },
             accent = { 0.32, 0.32, 0.32, 0.55 },
             inner = 0.02,
             gloss = 0.00,
@@ -530,7 +530,7 @@ local function GetButtonPalette(button)
         return {
             bg = { 0.19, 0.14, 0.05, math.min(1, alpha + 0.04) },
             border = { 1.0, 0.82, 0.22, 1.0 },
-            text = { 1.0, 0.94, 0.60 },
+            text = { 1.0, 0.92, 0.24 },
             accent = { 1.0, 0.82, 0.18, 1.0 },
             inner = 0.12,
             gloss = 0.18,
@@ -543,7 +543,7 @@ local function GetButtonPalette(button)
         return {
             bg = { 0.10, 0.09, 0.08, math.min(1, alpha + 0.02) },
             border = { 0.86, 0.68, 0.22, 1.0 },
-            text = { 1.0, 0.90, 0.35 },
+            text = { 1.0, 0.90, 0.20 },
             accent = { 1.0, 0.82, 0.18, 0.95 },
             inner = 0.08,
             gloss = 0.13,
@@ -555,7 +555,7 @@ local function GetButtonPalette(button)
     return {
         bg = { 0.07, 0.07, 0.08, alpha },
         border = { 0.58, 0.44, 0.16, 0.95 },
-        text = { 1.0, 0.84, 0.22 },
+        text = { 0.925, 0.804, 0.063 },
         accent = { 1.0, 0.82, 0.18, 0.85 },
         inner = 0.05,
         gloss = 0.08,
@@ -683,10 +683,14 @@ local function RefreshButtonLook(button)
         button.Label:SetPoint("CENTER", button, "CENTER", pressed and 1 or 0, pressed and -1 or 0)
 
         local textColor = palette.text
-        if hovered and theme == "STANDARD" then
-            textColor = { 1.0, 0.90, 0.35 }
-        elseif selected and theme == "STANDARD" then
-            textColor = { 1.0, 0.94, 0.50 }
+        if theme == "STANDARD" then
+            if hovered then
+                textColor = { 1.0, 0.90, 0.20 }
+            elseif selected then
+                textColor = { 1.0, 0.92, 0.24 }
+            else
+                textColor = { 0.925, 0.804, 0.063 }
+            end
         end
         button.Label:SetTextColor(textColor[1], textColor[2], textColor[3], enabled and 1 or 0.92)
     end

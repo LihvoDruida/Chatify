@@ -182,7 +182,7 @@ function Chatify:GetOptions()
                     quickChatButtonTheme = {
                         order = 6.75,
                         name = "Quick Button Theme",
-                        desc = "Choose the appearance for the quick chat buttons. Automatic follows supported chat UI addons when they are loaded; Standard keeps the Blizzard-style text buttons.",
+                        desc = "Choose the appearance for the quick chat buttons. Automatic follows supported chat UI addons when they are loaded; Standard keeps the Blizzard-style text buttons and matches the Chatify settings button style.",
                         type = "select",
                         width = "normal",
                         values = {
