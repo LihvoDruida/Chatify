@@ -41,6 +41,11 @@ local GW2_BUTTON_ACTIVE = GW2_TEXTURE_PATH .. "channel_button_vc.png"
 local GW2_BUTTON_ACTIVE_HIGHLIGHT = GW2_TEXTURE_PATH .. "channel_button_vc_highlight.png"
 local GW2_CONTAINER_BG = GW2_TEXTURE_PATH .. "chatframebackground.png"
 local GW2_CONTAINER_BORDER = GW2_TEXTURE_PATH .. "chatframeborder.png"
+local DEFAULT_SIDEBAR_BUTTON_WIDTH = 26
+local DEFAULT_SIDEBAR_BUTTON_HEIGHT = 28
+local DEFAULT_SIDEBAR_BUTTON_RATIO = DEFAULT_SIDEBAR_BUTTON_HEIGHT / DEFAULT_SIDEBAR_BUTTON_WIDTH
+local MIN_STABLE_CHAT_FRAME_WIDTH = 120
+local MIN_STABLE_CHAT_FRAME_HEIGHT = 80
 local SETTINGS_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\SettingsCog.png"
 
 
@@ -334,6 +339,25 @@ local function EnsureContainerArt()
     right:SetTexCoord(0.5, 1, 0, 1)
     container.GW2BorderRight = right
 
+    local genericBg = container:CreateTexture(nil, "BACKGROUND")
+    genericBg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    genericBg:SetAllPoints(container)
+    container.GenericBg = genericBg
+
+    local genericLeft = container:CreateTexture(nil, "BORDER")
+    genericLeft:SetTexture("Interface\\Buttons\\WHITE8x8")
+    genericLeft:SetPoint("TOPLEFT", container, "TOPLEFT", -2, 0)
+    genericLeft:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", -2, 0)
+    genericLeft:SetWidth(2)
+    container.GenericBorderLeft = genericLeft
+
+    local genericRight = container:CreateTexture(nil, "BORDER")
+    genericRight:SetTexture("Interface\\Buttons\\WHITE8x8")
+    genericRight:SetPoint("TOPRIGHT", container, "TOPRIGHT", 2, 0)
+    genericRight:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 2, 0)
+    genericRight:SetWidth(2)
+    container.GenericBorderRight = genericRight
+
     container.__chatifyArtReady = true
 end
 
@@ -347,6 +371,9 @@ local function HideContainerThemeTextures()
     if container.GW2Bg then container.GW2Bg:Hide() end
     if container.GW2BorderLeft then container.GW2BorderLeft:Hide() end
     if container.GW2BorderRight then container.GW2BorderRight:Hide() end
+    if container.GenericBg then container.GenericBg:Hide() end
+    if container.GenericBorderLeft then container.GenericBorderLeft:Hide() end
+    if container.GenericBorderRight then container.GenericBorderRight:Hide() end
 end
 
 local function EnsureButtonArt(button)
@@ -755,10 +782,30 @@ local function ApplyContainerStyle()
         return
     end
 
-    HideContainerThemeTextures()
-
     local panelAlpha = GetConfiguredPanelAlpha()
     local theme = GetConfiguredTheme()
+    local bgR, bgG, bgB, bgA = 0.02, 0.02, 0.03, panelAlpha
+    local borderR, borderG, borderB, borderA = 0.38, 0.28, 0.10, math.min(1, panelAlpha * 1.8)
+
+    if theme == "ELVUI" then
+        local pr, pg, pb, pa = GetElvUIPanelColor()
+        local E = GetElvUI()
+        bgR, bgG, bgB, bgA = pr, pg, pb, math.min(1, math.max(panelAlpha, pa * 0.92))
+        if E and E.media then
+            borderR, borderG, borderB = GetColorComponents(E.media.bordercolor, { 0.12, 0.12, 0.12 })
+        else
+            borderR, borderG, borderB = 0.12, 0.12, 0.12
+        end
+        borderA = math.min(1, 0.88 + (panelAlpha * 0.12))
+    end
+
+    local styleSignature = string.format("%s|%.2f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f", theme, panelAlpha, bgR, bgG, bgB, bgA, borderR, borderG, borderB, borderA)
+    if container.__chatifyStyleSignature == styleSignature then
+        return
+    end
+    container.__chatifyStyleSignature = styleSignature
+
+    HideContainerThemeTextures()
 
     if theme == "GW2UI" then
         EnsureContainerArt()
@@ -783,11 +830,25 @@ local function ApplyContainerStyle()
         return
     end
 
+    EnsureContainerArt()
+    if panelAlpha > 0.01 and container.GenericBg then
+        container.GenericBg:Show()
+        container.GenericBg:SetVertexColor(bgR, bgG, bgB, bgA)
+    end
+    if panelAlpha > 0.01 and container.GenericBorderLeft then
+        container.GenericBorderLeft:Show()
+        container.GenericBorderLeft:SetVertexColor(borderR, borderG, borderB, borderA)
+    end
+    if panelAlpha > 0.01 and container.GenericBorderRight then
+        container.GenericBorderRight:Show()
+        container.GenericBorderRight:SetVertexColor(borderR, borderG, borderB, borderA)
+    end
+
     if type(container.SetBackdrop) == "function" then
         if not container._chatifyBackdropSet then
             container:SetBackdrop({
-                bgFile = "Interface\Buttons\WHITE8x8",
-                edgeFile = "Interface\Buttons\WHITE8x8",
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
                 tile = false,
                 edgeSize = 1,
                 insets = { left = 1, right = 1, top = 1, bottom = 1 },
@@ -801,19 +862,8 @@ local function ApplyContainerStyle()
             return
         end
 
-        if theme == "ELVUI" then
-            local pr, pg, pb, pa = GetElvUIPanelColor()
-            local E = GetElvUI()
-            local br, bgc, bb = 0.12, 0.12, 0.12
-            if E and E.media then
-                br, bgc, bb = GetColorComponents(E.media.bordercolor, { 0.12, 0.12, 0.12 })
-            end
-            container:SetBackdropColor(pr, pg, pb, math.min(1, math.max(panelAlpha, pa * 0.92)))
-            container:SetBackdropBorderColor(br, bgc, bb, math.min(1, 0.88 + (panelAlpha * 0.12)))
-        else
-            container:SetBackdropColor(0.02, 0.02, 0.03, panelAlpha)
-            container:SetBackdropBorderColor(0.38, 0.28, 0.10, math.min(1, panelAlpha * 1.8))
-        end
+        container:SetBackdropColor(bgR, bgG, bgB, math.min(bgA, panelAlpha * 0.85))
+        container:SetBackdropBorderColor(borderR, borderG, borderB, math.min(borderA, math.max(0.18, panelAlpha)))
     end
 end
 
@@ -1265,8 +1315,8 @@ end
 
 local function GetSidebarButtonMetrics()
     local button = _G.ChatFrameChannelButton or _G.ChatFrameMenuButton
-    local width = 26
-    local height = 28
+    local width = DEFAULT_SIDEBAR_BUTTON_WIDTH
+    local height = DEFAULT_SIDEBAR_BUTTON_HEIGHT
 
     if button then
         if type(button.GetWidth) == "function" then
@@ -1284,6 +1334,26 @@ local function GetSidebarButtonMetrics()
     end
 
     return width, height
+end
+
+local function GetConfiguredButtonMetrics()
+    local db = GetDB()
+    local configuredWidth = DEFAULT_SIDEBAR_BUTTON_WIDTH
+    if db and type(db.quickChatButtonSize) == "number" then
+        configuredWidth = math.max(16, math.min(40, math.floor(db.quickChatButtonSize + 0.5)))
+    end
+
+    local ratio = DEFAULT_SIDEBAR_BUTTON_RATIO
+    local sidebarWidth, sidebarHeight = GetSidebarButtonMetrics()
+    if type(sidebarWidth) == "number" and type(sidebarHeight) == "number" and sidebarWidth > 0 and sidebarHeight > 0 then
+        ratio = sidebarHeight / sidebarWidth
+        if ratio < 0.85 or ratio > 1.35 then
+            ratio = DEFAULT_SIDEBAR_BUTTON_RATIO
+        end
+    end
+
+    local configuredHeight = math.max(18, math.floor((configuredWidth * ratio) + 0.5))
+    return configuredWidth, configuredHeight, ratio
 end
 
 local function GetFrameIdentity(frame)
@@ -1315,7 +1385,10 @@ local function GetLayoutSignature()
     local alpha = string.format("%.2f", GetConfiguredAlpha())
     local spacing = GetConfiguredSpacing()
     local scale = string.format("%.2f", GetConfiguredFontScale())
-    local size = type(db.quickChatButtonSize) == "number" and math.floor(db.quickChatButtonSize + 0.5) or 24
+    local size = type(db.quickChatButtonSize) == "number" and math.floor(db.quickChatButtonSize + 0.5) or DEFAULT_SIDEBAR_BUTTON_WIDTH
+    local _, buttonHeight, buttonRatio = GetConfiguredButtonMetrics()
+    local ratio = string.format("%.3f", buttonRatio or DEFAULT_SIDEBAR_BUTTON_RATIO)
+    local buttonHeightSignature = tostring(buttonHeight or DEFAULT_SIDEBAR_BUTTON_HEIGHT)
     local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
     local yOffset = GetConfiguredButtonYOffset()
     local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
@@ -1330,6 +1403,8 @@ local function GetLayoutSignature()
         tostring(height),
         tostring(strata),
         tostring(size),
+        buttonHeightSignature,
+        ratio,
         tostring(gap),
         tostring(yOffset),
         tostring(spacing),
@@ -1719,8 +1794,7 @@ local function LayoutSettingsButton()
         return
     end
 
-    local buttonWidth = 26
-    local buttonHeight = 28
+    local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
     local spacing = 2
     local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
     local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
@@ -1789,15 +1863,11 @@ end
 
 local function LayoutButtons()
     if not container then
-        return
+        return false
     end
 
     local db = GetDB()
-    local configuredWidth = 26
     local sideGap = 18
-    if db and type(db.quickChatButtonSize) == "number" then
-        configuredWidth = math.max(16, math.min(40, math.floor(db.quickChatButtonSize + 0.5)))
-    end
     if db and type(db.quickChatButtonGap) == "number" then
         sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
     end
@@ -1805,7 +1875,15 @@ local function LayoutButtons()
     local frame = GetAnchorFrame()
     local visualFrame = GetAnchorVisualFrame()
     if not frame or not visualFrame then
-        return
+        return false
+    end
+
+    local visualWidth = math.floor((visualFrame.GetWidth and visualFrame:GetWidth()) or (frame.GetWidth and frame:GetWidth()) or 0)
+    local visualHeight = math.floor((visualFrame.GetHeight and visualFrame:GetHeight()) or (frame.GetHeight and frame:GetHeight()) or 0)
+    if visualWidth < MIN_STABLE_CHAT_FRAME_WIDTH or visualHeight < MIN_STABLE_CHAT_FRAME_HEIGHT then
+        ScheduleRefresh(0.10)
+        ScheduleRefresh(0.50)
+        return false
     end
 
     local spacing = GetConfiguredSpacing()
@@ -1819,16 +1897,12 @@ local function LayoutButtons()
                 button:Hide()
             end
         end
-        return
+        return true
     end
 
-    local sidebarWidth, sidebarHeight = GetSidebarButtonMetrics()
-    local ratio = sidebarHeight / math.max(1, sidebarWidth)
+    local buttonWidth, buttonHeight, ratio = GetConfiguredButtonMetrics()
 
-    local buttonWidth = math.max(16, math.min(configuredWidth, 40))
-    local buttonHeight = math.max(18, math.floor((buttonWidth * ratio) + 0.5))
-
-    local chatHeight = math.max(1, math.floor((visualFrame.GetHeight and visualFrame:GetHeight()) or (frame.GetHeight and frame:GetHeight()) or 180))
+    local chatHeight = math.max(MIN_STABLE_CHAT_FRAME_HEIGHT, visualHeight, math.floor((frame.GetHeight and frame:GetHeight()) or MIN_STABLE_CHAT_FRAME_HEIGHT))
     local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
     local desiredTotalHeight = (buttonHeight * buttonCount) + (spacing * (buttonCount - 1))
 
@@ -1876,10 +1950,24 @@ local function LayoutButtons()
         end
     end
 
+    local theme = GetConfiguredTheme()
+    local fontScale = GetConfiguredFontScale()
+    local fontPath = STANDARD_TEXT_FONT
+    if theme == "GW2UI" then
+        fontPath = GetGW2ChatFont() or fontPath
+    elseif ChatFontNormal and ChatFontNormal.GetFont then
+        fontPath = ChatFontNormal:GetFont() or fontPath
+    end
+    local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * fontScale))
+
     local previous
     for _, button in ipairs(orderedButtons) do
         button:ClearAllPoints()
-        button:SetSize(buttonWidth, buttonHeight)
+        if button.__chatifyWidth ~= buttonWidth or button.__chatifyHeight ~= buttonHeight then
+            button:SetSize(buttonWidth, buttonHeight)
+            button.__chatifyWidth = buttonWidth
+            button.__chatifyHeight = buttonHeight
+        end
 
         if previous then
             button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
@@ -1888,16 +1976,16 @@ local function LayoutButtons()
         end
 
         if button.Label then
-            local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * GetConfiguredFontScale()))
-            local fontPath = STANDARD_TEXT_FONT
-            if GetConfiguredTheme() == "GW2UI" then
-                fontPath = GetGW2ChatFont() or fontPath
-            elseif ChatFontNormal and ChatFontNormal.GetFont then
-                fontPath = ChatFontNormal:GetFont() or fontPath
+            if button.__chatifyFontPath ~= fontPath or button.__chatifyFontSize ~= fontSize then
+                pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+                button.__chatifyFontPath = fontPath
+                button.__chatifyFontSize = fontSize
             end
-            pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
-            button.Label:ClearAllPoints()
-            button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
+            if not button.__chatifyLabelAnchored then
+                button.Label:ClearAllPoints()
+                button.Label:SetPoint("CENTER", button, "CENTER", 0, 0)
+                button.__chatifyLabelAnchored = true
+            end
         end
 
         if button.Icon then
@@ -1911,6 +1999,8 @@ local function LayoutButtons()
         previous = button
         RefreshButtonLook(button)
     end
+
+    return true
 end
 
 local function HookAnchorFrameSignals()
@@ -2306,10 +2396,14 @@ function ns.RefreshQuickChatButtons()
 
     EnsureContainer()
     local layoutSignature = GetLayoutSignature()
+    local didLayout = false
     if layoutSignature ~= lastLayoutSignature or not container:IsShown() or (showSidebarMenu and settingsContainer and not settingsContainer:IsShown()) then
-        LayoutButtons()
-        LayoutSettingsButton()
-        lastLayoutSignature = layoutSignature
+        local layoutApplied = LayoutButtons()
+        if layoutApplied then
+            LayoutSettingsButton()
+            lastLayoutSignature = layoutSignature
+            didLayout = true
+        end
     end
 
     UpdateButtonState()
@@ -2321,7 +2415,9 @@ function ns.RefreshQuickChatButtons()
     end
 
     if showSidebarMenu then
-        LayoutSettingsButton()
+        if not didLayout then
+            LayoutSettingsButton()
+        end
     elseif settingsContainer then
         settingsContainer:Hide()
     end

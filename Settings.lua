@@ -200,7 +200,7 @@ function Chatify:GetOptions()
                     quickChatPanelAlpha = {
                         order = 7,
                         name = "Quick Panel Background Opacity",
-                        desc = "Adjust the background opacity of the quick chat panel container. The default value is fully transparent.",
+                        desc = "Adjust the background opacity of the quick chat panel container across all quick button themes. The default value is fully transparent.",
                         type = "range",
                         min = 0,
                         max = 1,
