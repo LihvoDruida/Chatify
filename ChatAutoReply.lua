@@ -1,6 +1,7 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
 local AutoReply = Chatify:NewModule("AutoReply", "AceEvent-3.0", "AceConsole-3.0")
+local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 local C_Timer = C_Timer
 local GetTime = GetTime
@@ -487,23 +488,23 @@ function AutoReply:HandleCommand(input)
 
     if input == "toggle" then
         db.autoReply.enabled = not db.autoReply.enabled
-        self:Print("Auto-reply " .. (db.autoReply.enabled and "enabled" or "disabled") .. ".")
+        self:Print(string.format(L("Auto-reply %s."), db.autoReply.enabled and L("enabled") or L("disabled")))
         return
     end
 
     if input == "busy" then
         db.autoReply.busyMode = not db.autoReply.busyMode
-        self:Print("Busy mode " .. (db.autoReply.busyMode and "enabled" or "disabled") .. ".")
+        self:Print(string.format(L("Busy mode %s."), db.autoReply.busyMode and L("enabled") or L("disabled")))
         return
     end
 
     if input == "status" then
         local _, active = GetCurrentActivity()
-        self:Print("Auto-reply: " .. (db.autoReply.enabled and "on" or "off") .. ", busy mode: " .. (db.autoReply.busyMode and "on" or "off") .. ", activity: " .. (active and "active" or "idle") .. ".")
+        self:Print(string.format(L("Auto-reply: %s, busy mode: %s, activity: %s."), db.autoReply.enabled and L("on") or L("off"), db.autoReply.busyMode and L("on") or L("off"), active and L("active") or L("idle")))
         return
     end
 
-    self:Print("Commands: /cauto toggle, /cauto busy, /cauto status, /cauto config")
+    self:Print(L("Commands: /cauto toggle, /cauto busy, /cauto status, /cauto config"))
 end
 
 function AutoReply:OnEnable()

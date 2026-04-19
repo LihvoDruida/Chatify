@@ -9,6 +9,7 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 -- 1. LIBS & MEDIA REGISTRATION
 -- =========================================================
 local LSM = LibStub("LibSharedMedia-3.0")
+local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 -- Реєструємо ваші асети в глобальну бібліотеку
 -- Це дозволяє вибирати їх у випадаючих списках Config.lua
@@ -172,13 +173,13 @@ ns.defaults = {
             autoNotify = true,
             guildReplyEnabled = false,
             cooldown = 5,
-            afkMessage = "I'm currently AFK. I'll be back later!",
-            queueMessage = "I'm in queue. Estimated wait time: %s minutes.",
-            raidMessage = "I'm currently in a raid. I'll message you when I'm free!",
-            dungeonMessage = "I'm currently in a dungeon. I'll message you when I'm done!",
-            pvpMessage = "I'm currently in PvP. I'll message you when I'm free!",
-            busyMessage = "I'm currently busy. I'll get back to you soon!",
-            returnMessage = "I'm back now! What did you need?",
+            afkMessage = L("I'm currently AFK. I'll be back later!"),
+            queueMessage = L("I'm in queue. Estimated wait time: %s minutes."),
+            raidMessage = L("I'm currently in a raid. I'll message you when I'm free!"),
+            dungeonMessage = L("I'm currently in a dungeon. I'll message you when I'm done!"),
+            pvpMessage = L("I'm currently in PvP. I'll message you when I'm free!"),
+            busyMessage = L("I'm currently busy. I'll get back to you soon!"),
+            returnMessage = L("I'm back now! What did you need?"),
         }
     },
     char = {

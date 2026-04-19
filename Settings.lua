@@ -162,8 +162,7 @@ function Chatify:GetOptions()
                     languageSpacer = {
                         order = 0.8,
                         type = "description",
-                        name = "
-",
+                        name = "\n",
                     },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
@@ -781,7 +780,7 @@ function Chatify:GetOptions()
                         func = function() 
                             self.db:ResetProfile()
                             if ns.UpdateSpamCache then ns.UpdateSpamCache() end
-                            self:Print("Configuration reset.")
+                            self:Print(T("Configuration reset."))
                         end,
                         width = "full",
                         confirm = true,
@@ -910,9 +909,9 @@ function Chatify:SetupDefaultTabs()
     if InCombatLockdown() then return end
     
     local tabs = {
-        { name = "Whisper", groups = { "WHISPER", "BN_WHISPER" } },
-        { name = "Guild", groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } },
-        { name = "Party", groups = { "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER" } }
+        { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } },
+        { name = T("Guild"), groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } },
+        { name = T("Party"), groups = { "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER" } }
     }
 
     local count = 0
@@ -928,5 +927,5 @@ function Chatify:SetupDefaultTabs()
             if FCF_SelectDockFrame then FCF_SelectDockFrame(frame) end
         end
     end
-    self:Print("Tabs created: " .. count)
+    self:Print(string.format(T("Tabs created: %d"), count))
 end

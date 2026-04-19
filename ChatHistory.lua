@@ -48,6 +48,14 @@ end
 -- =========================================================
 local sessionHistory = {}
 local unpack = table.unpack or unpack
+local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
+
+local function GetHistoryDB()
+    if Chatify and Chatify.db and Chatify.db.profile then
+        return Chatify.db.profile
+    end
+    return nil
+end
 
 local function AppendRestoredMessage(frame, text, ...)
     if not frame then
@@ -113,7 +121,8 @@ end
 -- EVENT HANDLER
 -- =========================================================
 function History:OnChatEvent(event, message, author, ...)
-    local db = Chatify.db.profile
+    local db = GetHistoryDB()
+    if not db then return end
     if not db.enableHistory then return end
 
     if type(ns.IsSecretValue) == "function" and (ns.IsSecretValue(message) or ns.IsSecretValue(author)) then
@@ -178,7 +187,8 @@ end
 -- SAVE HISTORY
 -- =========================================================
 function History:SaveHistory()
-    local db = Chatify.db.profile
+    local db = GetHistoryDB()
+    if not db then return end
     if not db.enableHistory then return end
     ChatifyHistoryDB = {}
 
@@ -208,7 +218,8 @@ end
 -- RESTORE HISTORY
 -- =========================================================
 function History:RestoreHistory()
-    local db = Chatify.db.profile
+    local db = GetHistoryDB()
+    if not db then return end
     if not db.enableHistory or not ChatifyHistoryDB then return end
     local buffer = {}
 
@@ -241,7 +252,7 @@ function History:RestoreHistory()
     for chatID, messages in pairs(buffer) do
         local frame = _G["ChatFrame"..chatID]
         if frame and chatID ~= 2 then
-            AppendRestoredMessage(frame, "------------------------------------------", 0.6, 0.6, 0.6)
+            AppendRestoredMessage(frame, L("------------------------------------------"), 0.6, 0.6, 0.6)
             for _, msg in ipairs(messages) do
                 if db.historyAlpha then
                     AppendRestoredMessage(frame, "|cff888888"..msg.."|r")
@@ -249,7 +260,7 @@ function History:RestoreHistory()
                     AppendRestoredMessage(frame, msg)
                 end
             end
-            AppendRestoredMessage(frame, "-------------- Chat History --------------", 0.6, 0.6, 0.6)
+            AppendRestoredMessage(frame, L("-------------- Chat History --------------"), 0.6, 0.6, 0.6)
             if type(frame.ResetAllFadeTimes) == "function" then
                 pcall(frame.ResetAllFadeTimes, frame)
             end

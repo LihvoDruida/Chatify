@@ -18,11 +18,11 @@
 ## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
 
 libs\_manifest.xml
-
-Config.lua
 Locales.lua
 locale\enUS.lua
 locale\ukUA.lua
+Config.lua
+
 Settings.lua
 ChatCopy.lua
 ChatRouter.lua

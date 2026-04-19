@@ -3,6 +3,7 @@ local addonName, ns = ...
 local Chatify = ns.Chatify
 -- Створюємо модуль "Copy" та підключаємо бібліотеку хуків
 local CopyModule = Chatify:NewModule("Copy", "AceHook-3.0")
+local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 -- =========================================================
 -- 1. КЕШУВАННЯ (CACHE SYSTEM)
@@ -92,8 +93,8 @@ end
 -- 3. ПОПАП ДЛЯ URL
 -- =========================================================
 StaticPopupDialogs["CHATIFY_COPY_URL"] = {
-    text = "Press Ctrl+C to copy the link:",
-    button1 = "OK",
+    text = L("Press Ctrl+C to copy the link:"),
+    button1 = L("OK"),
     hasEditBox = true,
     editBoxWidth = 350,
     OnShow = function(self, data)
