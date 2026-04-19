@@ -12,6 +12,8 @@ Locale.nativeNames = Locale.nativeNames or {
     enUS = "English",
     ukUA = "Українська",
 }
+Locale._localizedDescNodes = Locale._localizedDescNodes or setmetatable({}, { __mode = "k" })
+Locale._localizedValuesNodes = Locale._localizedValuesNodes or setmetatable({}, { __mode = "k" })
 
 local type = type
 local tostring = tostring
@@ -145,7 +147,7 @@ function Locale:LocalizeOptions(node, visited)
 
     if type(node.desc) == "string" then
         node.desc = self:Get(node.desc)
-    elseif type(node.desc) == "function" and not node.__chatifyLocalizedDesc then
+    elseif type(node.desc) == "function" and not self._localizedDescNodes[node] then
         local original = node.desc
         node.desc = function(...)
             local result = original(...)
@@ -154,7 +156,7 @@ function Locale:LocalizeOptions(node, visited)
             end
             return result
         end
-        node.__chatifyLocalizedDesc = true
+        self._localizedDescNodes[node] = true
     end
 
     if type(node.confirmText) == "string" then
@@ -163,12 +165,12 @@ function Locale:LocalizeOptions(node, visited)
 
     if type(node.values) == "table" then
         node.values = self:TranslateValueTable(node.values)
-    elseif type(node.values) == "function" and not node.__chatifyLocalizedValues then
+    elseif type(node.values) == "function" and not self._localizedValuesNodes[node] then
         local original = node.values
         node.values = function(...)
             return Locale:TranslateValueTable(original(...))
         end
-        node.__chatifyLocalizedValues = true
+        self._localizedValuesNodes[node] = true
     end
 
     if type(node.args) == "table" then
