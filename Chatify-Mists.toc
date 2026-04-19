@@ -20,6 +20,9 @@
 libs\_manifest.xml
 
 Config.lua
+Locales.lua
+locale\enUS.lua
+locale\ukUA.lua
 Settings.lua
 ChatCopy.lua
 ChatRouter.lua

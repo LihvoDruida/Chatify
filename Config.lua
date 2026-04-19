@@ -145,6 +145,7 @@ ns.defaults = {
         quickChatButtonSpacing = 4, -- Вертикальний відступ між кнопками швидкого чату
         quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату
         quickChatSettingsButton = true, -- Кнопка налаштувань у лівому блоці біля активного чат-фрейму
+        language = "client", -- Мова аддона: client, enUS, ukUA
 
         -- === HIGHLIGHTS ===
         myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)

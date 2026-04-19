@@ -1,6 +1,8 @@
 local addonName, ns = ...
 local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local QuickButtonsModule = Chatify:NewModule("QuickButtons", "AceEvent-3.0")
+local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
+local ACD = LibStub("AceConfigDialog-3.0", true)
 
 local C_Timer = C_Timer
 local hooksecurefunc = hooksecurefunc
@@ -2076,40 +2078,40 @@ local function EnsureContainer()
 
                 GameTooltip:SetOwner(self, "ANCHOR_LEFT")
                 GameTooltip:ClearLines()
-                GameTooltip:AddLine(def.tooltip, 1.00, 0.82, 0.18, true)
-                AddTooltipLine("Command", string.format("%s  |cff8f8f8f%s|r", def.slash:gsub("%s+$", ""), def.slashAlias or ""), 0.90, 0.90, 0.90)
+                GameTooltip:AddLine(T(def.tooltip), 1.00, 0.82, 0.18, true)
+                AddTooltipLine(T("Command"), string.format("%s  |cff8f8f8f%s|r", def.slash:gsub("%s+$", ""), def.slashAlias or ""), 0.90, 0.90, 0.90)
 
                 if def.tooltipNote then
-                    AddTooltipLine(def.tooltipNote, nil, 0.72, 0.82, 1.00, true)
+                    AddTooltipLine(T(def.tooltipNote), nil, 0.72, 0.82, 1.00, true)
                 end
 
                 AddTooltipLine(" ")
-                AddTooltipLine("Left Click", "Switch to this channel", 0.95, 0.95, 0.95)
+                AddTooltipLine(T("Left Click"), T("Switch to this channel"), 0.95, 0.95, 0.95)
 
                 if def.altChatType then
-                    AddTooltipLine("Alt Command", string.format("%s  |cff8f8f8f%s|r", (def.altSlash or ""):gsub("%s+$", ""), def.altSlashAlias or ""), 0.72, 0.82, 1.00)
+                    AddTooltipLine(T("Alt Command"), string.format("%s  |cff8f8f8f%s|r", (def.altSlash or ""):gsub("%s+$", ""), def.altSlashAlias or ""), 0.72, 0.82, 1.00)
                     if altEnabled then
-                        AddTooltipLine("Alt + Left Click", string.format("Switch to %s", def.altTooltip or def.altChatType), 0.72, 0.82, 1.00)
+                        AddTooltipLine(T("Alt + Left Click"), string.format(T("Switch to %s"), T(def.altTooltip or def.altChatType)), 0.72, 0.82, 1.00)
                     else
-                        AddTooltipLine("Alt + Left Click", string.format("%s unavailable", def.altTooltip or "Alternate channel"), 0.62, 0.62, 0.62)
+                        AddTooltipLine(T("Alt + Left Click"), string.format(T("%s unavailable"), T(def.altTooltip or "Alternate channel")), 0.62, 0.62, 0.62)
                     end
                 end
 
                 AddTooltipLine(" ")
                 if enabled then
-                    AddTooltipLine("Status", "Available", 0.35, 0.95, 0.55)
+                    AddTooltipLine(T("Status"), T("Available"), 0.35, 0.95, 0.55)
                 else
-                    AddTooltipLine("Status", "Unavailable", 1.00, 0.35, 0.35)
+                    AddTooltipLine(T("Status"), T("Unavailable"), 1.00, 0.35, 0.35)
                 end
 
-                AddTooltipLine("Position", "Right side of the chat frame", 0.72, 0.72, 0.72)
+                AddTooltipLine(T("Position"), T("Right side of the chat frame"), 0.72, 0.72, 0.72)
                 local skinLabel = "Standard"
                 if GetConfiguredTheme() == "ELVUI" then
                     skinLabel = "ElvUI"
                 elseif GetConfiguredTheme() == "GW2UI" then
                     skinLabel = "GW2 UI"
                 end
-                AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
+                AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
                 GameTooltip:Show()
             end
         end)
@@ -2153,6 +2155,10 @@ local function EnsureContainer()
     settingsButton.RefreshVisual = RefreshSettingsButtonLook
 
     settingsButton:SetScript("OnClick", function()
+        if ACD and type(ACD.Open) == "function" then
+            pcall(ACD.Open, ACD, "Chatify")
+            return
+        end
         if Chatify and type(Chatify.OpenConfig) == "function" then
             Chatify:OpenConfig()
         end
@@ -2170,10 +2176,10 @@ local function EnsureContainer()
 
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             GameTooltip:ClearLines()
-            GameTooltip:AddLine("Chatify Settings", 1.00, 0.82, 0.18, true)
-            AddTooltipLine("Left Click", "Open Chatify configuration", 0.95, 0.95, 0.95)
-            AddTooltipLine("Position", "Main chat button panel", 0.72, 0.72, 0.72)
-            AddTooltipLine("Skin", skinLabel, 0.72, 0.72, 0.72)
+            GameTooltip:AddLine(T("Chatify Settings"), 1.00, 0.82, 0.18, true)
+            AddTooltipLine(T("Left Click"), T("Open Chatify configuration"), 0.95, 0.95, 0.95)
+            AddTooltipLine(T("Position"), T("Main chat button panel"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
     end)

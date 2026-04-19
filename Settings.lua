@@ -1,5 +1,7 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
+local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
+local ACD = LibStub("AceConfigDialog-3.0", true)
 
 local function GetAddonMetadataValue(key)
     if C_AddOns and C_AddOns.GetAddOnMetadata then
@@ -72,6 +74,40 @@ local function GetLSMSoundControl()
     return nil
 end
 
+
+local function GetLanguageChoices()
+    if ns.Locale and ns.Locale.GetOptionsValues then
+        return ns.Locale:GetOptionsValues()
+    end
+
+    return {
+        client = "Client Default",
+        enUS = "English",
+        ukUA = "Українська",
+    }
+end
+
+local function GetLanguageOption()
+    local db = Chatify and Chatify.db and Chatify.db.profile
+    local value = db and db.language or "client"
+    if value ~= "client" and value ~= "enUS" and value ~= "ukUA" then
+        return "client"
+    end
+    return value
+end
+
+local function SetLanguageOption(value)
+    if ns.Locale and ns.Locale.SetOverride then
+        ns.Locale:SetOverride(value)
+    elseif Chatify and Chatify.db and Chatify.db.profile then
+        Chatify.db.profile.language = value
+    end
+
+    if ReloadUI then
+        ReloadUI()
+    end
+end
+
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
@@ -87,8 +123,8 @@ function Chatify:GetOptions()
                 order = 0,
                 type = "description",
                 name = " |cff33ff99Chatify|r  |cff777777v" .. (GetAddonMetadataValue("Version") or "1.0") .. "|r\n" ..
-                       " |cffffffffMinimalist Chat Enhancer|r\n" ..
-                       " |cff999999Tabs • Spam Filter • Sounds • History|r",
+                       " |cffffffff" .. T("Minimalist Chat Enhancer") .. "|r\n" ..
+                       " |cff999999" .. T("Tabs • Spam Filter • Sounds • History") .. "|r",
                 fontSize = "large",
                 image = "Interface\\AddOns\\Chatify\\assets\\icon", 
                 imageWidth = 64, 
@@ -107,6 +143,28 @@ function Chatify:GetOptions()
                 type = "group",
                 order = 10,
                 args = {
+                    languageOverride = {
+                        order = 0.75,
+                        type = "select",
+                        name = "Addon Language",
+                        desc = "Choose the addon language. Client Default follows the game client language. The UI reloads immediately after changing this option.",
+                        width = "double",
+                        values = function()
+                            return GetLanguageChoices()
+                        end,
+                        get = function()
+                            return GetLanguageOption()
+                        end,
+                        set = function(_, value)
+                            SetLanguageOption(value)
+                        end,
+                    },
+                    languageSpacer = {
+                        order = 0.8,
+                        type = "description",
+                        name = "
+",
+                    },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
                     shortChannels = {
@@ -742,6 +800,9 @@ function Chatify:GetOptions()
             }
         }
     }
+    if ns.Locale and ns.Locale.LocalizeOptions then
+        ns.Locale:LocalizeOptions(options)
+    end
     return options
 end
 
@@ -818,6 +879,11 @@ function Chatify:OnEnable()
 end
 
 function Chatify:OpenConfig()
+    if ACD and type(ACD.Open) == "function" then
+        pcall(ACD.Open, ACD, "Chatify")
+        return
+    end
+
     local frame = self.optionsFrame
     if not frame then
         return
