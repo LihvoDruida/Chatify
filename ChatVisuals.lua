@@ -4,6 +4,8 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local LSM = LibStub("LibSharedMedia-3.0")
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 local visualsFiltersInstalled = false
+local visualsApplyQueued = false
+local frameStyleCache = {}
 local C_Timer = C_Timer
 local GetServerTime = GetServerTime
 
@@ -16,6 +18,35 @@ local function GetVisualDB()
         return Chatify.db.profile
     end
     return ns and ns.db or nil
+end
+
+local function QueueApplyVisuals(delay)
+    delay = tonumber(delay) or 0
+    if delay < 0 then
+        delay = 0
+    end
+
+    if not C_Timer or not C_Timer.After then
+        ns.ApplyVisuals()
+        return
+    end
+
+    if delay > 0 then
+        C_Timer.After(delay, function()
+            ns.ApplyVisuals()
+        end)
+        return
+    end
+
+    if visualsApplyQueued then
+        return
+    end
+
+    visualsApplyQueued = true
+    C_Timer.After(0, function()
+        visualsApplyQueued = false
+        ns.ApplyVisuals()
+    end)
 end
 
 -- =========================================================
@@ -136,9 +167,15 @@ local function StyleFrame(frame)
     size = NormalizeFontSize(size)
     local outline = db.fontOutline or flags or ""
 
+    local signature = table.concat({ tostring(fontPath or ""), tostring(size), tostring(outline) }, "|")
+    if frameStyleCache[frame] == signature then
+        return
+    end
+
     local ok = pcall(frame.SetFont, frame, fontPath, size, outline)
     if not ok and ChatFontNormal and ChatFontNormal.GetFont then
         local fallbackPath = ChatFontNormal:GetFont()
+        fontPath = fallbackPath or fontPath
         pcall(frame.SetFont, frame, fallbackPath, size, flags or "")
     end
     frame:SetShadowOffset(1, -1)
@@ -153,6 +190,8 @@ local function StyleFrame(frame)
 
         pcall(editBox.SetFont, editBox, fontPath, size, outline)
     end
+
+    frameStyleCache[frame] = table.concat({ tostring(fontPath or ""), tostring(size), tostring(outline) }, "|")
 end
 
 -- =========================================================
@@ -293,8 +332,8 @@ function VisualsModule:OnEnable()
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
 
-    self:SecureHook("FCF_OpenTemporaryWindow", function() ns.ApplyVisuals() end)
-    self:SecureHook("FCF_OpenNewWindow", function() ns.ApplyVisuals() end)
+    self:SecureHook("FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
+    self:SecureHook("FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
 
     hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame)
         StyleFrame(chatFrame)
@@ -326,14 +365,13 @@ function VisualsModule:OnEnable()
 end
 
 function VisualsModule:PLAYER_LOGIN()
-    ns.ApplyVisuals()
+    QueueApplyVisuals(0)
     if C_Timer and C_Timer.After then
-        C_Timer.After(0, function() ns.ApplyVisuals() end)
         C_Timer.After(1, function() ns.ApplyVisuals() end)
         C_Timer.After(3, function() ns.ApplyVisuals() end)
     end
 end
 
 function VisualsModule:ApplyStyle()
-    ns.ApplyVisuals()
+    QueueApplyVisuals(0)
 end

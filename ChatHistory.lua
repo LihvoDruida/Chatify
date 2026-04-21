@@ -47,6 +47,7 @@ end
 -- STATE
 -- =========================================================
 local sessionHistory = {}
+local targetFrameCache = {}
 local unpack = table.unpack or unpack
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
@@ -89,7 +90,16 @@ end
 -- =========================================================
 -- CHAT HELPERS
 -- =========================================================
+local function InvalidateTargetFrameCache()
+    targetFrameCache = {}
+end
+
 local function GetTargetFrames(event)
+    local cached = targetFrameCache[event]
+    if cached then
+        return cached
+    end
+
     local frames = {}
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
@@ -97,6 +107,8 @@ local function GetTargetFrames(event)
             table.insert(frames, i)
         end
     end
+
+    targetFrameCache[event] = frames
     return frames
 end
 
@@ -299,9 +311,16 @@ function History:OnEnable()
     if type(ns.RegisterEventIfSupported) == "function" then
         ns.RegisterEventIfSupported(self, "PLAYER_LOGOUT", "SaveHistory")
         ns.RegisterEventIfSupported(self, "PLAYER_LEAVING_WORLD", "SaveHistory")
+        ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     else
         self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
         self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+        self:RegisterEvent("UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        self:RegisterEvent("CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     end
+    InvalidateTargetFrameCache()
     C_Timer.After(1, function() pcall(function() self:RestoreHistory() end) end)
 end

@@ -33,6 +33,7 @@ local generalHooksInstalled = false
 local refreshQueued = false
 local stateUpdateQueued = false
 local lastLayoutSignature
+local lastStateSignature
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
 local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
@@ -1010,6 +1011,8 @@ end
 
 
 function ns.NotifyQuickChatSettingsChanged()
+    lastLayoutSignature = nil
+    lastStateSignature = nil
     ScheduleRefresh(0)
 end
 
@@ -1501,10 +1504,30 @@ local function GetCurrentChatType()
     return nil
 end
 
+local function BuildButtonStateSignature()
+    local signature = { GetCurrentChatType() or "nil" }
+
+    for _, def in ipairs(BUTTON_DEFS) do
+        local enabled = IsButtonEnabled(def) and "1" or "0"
+        local altEnabled = def.altChatType and (IsAltButtonEnabled(def) and "1" or "0") or "-"
+        signature[#signature + 1] = def.key
+        signature[#signature + 1] = enabled
+        signature[#signature + 1] = altEnabled
+    end
+
+    return table.concat(signature, "|")
+end
+
 UpdateButtonState = function()
     if not container then
         return
     end
+
+    local stateSignature = BuildButtonStateSignature()
+    if stateSignature == lastStateSignature then
+        return
+    end
+    lastStateSignature = stateSignature
 
     local currentChatType = GetCurrentChatType()
     for _, def in ipairs(BUTTON_DEFS) do
@@ -2378,6 +2401,7 @@ function ns.RefreshQuickChatButtons()
 
     if not db or (not showQuickButtons and not showSidebarMenu) then
         lastLayoutSignature = nil
+        lastStateSignature = nil
         if container then
             container:Hide()
         end
@@ -2408,6 +2432,7 @@ function ns.RefreshQuickChatButtons()
         if layoutApplied then
             LayoutSettingsButton()
             lastLayoutSignature = layoutSignature
+            lastStateSignature = nil
             didLayout = true
         end
     end
@@ -2430,7 +2455,7 @@ function ns.RefreshQuickChatButtons()
 end
 
 function QuickButtonsModule:Refresh()
-    ns.RefreshQuickChatButtons()
+    ScheduleRefresh(0)
 end
 
 function QuickButtonsModule:OnEnable()
@@ -2446,7 +2471,7 @@ function QuickButtonsModule:OnEnable()
     self:RegisterEvent("UI_SCALE_CHANGED", "Refresh")
     self:RegisterEvent("CVAR_UPDATE", function(_, cvar)
         if cvar == "useUiScale" or cvar == "uiScale" then
-            self:Refresh()
+            ScheduleRefresh(0)
         end
     end)
     self:RegisterEvent("ADDON_LOADED", function(_, addon)

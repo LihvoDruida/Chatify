@@ -41,6 +41,8 @@ local routerHooksInstalled = false
 -- so we allow a short "fan-out" window before we treat repeated text as spam.
 local recentLines = {}
 local FANOUT_WINDOW = 0.08
+local recentLinesPruneCounter = 0
+local RECENT_LINES_PRUNE_INTERVAL = 50
 
 
 local function IsRetailSecretValueBuild()
@@ -236,6 +238,17 @@ local function ApplyTimestamp(text)
     return prefix .. " " .. text
 end
 
+local function PruneRecentLines(maxAge)
+    local now = GetTime()
+    local cutoff = now - math.max(maxAge or 5, FANOUT_WINDOW, 5)
+
+    for normalized, state in pairs(recentLines) do
+        if type(state) ~= "table" or type(state.lastSeen) ~= "number" or state.lastSeen < cutoff then
+            recentLines[normalized] = nil
+        end
+    end
+end
+
 local function ShouldSuppressForSpam(frameID, text)
     local db = DB()
     if not db then
@@ -245,6 +258,13 @@ local function ShouldSuppressForSpam(frameID, text)
     local normalized = NormalizeText(text)
     if not normalized then
         return false
+    end
+
+    local throttleTime = tonumber(db.throttleTime) or 60
+    recentLinesPruneCounter = recentLinesPruneCounter + 1
+    if recentLinesPruneCounter >= RECENT_LINES_PRUNE_INTERVAL then
+        recentLinesPruneCounter = 0
+        PruneRecentLines(throttleTime)
     end
 
     local now = GetTime()
@@ -257,8 +277,6 @@ local function ShouldSuppressForSpam(frameID, text)
     if not db.enableThrottle then
         return false
     end
-
-    local throttleTime = tonumber(db.throttleTime) or 60
 
     if not state then
         recentLines[normalized] = {
