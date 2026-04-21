@@ -18,10 +18,20 @@ local tostring = tostring
 local pcall = pcall
 local math_floor = math.floor
 local Ambiguate = Ambiguate
+local string_find = string.find
+local string_format = string.format
+local string_lower = string.lower
 
 local activityTicker = nil
 local lastGuildReplyTime = 0
 local GUILD_REPLY_COOLDOWN = 600
+local STALE_PENDING_SECONDS = 6 * 60 * 60
+local STALE_REPLY_SECONDS = 7 * 24 * 60 * 60
+local ACTIVITY_IDLE_INTERVAL = 3
+local ACTIVITY_ACTIVE_INTERVAL = 1
+local lastActivityMessage = nil
+local lastActivityActive = false
+local lastActivityCheckAt = 0
 
 local function DB()
     if Chatify and Chatify.db and Chatify.db.profile then
@@ -50,6 +60,19 @@ local function EnsureCharState()
     return db
 end
 
+local function Trim(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+
+    value = value:match("^%s*(.-)%s*$")
+    if value == "" then
+        return nil
+    end
+
+    return value
+end
+
 local function SafeChatText(value)
     if type(ns.TryMakeSafeText) == "function" then
         return ns.TryMakeSafeText(value)
@@ -58,7 +81,7 @@ local function SafeChatText(value)
         return nil
     end
     if type(value) == "string" then
-        return value
+        return Trim(value)
     end
     return nil
 end
@@ -126,13 +149,15 @@ local function SendBNetMessage(accountID, message)
         return false
     end
 
-    if C_BattleNet and C_BattleNet.SendAccountMessage then
-        local ok = pcall(C_BattleNet.SendAccountMessage, accountID, message)
-        return ok
-    end
-
     if type(BNSendWhisper) == "function" then
         local ok = pcall(BNSendWhisper, accountID, message)
+        if ok then
+            return true
+        end
+    end
+
+    if C_BattleNet and C_BattleNet.SendAccountMessage then
+        local ok = pcall(C_BattleNet.SendAccountMessage, accountID, message)
         return ok
     end
 
@@ -143,6 +168,8 @@ local function SendWhisper(target, message)
     if type(target) ~= "string" or target == "" or type(message) ~= "string" or message == "" then
         return false
     end
+
+    target = NormalizePlayerName(target, "none") or target
     local ok = pcall(SendChatMessage, message, "WHISPER", nil, target)
     return ok
 end
@@ -197,10 +224,61 @@ local function GetQueueInfo()
     return false, 0, nil
 end
 
-local function GetCurrentActivity()
+
+local function PruneCharState(now)
+    local char = EnsureCharState()
+    if not char then
+        return
+    end
+
+    local cutoffPending = now - STALE_PENDING_SECONDS
+    local cutoffReplies = now - STALE_REPLY_SECONDS
+
+    for key, data in pairs(char.pendingWhispers) do
+        if type(data) ~= "table" or type(data.time) ~= "number" or data.time < cutoffPending then
+            char.pendingWhispers[key] = nil
+        end
+    end
+
+    for key, data in pairs(char.pendingGuildMentions) do
+        if type(data) ~= "table" or type(data.time) ~= "number" or data.time < cutoffPending then
+            char.pendingGuildMentions[key] = nil
+        end
+    end
+
+    for key, timestamp in pairs(char.lastReplyTime) do
+        if type(timestamp) ~= "number" or timestamp < cutoffReplies then
+            char.lastReplyTime[key] = nil
+        end
+    end
+end
+
+local function GetBNetPresenceID(...)
+    local presenceID = select(13, ...)
+    if presenceID and CanAccess(presenceID) then
+        return presenceID
+    end
+
+    for i = 1, select("#", ...) do
+        local value = select(i, ...)
+        if type(value) == "number" and CanAccess(value) then
+            return value
+        end
+    end
+
+    return nil
+end
+
+local function GetCurrentActivity(forceRefresh)
     local db = DB()
     if not db or not db.autoReply then
         return nil, false
+    end
+
+    local now = GetTime()
+    local refreshInterval = lastActivityActive and ACTIVITY_ACTIVE_INTERVAL or ACTIVITY_IDLE_INTERVAL
+    if not forceRefresh and lastActivityCheckAt > 0 and (now - lastActivityCheckAt) < refreshInterval then
+        return lastActivityMessage, lastActivityActive
     end
 
     local ok, message, active = pcall(function()
@@ -224,8 +302,8 @@ local function GetCurrentActivity()
             return cfg.pvpMessage, true
         elseif inQueue and cfg.queueMessage and cfg.queueMessage ~= "" then
             local formatted = cfg.queueMessage
-            if formatted:find("%s", 1, true) then
-                formatted = string.format(formatted, waitMinutes)
+            if string_find(formatted, "%s", 1, true) then
+                formatted = string_format(formatted, waitMinutes)
             else
                 formatted = formatted .. " " .. waitMinutes
             end
@@ -239,9 +317,15 @@ local function GetCurrentActivity()
     end)
 
     if ok then
-        return message, active
+        lastActivityCheckAt = now
+        lastActivityMessage = message
+        lastActivityActive = active and true or false
+        return lastActivityMessage, lastActivityActive
     end
 
+    lastActivityCheckAt = now
+    lastActivityMessage = nil
+    lastActivityActive = false
     return nil, false
 end
 
@@ -344,7 +428,7 @@ local function IsPlayerMentioned(message)
     end
 
     local ok, found = pcall(function()
-        return string.find(string.lower(safeMessage), string.lower(playerName), 1, true) ~= nil
+        return string_find(string_lower(safeMessage), string_lower(playerName), 1, true) ~= nil
     end)
     return ok and found or false
 end
@@ -454,7 +538,10 @@ local function CheckActivityStatus()
         return
     end
 
-    local _, inActivity = GetCurrentActivity()
+    local now = GetTime()
+    PruneCharState(now)
+
+    local _, inActivity = GetCurrentActivity(true)
     if char.wasInActivity and not inActivity then
         local returnMessage = db.autoReply.returnMessage
         if db.autoReply.autoNotify and type(returnMessage) == "string" and returnMessage ~= "" then
@@ -471,6 +558,10 @@ local function CheckActivityStatus()
     end
 
     char.wasInActivity = inActivity and true or false
+end
+
+local function InvalidateActivityCache()
+    lastActivityCheckAt = 0
 end
 
 function AutoReply:HandleCommand(input)
@@ -509,6 +600,13 @@ end
 
 function AutoReply:OnEnable()
     EnsureCharState()
+    InvalidateActivityCache()
+
+    self:RegisterEvent("PLAYER_FLAGS_CHANGED", InvalidateActivityCache)
+    self:RegisterEvent("ZONE_CHANGED_NEW_AREA", InvalidateActivityCache)
+    self:RegisterEvent("LFG_UPDATE", InvalidateActivityCache)
+    self:RegisterEvent("GROUP_ROSTER_UPDATE", InvalidateActivityCache)
+    self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateActivityCache)
 
     self:RegisterEvent("CHAT_MSG_WHISPER", function(_, message, sender)
         if IsPlayerSender(sender) then
@@ -517,8 +615,10 @@ function AutoReply:OnEnable()
         SendAutoReply(sender, false, message)
     end)
 
-    self:RegisterEvent("CHAT_MSG_BN_WHISPER", function(_, message, _, _, _, _, _, _, _, _, _, _, presenceID)
-        if presenceID and CanAccess(presenceID) then
+    self:RegisterEvent("CHAT_MSG_BN_WHISPER", function(_, ...)
+        local message = select(1, ...)
+        local presenceID = GetBNetPresenceID(...)
+        if presenceID then
             SendAutoReply(presenceID, true, message)
         end
     end)
@@ -536,8 +636,9 @@ function AutoReply:OnEnable()
         RemovePending(target, false)
     end)
 
-    self:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM", function(_, _, _, _, _, _, _, _, _, _, _, _, presenceID)
-        if presenceID and CanAccess(presenceID) then
+    self:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
+        local presenceID = GetBNetPresenceID(...)
+        if presenceID then
             RemovePending(presenceID, true)
         end
     end)
