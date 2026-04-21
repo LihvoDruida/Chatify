@@ -1,6 +1,6 @@
 ## X-Flavor: classic
 ## X-Expansion: MOP
-## Interface: 50502
+## Interface: 50503
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
