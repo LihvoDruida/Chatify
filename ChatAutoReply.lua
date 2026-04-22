@@ -174,6 +174,51 @@ local function SendWhisper(target, message)
     return ok
 end
 
+local function NormalizeQueueWaitSeconds(value)
+    local num = tonumber(value)
+    if not num or num <= 0 then
+        return 0
+    end
+    if num >= 1000 then
+        return math_floor(num / 1000)
+    end
+    return math_floor(num)
+end
+
+local function GetModernBattlegroundQueueInfo()
+    if not C_PvP then
+        return false, 0, nil
+    end
+
+    if type(C_PvP.GetActiveMatchState) == "function" then
+        local ok, state = pcall(C_PvP.GetActiveMatchState)
+        if ok and type(state) == "table" then
+            local status = state.status or state.queueStatus
+            if status == "queued" or status == "confirm" then
+                local mapName = SafeChatText(state.mapName or state.name) or "battleground"
+                local waitSeconds = NormalizeQueueWaitSeconds(state.estimatedWaitTimeSeconds or state.waitTime or state.estimatedWaitTime)
+                return true, math_floor(waitSeconds / 60), mapName
+            end
+        end
+    end
+
+    if type(C_PvP.GetQueueState) == "function" then
+        for index = 1, 4 do
+            local ok, info = pcall(C_PvP.GetQueueState, index)
+            if ok and type(info) == "table" then
+                local status = info.status or info.queueStatus
+                if status == "queued" or status == "confirm" then
+                    local mapName = SafeChatText(info.mapName or info.name) or "battleground"
+                    local waitSeconds = NormalizeQueueWaitSeconds(info.estimatedWaitTimeSeconds or info.waitTime or info.estimatedWaitTime)
+                    return true, math_floor(waitSeconds / 60), mapName
+                end
+            end
+        end
+    end
+
+    return false, 0, nil
+end
+
 local function GetQueueInfo()
     if type(GetLFGQueueStats) == "function" then
         local hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = GetLFGQueueStats(LE_LFG_CATEGORY_LFD)
@@ -185,6 +230,11 @@ local function GetQueueInfo()
         if hasData and myWait and myWait > 0 then
             return true, math_floor(myWait / 60), instanceName or "raid"
         end
+    end
+
+    local okModern, waitMinutesModern, mapNameModern = GetModernBattlegroundQueueInfo()
+    if okModern then
+        return true, waitMinutesModern, mapNameModern
     end
 
     if type(GetBattlefieldStatus) == "function" then
@@ -207,16 +257,8 @@ local function GetQueueInfo()
                     end
                 end
 
-                local waitMinutes = 0
-                if type(estimatedWaitTime) == "number" and estimatedWaitTime > 0 then
-                    if estimatedWaitTime >= 1000 then
-                        waitMinutes = math_floor(estimatedWaitTime / 60000)
-                    else
-                        waitMinutes = math_floor(estimatedWaitTime / 60)
-                    end
-                end
-
-                return true, waitMinutes, mapName or "battleground"
+                local waitSeconds = NormalizeQueueWaitSeconds(estimatedWaitTime)
+                return true, math_floor(waitSeconds / 60), SafeChatText(mapName) or "battleground"
             end
         end
     end
@@ -255,13 +297,13 @@ end
 
 local function GetBNetPresenceID(...)
     local presenceID = select(13, ...)
-    if presenceID and CanAccess(presenceID) then
+    if type(presenceID) == "number" and CanAccess(presenceID) then
         return presenceID
     end
 
     for i = 1, select("#", ...) do
         local value = select(i, ...)
-        if type(value) == "number" and CanAccess(value) then
+        if type(value) == "number" and value > 0 and CanAccess(value) then
             return value
         end
     end

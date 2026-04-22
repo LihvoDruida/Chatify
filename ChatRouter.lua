@@ -403,11 +403,8 @@ local function ShowHyperlinkTooltip(owner, link)
         GameTooltip:Hide()
     end
 
-    local handler = _G.SetItemRef or ChatFrame_OnHyperlinkShow
-    if ItemRefTooltip and ItemRefTooltip.SetOwner and type(handler) == "function" then
-        ItemRefTooltip:SetOwner(owner, "ANCHOR_PRESERVE")
-        pcall(handler, link, nil, "LeftButton", owner)
-    end
+    -- Avoid SetItemRef / ItemRefTooltip fallback on hover. That path is more prone to
+    -- tooltip/chat taint on modern Retail and is not required for standard hover previews.
 end
 
 local function HideHyperlinkTooltip(owner)

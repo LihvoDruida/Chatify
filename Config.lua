@@ -353,6 +353,41 @@ function ns.RunRetailCompatibilityMigration(db)
     return false
 end
 
+function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
+    if not target or type(target.SetFont) ~= "function" then
+        return false
+    end
+
+    local primary = fontPath
+    if type(primary) ~= "string" or primary == "" then
+        if ChatFontNormal and ChatFontNormal.GetFont then
+            primary = ChatFontNormal:GetFont()
+        end
+    end
+
+    local ok = false
+    if type(primary) == "string" and primary ~= "" then
+        ok = pcall(target.SetFont, target, primary, size, flags or "") and true or false
+    end
+
+    if ok then
+        return true
+    end
+
+    local fallback = fallbackFont
+    if type(fallback) ~= "string" or fallback == "" then
+        if ChatFontNormal and ChatFontNormal.GetFont then
+            fallback = ChatFontNormal:GetFont()
+        end
+    end
+
+    if type(fallback) == "string" and fallback ~= "" then
+        return pcall(target.SetFont, target, fallback, size, flags or "") and true or false
+    end
+
+    return false
+end
+
 function ns.TryMakeSafeText(raw)
     if raw == nil then
         return nil
