@@ -292,7 +292,7 @@ local function TimestampFilter(self, event, msg, author, ...)
         local tsColor = db.timestampColor or "68ccef"
         local cacheId = nil
         if type(ns.SaveToCache) == "function" then
-            cacheId = ns.SaveToCache(safeMsg)
+            cacheId = ns.SaveToCache(safeMsg, author, timestamp)
         end
 
         local styledTime

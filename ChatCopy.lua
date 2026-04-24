@@ -14,6 +14,11 @@ local CACHE_SIZE = 500
 local COPY_WINDOW_MAX_LINES = 250
 local COPY_WINDOW_MAX_CHARS = 60000
 
+local PLAYER_COLORS = {
+    "ff7ad7ff", "ffffd36b", "ff9dff7a", "ffff9a9a", "ffc79cff",
+    "ff7affb2", "ffffb86b", "ff9ab7ff", "ffff7adf", "ffb7ffea",
+}
+
 local function StripChatMarkup(text)
     if type(text) ~= "string" then
         return nil
@@ -36,14 +41,141 @@ local function StripChatMarkup(text)
     return text
 end
 
-local function AddFullChatLine(text)
-    local clean = StripChatMarkup(text)
-    if type(clean) ~= "string" or clean == "" then
+local function NormalizeName(author)
+    if type(author) ~= "string" or author == "" then
+        return nil
+    end
+
+    local ok, name = pcall(function()
+        local value = author
+        value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
+        value = value:gsub("|r", "")
+        value = value:gsub("|H.-|h%[?(.-)%]?|h", "%1")
+        value = value:gsub("^%[", ""):gsub("%]$", "")
+        value = value:gsub("%-.+$", "")
+        value = value:gsub("^%s+", ""):gsub("%s+$", "")
+        return value
+    end)
+
+    if ok and type(name) == "string" and name ~= "" then
+        return name
+    end
+
+    return nil
+end
+
+local function ExtractAuthorFromText(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+
+    local _, linkName = text:match("|Hplayer:([^|:]+)[^|]*|h%[?([^%]|]+)%]?|h")
+    if linkName then
+        return NormalizeName(linkName)
+    end
+
+    local bracketName = text:match("^%s*%[([^%]]+)%]%s*:")
+    if bracketName then
+        return NormalizeName(bracketName)
+    end
+
+    local plainName = text:match("^%s*([^:%[%]]+)%s*:")
+    if plainName and #plainName <= 32 then
+        return NormalizeName(plainName)
+    end
+
+    return nil
+end
+
+local function GetNameColor(name)
+    name = NormalizeName(name)
+    if not name then
+        return "ffffffff"
+    end
+
+    if type(UnitClass) == "function" then
+        local ok, classFile = pcall(function()
+            return select(2, UnitClass(name))
+        end)
+        if ok and classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
+            local c = RAID_CLASS_COLORS[classFile]
+            return string.format("ff%02x%02x%02x",
+                math.floor(((c.r or 1) * 255) + 0.5),
+                math.floor(((c.g or 1) * 255) + 0.5),
+                math.floor(((c.b or 1) * 255) + 0.5))
+        end
+    end
+
+    local hash = 0
+    for i = 1, #name do
+        hash = (hash + name:byte(i) * i) % #PLAYER_COLORS
+    end
+    return PLAYER_COLORS[hash + 1]
+end
+
+local function ColorName(name)
+    name = NormalizeName(name)
+    if not name then
+        return ""
+    end
+    return "|c" .. GetNameColor(name) .. name .. "|r"
+end
+
+local function BuildEntry(text, author, timestamp)
+    local cleanText = StripChatMarkup(text)
+    if type(cleanText) ~= "string" or cleanText == "" then
+        return nil
+    end
+
+    local cleanAuthor = NormalizeName(author) or ExtractAuthorFromText(text)
+    local timeText = date("%H:%M:%S", tonumber(timestamp) or time())
+
+    return {
+        text = cleanText,
+        raw = text,
+        author = cleanAuthor,
+        time = timeText,
+    }
+end
+
+local function BuildPlainLine(entry)
+    if type(entry) == "string" then
+        return StripChatMarkup(entry) or entry
+    end
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    if entry.author and entry.author ~= "" then
+        return string.format("[%s] %s: %s", entry.time or "--:--:--", entry.author, entry.text or "")
+    end
+
+    return string.format("[%s] %s", entry.time or "--:--:--", entry.text or "")
+end
+
+local function BuildColoredLine(entry)
+    if type(entry) == "string" then
+        return StripChatMarkup(entry) or entry
+    end
+    if type(entry) ~= "table" then
+        return ""
+    end
+
+    local timeText = string.format("|cff888888[%s]|r", entry.time or "--:--:--")
+    if entry.author and entry.author ~= "" then
+        return string.format("%s %s: %s", timeText, ColorName(entry.author), entry.text or "")
+    end
+
+    return string.format("%s %s", timeText, entry.text or "")
+end
+
+local function AddFullChatEntry(entry)
+    if type(entry) ~= "table" then
         return
     end
 
     fullChatIndex = fullChatIndex + 1
-    fullChatCache[fullChatIndex] = clean
+    fullChatCache[fullChatIndex] = entry
 
     local pruneBefore = fullChatIndex - CACHE_SIZE
     if pruneBefore > 0 then
@@ -51,10 +183,15 @@ local function AddFullChatLine(text)
     end
 end
 
-function ns.SaveToCache(text)
+function ns.SaveToCache(text, author, timestamp)
+    local entry = BuildEntry(text, author, timestamp)
+    if not entry then
+        return nil
+    end
+
     msgIndex = msgIndex + 1
-    msgCache[msgIndex] = text
-    AddFullChatLine(text)
+    msgCache[msgIndex] = entry
+    AddFullChatEntry(entry)
 
     if msgIndex > CACHE_SIZE + 50 then
         for i = msgIndex - CACHE_SIZE - 50, msgIndex - CACHE_SIZE do
@@ -72,6 +209,9 @@ local copyFrame
 local copyEditBox
 local copyTitle
 local copyScroll
+local copyContent
+local copyHint
+local copyButton
 
 local function CreateCopyWindow()
     if copyFrame then return end
@@ -84,9 +224,9 @@ local function CreateCopyWindow()
             tile = true, tileSize = 16, edgeSize = 16,
             insets = { left = 3, right = 3, top = 5, bottom = 3 }
         })
-        f:SetBackdropColor(0, 0, 0, 0.92)
+        f:SetBackdropColor(0, 0, 0, 0.94)
     end
-    f:SetSize(560, 420)
+    f:SetSize(620, 460)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
@@ -106,53 +246,102 @@ local function CreateCopyWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
 
-    local scrollArea = CreateFrame("ScrollFrame", "ChatifyCopyScroll", f, "UIPanelScrollFrameTemplate")
-    scrollArea:SetPoint("TOPLEFT", 12, -38)
-    scrollArea:SetPoint("BOTTOMRIGHT", -30, 12)
+    local scrollArea = CreateFrame("ScrollFrame", "ChatifyCopyPreviewScroll", f, "UIPanelScrollFrameTemplate")
+    scrollArea:SetPoint("TOPLEFT", 14, -42)
+    scrollArea:SetPoint("BOTTOMRIGHT", -32, 54)
 
-    local eb = CreateFrame("EditBox", nil, scrollArea)
+    local content = CreateFrame("Frame", nil, scrollArea)
+    content:SetSize(560, 1)
+    scrollArea:SetScrollChild(content)
+
+    local eb = CreateFrame("EditBox", "ChatifyCopyHiddenEditBox", f)
     eb:SetMultiLine(true)
     eb:SetMaxLetters(COPY_WINDOW_MAX_CHARS + 1000)
-    eb:EnableMouse(true)
     eb:SetAutoFocus(false)
     eb:SetFontObject(ChatFontNormal)
-    eb:SetWidth(510)
-    eb:SetHeight(400)
+    eb:SetSize(1, 1)
+    eb:SetAlpha(0.01)
+    eb:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
     eb:SetScript("OnEscapePressed", function() f:Hide() end)
 
-    scrollArea:SetScrollChild(eb)
+    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btn:SetSize(108, 24)
+    btn:SetPoint("BOTTOMRIGHT", -16, 16)
+    btn:SetText("Copy All")
+    btn:SetScript("OnClick", function()
+        if copyEditBox then
+            copyEditBox:SetFocus()
+            copyEditBox:HighlightText()
+        end
+        if copyHint then
+            copyHint:SetText("Press Ctrl+C to copy the selected chat text.")
+        end
+    end)
+
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("BOTTOMLEFT", 16, 20)
+    hint:SetPoint("RIGHT", btn, "LEFT", -12, 0)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("Colored preview above. Click Copy All, then press Ctrl+C.")
 
     copyFrame = f
     copyEditBox = eb
     copyTitle = title
     copyScroll = scrollArea
+    copyContent = content
+    copyHint = hint
+    copyButton = btn
 end
 
-local function ShowCopyWindow(text, title)
-    if not copyFrame then CreateCopyWindow() end
-
-    copyFrame:Show()
-    if copyTitle then
-        copyTitle:SetText(title or "Chatify Copy")
+local function ClearCopyPreview()
+    if not copyContent then
+        return
     end
-    copyEditBox:SetText(text or "")
-    copyEditBox:HighlightText()
-    copyEditBox:SetFocus()
-    if copyScroll and copyScroll.SetVerticalScroll then
-        copyScroll:SetVerticalScroll(0)
+
+    local children = { copyContent:GetChildren() }
+    for i = 1, #children do
+        children[i]:Hide()
+        children[i]:SetParent(nil)
+    end
+
+    local regions = { copyContent:GetRegions() }
+    for i = 1, #regions do
+        regions[i]:Hide()
     end
 end
 
-local function BuildCachedChatText(maxLines, maxChars)
-    maxLines = tonumber(maxLines) or COPY_WINDOW_MAX_LINES
-    maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
+local function RenderCopyPreview(entries)
+    ClearCopyPreview()
 
+    if not copyContent then
+        return
+    end
+
+    local y = -6
+    local width = 545
+    for i = 1, #entries do
+        local line = copyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        line:SetPoint("TOPLEFT", 8, y)
+        line:SetWidth(width)
+        line:SetJustifyH("LEFT")
+        line:SetText(BuildColoredLine(entries[i]))
+        line:SetNonSpaceWrap(true)
+
+        local height = math.max(16, line:GetStringHeight() + 2)
+        y = y - height
+    end
+
+    copyContent:SetHeight(math.max(1, -y + 12))
+    copyContent:SetWidth(width + 16)
+end
+
+local function BuildTextFromEntries(entries, maxChars)
     local lines = {}
     local chars = 0
-    local startIndex = math.max(1, fullChatIndex - maxLines + 1)
+    maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
 
-    for i = startIndex, fullChatIndex do
-        local line = fullChatCache[i]
+    for i = 1, #entries do
+        local line = BuildPlainLine(entries[i])
         if type(line) == "string" and line ~= "" then
             chars = chars + #line + 1
             if chars > maxChars then
@@ -163,11 +352,62 @@ local function BuildCachedChatText(maxLines, maxChars)
         end
     end
 
-    if #lines == 0 then
+    return table.concat(lines, "\n")
+end
+
+local function ShowCopyWindow(entries, title)
+    if not copyFrame then CreateCopyWindow() end
+
+    if type(entries) == "string" then
+        entries = { BuildEntry(entries) or entries }
+    elseif type(entries) ~= "table" then
+        entries = {}
+    end
+
+    copyFrame:Show()
+    if copyTitle then
+        copyTitle:SetText(title or "Chatify Copy")
+    end
+    if copyHint then
+        copyHint:SetText("Colored preview above. Click Copy All, then press Ctrl+C.")
+    end
+
+    RenderCopyPreview(entries)
+
+    copyEditBox:SetText(BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS))
+    copyEditBox:HighlightText()
+    copyEditBox:SetFocus()
+    if copyScroll and copyScroll.SetVerticalScroll then
+        copyScroll:SetVerticalScroll(0)
+    end
+end
+
+local function BuildCachedChatEntries(maxLines, maxChars)
+    maxLines = tonumber(maxLines) or COPY_WINDOW_MAX_LINES
+    maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
+
+    local entries = {}
+    local chars = 0
+    local startIndex = math.max(1, fullChatIndex - maxLines + 1)
+
+    for i = startIndex, fullChatIndex do
+        local entry = fullChatCache[i]
+        local line = BuildPlainLine(entry)
+        if type(line) == "string" and line ~= "" then
+            chars = chars + #line + 1
+            if chars > maxChars then
+                entries[#entries + 1] = BuildEntry("...")
+                break
+            end
+            entries[#entries + 1] = entry
+        end
+    end
+
+    if #entries == 0 then
         return nil
     end
 
-    return table.concat(lines, "\n")
+    return entries
 end
 
 local function ReadVisibleChatLines(chatFrame)
@@ -175,39 +415,41 @@ local function ReadVisibleChatLines(chatFrame)
         return nil
     end
 
-    local lines = {}
+    local entries = {}
     local regions = { chatFrame:GetRegions() }
     for i = 1, #regions do
         local region = regions[i]
         if region and type(region.GetObjectType) == "function" and region:GetObjectType() == "FontString" and type(region.GetText) == "function" then
             local ok, text = pcall(region.GetText, region)
-            text = ok and StripChatMarkup(text) or nil
-            if type(text) == "string" and text ~= "" then
-                lines[#lines + 1] = text
+            if ok then
+                local entry = BuildEntry(text)
+                if entry then
+                    entries[#entries + 1] = entry
+                end
             end
         end
     end
 
-    if #lines == 0 then
+    if #entries == 0 then
         return nil
     end
 
-    return table.concat(lines, "\n")
+    return entries
 end
 
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
     chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
 
-    local text = BuildCachedChatText(maxLines, COPY_WINDOW_MAX_CHARS)
-    if not text or text == "" then
-        text = ReadVisibleChatLines(chatFrame)
+    local entries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
+    if not entries then
+        entries = ReadVisibleChatLines(chatFrame)
     end
 
-    if not text or text == "" then
-        text = "No cached chat lines yet. New messages will become available after Chatify processes them."
+    if not entries then
+        entries = { BuildEntry("No cached chat lines yet. New messages will become available after Chatify processes them.") }
     end
 
-    ShowCopyWindow(text, "Chatify Copy — recent chat")
+    ShowCopyWindow(entries, "Chatify Copy — recent chat")
 end
 
 -- =========================================================
@@ -254,7 +496,7 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
         local id = tonumber(link:sub(10))
         local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
         if id and payload then
-            ShowCopyWindow(StripChatMarkup(payload) or payload, "Chatify Copy — selected line")
+            ShowCopyWindow({ payload }, "Chatify Copy — selected line")
         end
         return
     end

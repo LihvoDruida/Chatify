@@ -28,6 +28,7 @@ local elvuiEngine
 local elvuiChat
 local gw2Engine
 local UpdateButtonState
+local RefreshCopyButtonLook
 local elvuiHooksInstalled = false
 local gw2HooksInstalled = false
 local generalHooksInstalled = false
@@ -51,6 +52,7 @@ local DEFAULT_SIDEBAR_BUTTON_RATIO = DEFAULT_SIDEBAR_BUTTON_HEIGHT / DEFAULT_SID
 local MIN_STABLE_CHAT_FRAME_WIDTH = 120
 local MIN_STABLE_CHAT_FRAME_HEIGHT = 80
 local SETTINGS_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\SettingsCog.png"
+local COPY_CHAT_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\CopyChat.png"
 
 
 local function GetColorComponents(color, fallback)
@@ -1575,7 +1577,7 @@ UpdateButtonState = function()
         end
         copyButton.__chatifyDisabled = false
         copyButton.__chatifySelected = false
-        RefreshButtonLook(copyButton)
+        RefreshCopyButtonLook()
     end
 end
 
@@ -1731,24 +1733,28 @@ local function EnsureSocialSidebarButton()
     return button
 end
 
-local function EnsureSettingsButtonVisual(self)
+local function EnsureSidebarIconButtonVisual(self, iconPath, iconSize)
     if not self then
         return
     end
 
     if self._chatifyVisualReady then
+        if self.Icon and iconPath then
+            self.Icon:SetTexture(iconPath)
+        end
         return
     end
 
     self._chatifyVisualReady = true
+    self._chatifyIconSize = iconSize or 12
     self:SetNormalTexture("chatframe-button-up")
     self:SetPushedTexture("chatframe-button-down")
     self:SetHighlightTexture("chatframe-button-highlight")
 
     local icon = self:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(SETTINGS_ICON)
+    icon:SetTexture(iconPath)
     icon:SetPoint("CENTER")
-    icon:SetSize(12, 12)
+    icon:SetSize(self._chatifyIconSize, self._chatifyIconSize)
     icon:SetVertexColor(0.925, 0.804, 0.063)
     self.Icon = icon
 
@@ -1777,28 +1783,41 @@ local function EnsureSettingsButtonVisual(self)
     end)
 end
 
-local function RefreshSettingsButtonLook()
-    if not settingsButton then
+local function RefreshSidebarIconButtonLook(button, iconPath, iconSize)
+    if not button then
         return
     end
 
-    EnsureSettingsButtonVisual(settingsButton)
+    EnsureSidebarIconButtonVisual(button, iconPath, iconSize)
 
-    settingsButton:SetSize(26, 28)
-    settingsButton:SetNormalTexture("chatframe-button-up")
-    settingsButton:SetPushedTexture("chatframe-button-down")
-    settingsButton:SetHighlightTexture("chatframe-button-highlight")
+    button:SetSize(26, 28)
+    button:SetNormalTexture("chatframe-button-up")
+    button:SetPushedTexture("chatframe-button-down")
+    button:SetHighlightTexture("chatframe-button-highlight")
 
-    if settingsButton.Icon then
-        settingsButton.Icon:SetSize(12, 12)
-        if settingsButton:IsMouseOver() then
-            settingsButton.Icon:SetVertexColor(1.0, 0.90, 0.20)
+    if button.Icon then
+        button.Icon:SetTexture(iconPath)
+        button.Icon:SetSize(iconSize or button._chatifyIconSize or 12, iconSize or button._chatifyIconSize or 12)
+        if button:IsMouseOver() then
+            button.Icon:SetVertexColor(1.0, 0.90, 0.20)
         else
-            settingsButton.Icon:SetVertexColor(0.925, 0.804, 0.063)
+            button.Icon:SetVertexColor(0.925, 0.804, 0.063)
         end
-        settingsButton.Icon:ClearAllPoints()
-        settingsButton.Icon:SetPoint("CENTER")
+        button.Icon:ClearAllPoints()
+        button.Icon:SetPoint("CENTER")
     end
+end
+
+local function EnsureSettingsButtonVisual(self)
+    EnsureSidebarIconButtonVisual(self, SETTINGS_ICON, 12)
+end
+
+local function RefreshSettingsButtonLook()
+    RefreshSidebarIconButtonLook(settingsButton, SETTINGS_ICON, 12)
+end
+
+RefreshCopyButtonLook = function()
+    RefreshSidebarIconButtonLook(copyButton, COPY_CHAT_ICON, 14)
 end
 
 local function LayoutSettingsButton()
@@ -1911,7 +1930,7 @@ local function LayoutSettingsButton()
         if copyButton.SetFrameLevel then
             copyButton:SetFrameLevel(frameLevel + 2)
         end
-        RefreshButtonLook(copyButton)
+        RefreshCopyButtonLook()
         copyButton:Show()
     elseif copyButton then
         copyButton:Hide()
@@ -2250,11 +2269,8 @@ local function EnsureContainer()
     copyButton = CreateFrame("Button", "ChatifyChatMenuCopyButton", settingsContainer, backdropTemplate)
     copyButton:RegisterForClicks("LeftButtonUp")
     copyButton:SetHitRectInsets(0, 0, 0, 0)
-    copyButton.Label = copyButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    copyButton.Label:SetJustifyH("CENTER")
-    copyButton.Label:SetJustifyV("MIDDLE")
-    copyButton.Label:SetPoint("CENTER", copyButton, "CENTER", 0, 0)
-    copyButton.Label:SetText("C")
+    copyButton.RefreshVisual = RefreshCopyButtonLook
+    EnsureSidebarIconButtonVisual(copyButton, COPY_CHAT_ICON, 14)
 
     copyButton:SetScript("OnClick", function()
         if type(ns.OpenChatCopyWindow) == "function" then
@@ -2263,7 +2279,7 @@ local function EnsureContainer()
     end)
 
     copyButton:SetScript("OnEnter", function(self)
-        RefreshButtonLook(self)
+        RefreshCopyButtonLook()
         if GameTooltip then
             local skinLabel = "Standard"
             if GetConfiguredTheme() == "ELVUI" then
@@ -2284,7 +2300,7 @@ local function EnsureContainer()
     end)
 
     copyButton:SetScript("OnLeave", function(self)
-        RefreshButtonLook(self)
+        RefreshCopyButtonLook()
         if GameTooltip then
             GameTooltip:Hide()
         end
