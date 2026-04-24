@@ -283,22 +283,40 @@ local function CreateCopyWindow()
     end
 
     local scrollArea = CreateFrame("ScrollFrame", "ChatifyCopyPreviewScroll", f, "UIPanelScrollFrameTemplate")
-    scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 6, -6)
-    scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -24, 6)
+    scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 8, -8)
+    scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -26, 8)
 
-    local content = CreateFrame("Frame", nil, scrollArea)
-    content:SetSize(560, 1)
-    scrollArea:SetScrollChild(content)
-
-    local eb = CreateFrame("EditBox", "ChatifyCopyHiddenEditBox", f)
+    -- Selectable copy field.
+    -- Users can manually select any text directly in the window,
+    -- or click Copy All to select the full prepared export.
+    local eb = CreateFrame("EditBox", "ChatifyCopySelectableEditBox", scrollArea)
     eb:SetMultiLine(true)
     eb:SetMaxLetters(COPY_WINDOW_MAX_CHARS + 1000)
     eb:SetAutoFocus(false)
     eb:SetFontObject(ChatFontNormal)
-    eb:SetSize(1, 1)
-    eb:SetAlpha(0.01)
-    eb:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
-    eb:SetScript("OnEscapePressed", function() f:Hide() end)
+    eb:SetTextColor(0.92, 0.92, 0.92, 1)
+    eb:SetJustifyH("LEFT")
+    eb:SetJustifyV("TOP")
+    eb:SetWidth(560)
+    eb:SetHeight(1)
+    eb:EnableMouse(true)
+    eb:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        f:Hide()
+    end)
+    eb:SetScript("OnCursorChanged", function(self, _, y, _, cursorHeight)
+        if ScrollingEdit_OnCursorChanged then
+            ScrollingEdit_OnCursorChanged(self, 0, y, 0, cursorHeight)
+        end
+    end)
+    eb:SetScript("OnUpdate", function(self, elapsed)
+        if ScrollingEdit_OnUpdate then
+            ScrollingEdit_OnUpdate(self, elapsed, scrollArea)
+        end
+    end)
+    scrollArea:SetScrollChild(eb)
+
+    local content = eb
 
     local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     btn:SetSize(108, 24)
@@ -310,7 +328,7 @@ local function CreateCopyWindow()
             copyEditBox:HighlightText()
         end
         if copyHint then
-            copyHint:SetText("Press Ctrl+C to copy the selected chat text.")
+            copyHint:SetText("Selected text is ready. Press Ctrl+C to copy.")
         end
     end)
 
@@ -318,7 +336,7 @@ local function CreateCopyWindow()
     hint:SetPoint("BOTTOMLEFT", 16, 20)
     hint:SetPoint("RIGHT", btn, "LEFT", -12, 0)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Colored preview above. Click Copy All, then press Ctrl+C.")
+    hint:SetText("Select text manually, or click Copy All and press Ctrl+C.")
 
     copyFrame = f
     copyEditBox = eb
@@ -329,52 +347,42 @@ local function CreateCopyWindow()
     copyButton = btn
 end
 
+local BuildTextFromEntries
+
 local function ClearCopyPreview()
-    if not copyContent then
-        return
-    end
-
-    local children = { copyContent:GetChildren() }
-    for i = 1, #children do
-        children[i]:Hide()
-        children[i]:SetParent(nil)
-    end
-
-    local regions = { copyContent:GetRegions() }
-    for i = 1, #regions do
-        regions[i]:Hide()
+    if copyContent and type(copyContent.SetText) == "function" then
+        copyContent:SetText("")
+        copyContent:SetCursorPosition(0)
+        copyContent:HighlightText(0, 0)
+        copyContent:ClearFocus()
     end
 end
 
 local function RenderCopyPreview(entries)
-    ClearCopyPreview()
-
     if not copyContent then
         return
     end
 
-    local y = -8
     local width = 545
     if copyScroll and copyScroll.GetWidth then
-        width = math.max(260, math.floor((copyScroll:GetWidth() or 575) - 14))
-    end
-    for i = 1, #entries do
-        local line = copyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        line:SetPoint("TOPLEFT", 6, y)
-        line:SetWidth(width)
-        line:SetJustifyH("LEFT")
-        line:SetText(BuildColoredLine(entries[i]))
-        line:SetNonSpaceWrap(true)
-
-        local height = math.max(16, line:GetStringHeight() + 2)
-        y = y - height
+        width = math.max(260, math.floor((copyScroll:GetWidth() or 575) - 12))
     end
 
-    copyContent:SetHeight(math.max(1, -y + 12))
-    copyContent:SetWidth(width + 12)
+    local text = BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS)
+    copyContent:SetWidth(width)
+    copyContent:SetText(text)
+    copyContent:SetCursorPosition(0)
+    copyContent:HighlightText(0, 0)
+    copyContent:ClearFocus()
+
+    local lineCount = 1
+    for _ in string.gmatch(text or "", "\n") do
+        lineCount = lineCount + 1
+    end
+    copyContent:SetHeight(math.max(1, lineCount * 16 + 24))
 end
 
-local function BuildTextFromEntries(entries, maxChars)
+BuildTextFromEntries = function(entries, maxChars)
     local lines = {}
     local chars = 0
     maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
@@ -408,14 +416,14 @@ local function ShowCopyWindow(entries, title)
         copyTitle:SetText(title or "Chatify Copy")
     end
     if copyHint then
-        copyHint:SetText("Colored preview above. Click Copy All, then press Ctrl+C.")
+        copyHint:SetText("Select text manually, or click Copy All and press Ctrl+C.")
     end
 
     RenderCopyPreview(entries)
 
     copyEditBox:SetText(BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS))
-    copyEditBox:HighlightText()
-    copyEditBox:SetFocus()
+    copyEditBox:ClearFocus()
+    copyEditBox:HighlightText(0, 0)
     if copyScroll and copyScroll.SetVerticalScroll then
         copyScroll:SetVerticalScroll(0)
     end
