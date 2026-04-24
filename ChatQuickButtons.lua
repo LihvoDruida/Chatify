@@ -10,6 +10,7 @@ local unpack = unpack or table.unpack
 local container
 local settingsContainer
 local settingsButton
+local copyButton
 local socialButton
 local socialButtonHooked = false
 local buttons = {}
@@ -1566,6 +1567,16 @@ UpdateButtonState = function()
             RefreshButtonLook(settingsButton)
         end
     end
+
+    if copyButton then
+        copyButton:SetEnabled(true)
+        if copyButton.EnableMouse then
+            copyButton:EnableMouse(true)
+        end
+        copyButton.__chatifyDisabled = false
+        copyButton.__chatifySelected = false
+        RefreshButtonLook(copyButton)
+    end
 end
 
 local function ActivateChatType(def, useAlt)
@@ -1801,6 +1812,9 @@ local function LayoutSettingsButton()
             settingsContainer:Hide()
         end
         settingsButton:Hide()
+        if copyButton then
+            copyButton:Hide()
+        end
         if socialButton then
             socialButton:Hide()
         end
@@ -1816,6 +1830,9 @@ local function LayoutSettingsButton()
             settingsContainer:Hide()
         end
         settingsButton:Hide()
+        if copyButton then
+            copyButton:Hide()
+        end
         return
     end
 
@@ -1883,6 +1900,21 @@ local function LayoutSettingsButton()
         settingsButton:Show()
     else
         settingsButton:Hide()
+    end
+
+    if showSettings and copyButton then
+        copyButton:SetParent(sidebarFrame)
+        copyButton:ClearAllPoints()
+        copyButton:SetPoint("TOP", settingsButton, "BOTTOM", 0, -spacing)
+        copyButton:SetSize(buttonWidth, buttonHeight)
+        copyButton:SetFrameStrata(strata)
+        if copyButton.SetFrameLevel then
+            copyButton:SetFrameLevel(frameLevel + 2)
+        end
+        RefreshButtonLook(copyButton)
+        copyButton:Show()
+    elseif copyButton then
+        copyButton:Hide()
     end
 end
 
@@ -2209,6 +2241,50 @@ local function EnsureContainer()
 
     settingsButton:SetScript("OnLeave", function()
         RefreshSettingsButtonLook()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+
+
+    copyButton = CreateFrame("Button", "ChatifyChatMenuCopyButton", settingsContainer, backdropTemplate)
+    copyButton:RegisterForClicks("LeftButtonUp")
+    copyButton:SetHitRectInsets(0, 0, 0, 0)
+    copyButton.Label = copyButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    copyButton.Label:SetJustifyH("CENTER")
+    copyButton.Label:SetJustifyV("MIDDLE")
+    copyButton.Label:SetPoint("CENTER", copyButton, "CENTER", 0, 0)
+    copyButton.Label:SetText("C")
+
+    copyButton:SetScript("OnClick", function()
+        if type(ns.OpenChatCopyWindow) == "function" then
+            ns.OpenChatCopyWindow(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME, 250)
+        end
+    end)
+
+    copyButton:SetScript("OnEnter", function(self)
+        RefreshButtonLook(self)
+        if GameTooltip then
+            local skinLabel = "Standard"
+            if GetConfiguredTheme() == "ELVUI" then
+                skinLabel = "ElvUI"
+            elseif GetConfiguredTheme() == "GW2UI" then
+                skinLabel = "GW2 UI"
+            end
+
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
+            AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
+            AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
+            AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
+            GameTooltip:Show()
+        end
+    end)
+
+    copyButton:SetScript("OnLeave", function(self)
+        RefreshButtonLook(self)
         if GameTooltip then
             GameTooltip:Hide()
         end
