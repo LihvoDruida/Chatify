@@ -1361,7 +1361,7 @@ local function GetConfiguredButtonMetrics()
     end
 
     local configuredHeight = math.max(18, math.floor((configuredWidth * ratio) + 0.5))
-    return configuredWidth, configuredHeight, ratio
+    return math.floor(configuredWidth + 0.5), math.floor(configuredHeight + 0.5), ratio
 end
 
 local function GetFrameIdentity(frame)
@@ -1790,7 +1790,8 @@ local function RefreshSidebarIconButtonLook(button, iconPath, iconSize)
 
     EnsureSidebarIconButtonVisual(button, iconPath, iconSize)
 
-    button:SetSize(26, 28)
+    -- Size is controlled by LayoutSidebarButtonStack(). Do not hardcode it here,
+    -- otherwise settings/copy buttons drift from Blizzard sidebar metrics.
     button:SetNormalTexture("chatframe-button-up")
     button:SetPushedTexture("chatframe-button-down")
     button:SetHighlightTexture("chatframe-button-highlight")
@@ -1820,6 +1821,74 @@ RefreshCopyButtonLook = function()
     RefreshSidebarIconButtonLook(copyButton, COPY_CHAT_ICON, 14)
 end
 
+-- Table-driven sidebar layout manager: one compact stack controls
+-- social/channel/settings/copy buttons and keeps spacing consistent.
+local SIDEBAR_LAYOUT = {
+    paddingTop = 0,
+    spacing = 1,
+    x = 0,
+}
+
+local function GetSidebarLayoutSpacing()
+    local db = GetDB()
+    local spacing = SIDEBAR_LAYOUT.spacing
+    if db and type(db.quickChatButtonSpacing) == "number" then
+        spacing = math.max(1, math.min(2, math.floor(db.quickChatButtonSpacing + 0.5)))
+    end
+    return spacing
+end
+
+local function AddSidebarLayoutItem(items, key, button, refreshFunc)
+    if not button then
+        return
+    end
+    items[#items + 1] = { key = key, frame = button, refresh = refreshFunc }
+end
+
+local function ApplySidebarButtonLayout(button, sidebarFrame, buttonWidth, buttonHeight, strata, frameLevel)
+    if not button then
+        return
+    end
+    button:SetParent(sidebarFrame)
+    button:ClearAllPoints()
+    button:SetSize(buttonWidth, buttonHeight)
+    button:SetFrameStrata(strata)
+    if button.SetFrameLevel then
+        button:SetFrameLevel(frameLevel + 2)
+    end
+    button:Show()
+end
+
+local function LayoutSidebarButtonStack(sidebarFrame, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
+    local previous
+    for _, item in ipairs(items) do
+        local button = item.frame
+        ApplySidebarButtonLayout(button, sidebarFrame, buttonWidth, buttonHeight, strata, frameLevel)
+        if previous then
+            button:SetPoint("TOP", previous, "BOTTOM", SIDEBAR_LAYOUT.x, -spacing)
+        else
+            button:SetPoint("TOP", sidebarFrame, "TOP", SIDEBAR_LAYOUT.x, -SIDEBAR_LAYOUT.paddingTop)
+        end
+        if type(item.refresh) == "function" then
+            item.refresh()
+        end
+        previous = button
+    end
+end
+
+local function HideUnusedSidebarButtons(activeItems, ...)
+    local active = {}
+    for _, item in ipairs(activeItems or {}) do
+        active[item.frame] = true
+    end
+    for i = 1, select("#", ...) do
+        local button = select(i, ...)
+        if button and not active[button] then
+            button:Hide()
+        end
+    end
+end
+
 local function LayoutSettingsButton()
     if not settingsButton then
         return
@@ -1843,20 +1912,28 @@ local function LayoutSettingsButton()
     local social = EnsureSocialSidebarButton()
     local channelButton = _G.ChatFrameChannelButton
     local showSettings = ShouldShowSettingsButton()
-    local showSidebar = social ~= nil or showSettings
-    if not showSidebar then
+    local showCopy = showSettings and copyButton ~= nil
+
+    local layoutItems = {}
+    AddSidebarLayoutItem(layoutItems, "social", social)
+    AddSidebarLayoutItem(layoutItems, "channel", channelButton)
+    if showSettings then
+        AddSidebarLayoutItem(layoutItems, "settings", settingsButton, RefreshSettingsButtonLook)
+    end
+    if showCopy then
+        AddSidebarLayoutItem(layoutItems, "copy", copyButton, RefreshCopyButtonLook)
+    end
+
+    if #layoutItems == 0 then
         if settingsContainer then
             settingsContainer:Hide()
         end
-        settingsButton:Hide()
-        if copyButton then
-            copyButton:Hide()
-        end
+        HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton)
         return
     end
 
     local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
-    local spacing = 2
+    local spacing = GetSidebarLayoutSpacing()
     local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
     local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
 
@@ -1869,72 +1946,8 @@ local function LayoutSettingsButton()
         settingsContainer:Show()
     end
 
-    if channelButton then
-        channelButton:SetParent(sidebarFrame)
-        channelButton:ClearAllPoints()
-        channelButton:SetFrameStrata(strata)
-        if channelButton.SetFrameLevel then
-            channelButton:SetFrameLevel(frameLevel + 2)
-        end
-        channelButton:SetSize(buttonWidth, buttonHeight)
-    end
-
-    local previousButton = nil
-
-    if social then
-        social:ClearAllPoints()
-        social:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
-        social:SetSize(buttonWidth, buttonHeight)
-        social:SetFrameStrata(strata)
-        if social.SetFrameLevel then
-            social:SetFrameLevel(frameLevel + 2)
-        end
-        social:Show()
-        previousButton = social
-    end
-
-    if channelButton then
-        if previousButton then
-            channelButton:SetPoint("TOP", previousButton, "BOTTOM", 0, -spacing)
-        else
-            channelButton:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
-        end
-        previousButton = channelButton
-    end
-
-    if showSettings then
-        settingsButton:SetParent(sidebarFrame)
-        settingsButton:ClearAllPoints()
-        if previousButton then
-            settingsButton:SetPoint("TOP", previousButton, "BOTTOM", 0, -spacing)
-        else
-            settingsButton:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
-        end
-        settingsButton:SetSize(buttonWidth, buttonHeight)
-        settingsButton:SetFrameStrata(strata)
-        if settingsButton.SetFrameLevel then
-            settingsButton:SetFrameLevel(frameLevel + 2)
-        end
-        RefreshSettingsButtonLook()
-        settingsButton:Show()
-    else
-        settingsButton:Hide()
-    end
-
-    if showSettings and copyButton then
-        copyButton:SetParent(sidebarFrame)
-        copyButton:ClearAllPoints()
-        copyButton:SetPoint("TOP", settingsButton, "BOTTOM", 0, -spacing)
-        copyButton:SetSize(buttonWidth, buttonHeight)
-        copyButton:SetFrameStrata(strata)
-        if copyButton.SetFrameLevel then
-            copyButton:SetFrameLevel(frameLevel + 2)
-        end
-        RefreshCopyButtonLook()
-        copyButton:Show()
-    elseif copyButton then
-        copyButton:Hide()
-    end
+    LayoutSidebarButtonStack(sidebarFrame, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel)
+    HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton)
 end
 
 local function LayoutButtons()
