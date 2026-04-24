@@ -13,6 +13,19 @@ local fullChatIndex = 0
 local CACHE_SIZE = 500
 local COPY_WINDOW_MAX_LINES = 250
 local COPY_WINDOW_MAX_CHARS = 60000
+local CHAT_CAPTURE_EVENTS = {
+    "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE",
+    "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
+    "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM",
+    "CHAT_MSG_CHANNEL", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM",
+    "CHAT_MSG_SYSTEM", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "CHAT_MSG_ACHIEVEMENT",
+}
+local captureFrame
+local lastEntrySignature
+local lastEntryTime = 0
 
 local PLAYER_COLORS = {
     "ff7ad7ff", "ffffd36b", "ff9dff7a", "ffff9a9a", "ffc79cff",
@@ -127,7 +140,7 @@ local function BuildEntry(text, author, timestamp)
         return nil
     end
 
-    local cleanAuthor = NormalizeName(author) or ExtractAuthorFromText(text)
+    local cleanAuthor = NormalizeName(author) or ExtractAuthorFromText(text) or ExtractAuthorFromText(cleanText)
     local timeText = date("%H:%M:%S", tonumber(timestamp) or time())
 
     return {
@@ -189,6 +202,14 @@ function ns.SaveToCache(text, author, timestamp)
         return nil
     end
 
+    local now = time()
+    local signature = (entry.author or "") .. "\31" .. (entry.text or "")
+    if signature == lastEntrySignature and (now - lastEntryTime) <= 1 then
+        return msgIndex > 0 and msgIndex or nil
+    end
+    lastEntrySignature = signature
+    lastEntryTime = now
+
     msgIndex = msgIndex + 1
     msgCache[msgIndex] = entry
     AddFullChatEntry(entry)
@@ -219,14 +240,15 @@ local function CreateCopyWindow()
     local f = CreateFrame("Frame", "ChatifyCopyFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     if f.SetBackdrop then
         f:SetBackdrop({
-            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
             edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = { left = 3, right = 3, top = 5, bottom = 3 }
+            tile = true, tileSize = 32, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }
         })
-        f:SetBackdropColor(0, 0, 0, 0.94)
+        f:SetBackdropColor(0, 0, 0, 0.98)
+        f:SetBackdropBorderColor(0.95, 0.72, 0.18, 1)
     end
-    f:SetSize(620, 460)
+    f:SetSize(640, 470)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
@@ -246,9 +268,23 @@ local function CreateCopyWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
 
+    local previewBg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    previewBg:SetPoint("TOPLEFT", 14, -42)
+    previewBg:SetPoint("BOTTOMRIGHT", -32, 54)
+    if previewBg.SetBackdrop then
+        previewBg:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 }
+        })
+        previewBg:SetBackdropColor(0.02, 0.02, 0.025, 0.88)
+        previewBg:SetBackdropBorderColor(0.42, 0.32, 0.12, 0.90)
+    end
+
     local scrollArea = CreateFrame("ScrollFrame", "ChatifyCopyPreviewScroll", f, "UIPanelScrollFrameTemplate")
-    scrollArea:SetPoint("TOPLEFT", 14, -42)
-    scrollArea:SetPoint("BOTTOMRIGHT", -32, 54)
+    scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 6, -6)
+    scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -24, 6)
 
     local content = CreateFrame("Frame", nil, scrollArea)
     content:SetSize(560, 1)
@@ -317,11 +353,14 @@ local function RenderCopyPreview(entries)
         return
     end
 
-    local y = -6
+    local y = -8
     local width = 545
+    if copyScroll and copyScroll.GetWidth then
+        width = math.max(260, math.floor((copyScroll:GetWidth() or 575) - 14))
+    end
     for i = 1, #entries do
         local line = copyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        line:SetPoint("TOPLEFT", 8, y)
+        line:SetPoint("TOPLEFT", 6, y)
         line:SetWidth(width)
         line:SetJustifyH("LEFT")
         line:SetText(BuildColoredLine(entries[i]))
@@ -332,7 +371,7 @@ local function RenderCopyPreview(entries)
     end
 
     copyContent:SetHeight(math.max(1, -y + 12))
-    copyContent:SetWidth(width + 16)
+    copyContent:SetWidth(width + 12)
 end
 
 local function BuildTextFromEntries(entries, maxChars)
@@ -437,16 +476,52 @@ local function ReadVisibleChatLines(chatFrame)
     return entries
 end
 
+
+local function ReadMessageHistory(chatFrame, maxLines)
+    if not chatFrame then
+        return nil
+    end
+
+    local entries = {}
+    maxLines = tonumber(maxLines) or COPY_WINDOW_MAX_LINES
+
+    if type(chatFrame.GetNumMessages) == "function" and type(chatFrame.GetMessageInfo) == "function" then
+        local okCount, count = pcall(chatFrame.GetNumMessages, chatFrame)
+        if okCount and type(count) == "number" and count > 0 then
+            local first = math.max(1, count - maxLines + 1)
+            for i = first, count do
+                local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
+                if ok and msg then
+                    local entry = BuildEntry(msg)
+                    if entry then
+                        entries[#entries + 1] = entry
+                    end
+                end
+            end
+        end
+    end
+
+    if #entries == 0 then
+        return nil
+    end
+
+    return entries
+end
+
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
     chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
 
     local entries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
     if not entries then
+        entries = ReadMessageHistory(chatFrame, maxLines)
+    end
+
+    if not entries then
         entries = ReadVisibleChatLines(chatFrame)
     end
 
     if not entries then
-        entries = { BuildEntry("No cached chat lines yet. New messages will become available after Chatify processes them.") }
+        entries = { BuildEntry("Chat buffer is empty. Send or receive a new message, then open this window again.") }
     end
 
     ShowCopyWindow(entries, "Chatify Copy — recent chat")
@@ -479,8 +554,31 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
 -- =========================================================
 -- 4. ПЕРЕХОПЛЕННЯ КЛІКІВ
 -- =========================================================
+local function OnCaptureEvent(_, event, msg, author, ...)
+    if type(msg) ~= "string" or msg == "" then
+        return
+    end
+    if type(ns.IsSecretValue) == "function" and (ns.IsSecretValue(msg) or ns.IsSecretValue(author)) then
+        return
+    end
+    ns.SaveToCache(msg, author, time())
+end
+
+local function EnsureChatCapture()
+    if captureFrame then
+        return
+    end
+
+    captureFrame = CreateFrame("Frame")
+    for _, eventName in ipairs(CHAT_CAPTURE_EVENTS) do
+        pcall(captureFrame.RegisterEvent, captureFrame, eventName)
+    end
+    captureFrame:SetScript("OnEvent", OnCaptureEvent)
+end
+
 function CopyModule:OnEnable()
     self:RawHook("SetItemRef", true)
+    EnsureChatCapture()
 end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
