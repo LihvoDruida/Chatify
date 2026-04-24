@@ -263,7 +263,7 @@ local function CreateCopyWindow()
     title:SetPoint("TOPLEFT", 16, -12)
     title:SetPoint("TOPRIGHT", -42, -12)
     title:SetJustifyH("LEFT")
-    title:SetText("Chatify Copy")
+    title:SetText(L("Chatify Copy"))
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
@@ -321,14 +321,14 @@ local function CreateCopyWindow()
     local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     btn:SetSize(108, 24)
     btn:SetPoint("BOTTOMRIGHT", -16, 16)
-    btn:SetText("Copy All")
+    btn:SetText(L("Copy All"))
     btn:SetScript("OnClick", function()
         if copyEditBox then
             copyEditBox:SetFocus()
             copyEditBox:HighlightText()
         end
         if copyHint then
-            copyHint:SetText("Selected text is ready. Press Ctrl+C to copy.")
+            copyHint:SetText(L("Selected text is ready. Press Ctrl+C to copy."))
         end
     end)
 
@@ -336,7 +336,7 @@ local function CreateCopyWindow()
     hint:SetPoint("BOTTOMLEFT", 16, 20)
     hint:SetPoint("RIGHT", btn, "LEFT", -12, 0)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Select text manually, or click Copy All and press Ctrl+C.")
+    hint:SetText(L("Select text manually, or click Copy All and press Ctrl+C."))
 
     copyFrame = f
     copyEditBox = eb
@@ -413,10 +413,10 @@ local function ShowCopyWindow(entries, title)
 
     copyFrame:Show()
     if copyTitle then
-        copyTitle:SetText(title or "Chatify Copy")
+        copyTitle:SetText(title or L("Chatify Copy"))
     end
     if copyHint then
-        copyHint:SetText("Select text manually, or click Copy All and press Ctrl+C.")
+        copyHint:SetText(L("Select text manually, or click Copy All and press Ctrl+C."))
     end
 
     RenderCopyPreview(entries)
@@ -529,10 +529,10 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
     end
 
     if not entries then
-        entries = { BuildEntry("Chat buffer is empty. Send or receive a new message, then open this window again.") }
+        entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
     end
 
-    ShowCopyWindow(entries, "Chatify Copy — recent chat")
+    ShowCopyWindow(entries, L("Chatify Copy — recent chat"))
 end
 
 -- =========================================================
@@ -602,7 +602,7 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
         local id = tonumber(link:sub(10))
         local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
         if id and payload then
-            ShowCopyWindow({ payload }, "Chatify Copy — selected line")
+            ShowCopyWindow({ payload }, L("Chatify Copy — selected line"))
         end
         return
     end

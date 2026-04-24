@@ -168,4 +168,13 @@ Locale:RegisterLocale("ukUA", {
     ["I'm currently in PvP. I'll message you when I'm free!"] = "Зараз я в PvP. Напишу, коли звільнюся!",
     ["I'm currently busy. I'll get back to you soon!"] = "Зараз я зайнятий. Скоро відповім!",
     ["I'm back now! What did you need?"] = "Я вже повернувся. Що було потрібно?",
+    ["Chatify Copy"] = "Копіювання Chatify",
+    ["Copy All"] = "Копіювати все",
+    ["Selected text is ready. Press Ctrl+C to copy."] = "Текст виділено. Натисніть Ctrl+C, щоб скопіювати.",
+    ["Select text manually, or click Copy All and press Ctrl+C."] = "Виділіть текст вручну або натисніть «Копіювати все», а потім Ctrl+C.",
+    ["Chat buffer is empty. Send or receive a new message, then open this window again."] = "Буфер чату порожній. Надішліть або отримайте нове повідомлення, потім відкрийте це вікно знову.",
+    ["Chatify Copy — recent chat"] = "Копіювання Chatify — останній чат",
+    ["Chatify Copy — selected line"] = "Копіювання Chatify — вибраний рядок",
+    ["---------------- Chatify History ----------------"] = "---------------- Історія Chatify ----------------",
+    ["-----------------------------------------------"] = "-----------------------------------------------",
 })

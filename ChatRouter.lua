@@ -1,6 +1,7 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
 local Router = Chatify:NewModule("Router", "AceEvent-3.0")
+local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 local _G = _G
 local pairs = pairs
@@ -184,7 +185,7 @@ local function RestoreVirtualHistory()
         if frame and messages and #messages > 0 then
             local orig = originalAddMessage[frame] or (frame and frame.AddMessage)
             if type(orig) == "function" then
-                orig(frame, "|cff666666---------------- Chatify History ----------------|r")
+                orig(frame, "|cff666666" .. L("---------------- Chatify History ----------------") .. "|r")
                 for i = 1, #messages do
                     local msg = SafeString(messages[i])
                     if msg then
@@ -195,7 +196,7 @@ local function RestoreVirtualHistory()
                         end
                     end
                 end
-                orig(frame, "|cff666666-----------------------------------------------|r")
+                orig(frame, "|cff666666" .. L("-----------------------------------------------") .. "|r")
             end
         end
     end
