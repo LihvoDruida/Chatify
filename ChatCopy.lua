@@ -32,6 +32,26 @@ local PLAYER_COLORS = {
     "ff7affb2", "ffffb86b", "ff9ab7ff", "ffff7adf", "ffb7ffea",
 }
 
+local function SafeChatText(value)
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(value)
+    end
+
+    if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value) then
+        return nil
+    end
+
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(value) then
+        return nil
+    end
+
+    if type(value) == "string" then
+        return value
+    end
+
+    return nil
+end
+
 local function StripChatMarkup(text)
     if type(text) ~= "string" then
         return nil
@@ -197,7 +217,13 @@ local function AddFullChatEntry(entry)
 end
 
 function ns.SaveToCache(text, author, timestamp)
-    local entry = BuildEntry(text, author, timestamp)
+    local safeText = SafeChatText(text)
+    if type(safeText) ~= "string" or safeText == "" then
+        return nil
+    end
+
+    local safeAuthor = SafeChatText(author)
+    local entry = BuildEntry(safeText, safeAuthor, timestamp)
     if not entry then
         return nil
     end
@@ -563,13 +589,17 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
 -- 4. ПЕРЕХОПЛЕННЯ КЛІКІВ
 -- =========================================================
 local function OnCaptureEvent(_, event, msg, author, ...)
-    if type(msg) ~= "string" or msg == "" then
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author) then
         return
     end
-    if type(ns.IsSecretValue) == "function" and (ns.IsSecretValue(msg) or ns.IsSecretValue(author)) then
+
+    local safeMsg = SafeChatText(msg)
+    if type(safeMsg) ~= "string" or safeMsg == "" then
         return
     end
-    ns.SaveToCache(msg, author, time())
+
+    local safeAuthor = SafeChatText(author)
+    ns.SaveToCache(safeMsg, safeAuthor, time())
 end
 
 local function EnsureChatCapture()
@@ -591,6 +621,10 @@ end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
     if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(link) then
+        return self.hooks.SetItemRef(link, text, button, chatFrame)
+    end
+
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(link) then
         return self.hooks.SetItemRef(link, text, button, chatFrame)
     end
 

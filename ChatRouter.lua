@@ -340,15 +340,15 @@ local function ShouldShowHoverHyperlinkTooltips()
 end
 
 local function IsSafeHyperlink(link)
-    if type(link) ~= "string" or link == "" then
-        return false
-    end
-
     if IsSecretValue(link) then
         return false
     end
 
     if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(link) then
+        return false
+    end
+
+    if type(link) ~= "string" or link == "" then
         return false
     end
 
