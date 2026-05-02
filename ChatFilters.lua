@@ -59,11 +59,9 @@ local RetailRestrictedEvents = {
     "CHAT_MSG_CHANNEL",
     "CHAT_MSG_SAY",
     "CHAT_MSG_YELL",
-    "CHAT_MSG_WHISPER",
-    "CHAT_MSG_WHISPER_INFORM",
-    "CHAT_MSG_BN_WHISPER",
-    "CHAT_MSG_BN_WHISPER_INFORM",
-    "CHAT_MSG_BN_CONVERSATION",
+    -- Do not register message mutating filters for whispers on modern Retail.
+    -- Blizzard routes whispers to General, temporary tabs and BNet conversations through
+    -- sensitive chat payloads; changing the payload here can create blank whisper tabs.
     "CHAT_MSG_GUILD",
     "CHAT_MSG_OFFICER",
     "CHAT_MSG_PARTY",
@@ -410,6 +408,10 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
 end
 
 local function RetailRestrictedProcessor(self, event, msg, author, ...)
+    if type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
+        return false, msg, author, ...
+    end
+
     local db = DB()
     if not db then
         return false, msg, author, ...

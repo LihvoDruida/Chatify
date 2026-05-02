@@ -702,19 +702,24 @@ function Router:OnEnable()
     end
 
     if not routerHooksInstalled and type(hooksecurefunc) == "function" then
-        hooksecurefunc("FCF_OpenTemporaryWindow", function(frame)
-            if frame then
-                HookFrame(frame)
+        local function RefreshChatWindowsSoon(candidateFrame)
+            if type(candidateFrame) == "table" then
+                HookFrame(candidateFrame)
             end
-            self:RefreshProxies()
-        end)
 
-        hooksecurefunc("FCF_OpenNewWindow", function(frame)
-            if frame then
-                HookFrame(frame)
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0, function()
+                    self:ApplyToAllFrames()
+                    self:RefreshProxies()
+                end)
+            else
+                self:ApplyToAllFrames()
+                self:RefreshProxies()
             end
-            self:RefreshProxies()
-        end)
+        end
+
+        hooksecurefunc("FCF_OpenTemporaryWindow", RefreshChatWindowsSoon)
+        hooksecurefunc("FCF_OpenNewWindow", RefreshChatWindowsSoon)
 
         hooksecurefunc("FCF_SetChatWindowFontSize", function(frame)
             if frame then

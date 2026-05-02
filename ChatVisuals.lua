@@ -85,11 +85,8 @@ local retailTimestampEvents = {
     CHAT_MSG_YELL = true,
     CHAT_MSG_GUILD = true,
     CHAT_MSG_OFFICER = true,
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_BN_WHISPER = true,
-    CHAT_MSG_BN_WHISPER_INFORM = true,
-    CHAT_MSG_BN_CONVERSATION = true,
+    -- Whisper/BNet whisper events must stay untouched on modern Retail.
+    -- The client duplicates/routes them to General and temporary whisper tabs itself.
     CHAT_MSG_PARTY = true,
     CHAT_MSG_PARTY_LEADER = true,
     CHAT_MSG_INSTANCE_CHAT = true,
@@ -252,10 +249,15 @@ end
 -- 4. TIMESTAMPS (SECURE)
 -- =========================================================
 local function TimestampFilter(self, event, msg, author, ...)
+    local retailRestricted = IsRetailRestricted()
+    if retailRestricted and type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
+        return false, msg, author, ...
+    end
+
     local db = GetVisualDB()
     if not db then return false, msg, author, ... end
     if not db.enableTimestamps then return false, msg, author, ... end
-    local allowedEvents = IsRetailRestricted() and retailTimestampEvents or eventsToHandle
+    local allowedEvents = retailRestricted and retailTimestampEvents or eventsToHandle
     if not allowedEvents[event] then return false, msg, author, ... end
 
     if IsSecretValue(msg) or IsSecretValue(author) then

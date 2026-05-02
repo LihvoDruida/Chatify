@@ -206,6 +206,18 @@ function ns.IsRetailSecretValueBuild()
     return type(interfaceVersion) == "number" and interfaceVersion >= 120000
 end
 
+local whisperSensitiveEvents = {
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true,
+    CHAT_MSG_BN_WHISPER_INFORM = true,
+    CHAT_MSG_BN_CONVERSATION = true,
+}
+
+function ns.IsWhisperSensitiveEvent(eventName)
+    return whisperSensitiveEvents[eventName] and true or false
+end
+
 function ns.GetMaxChatWindows()
     if type(NUM_CHAT_WINDOWS) == "number" and NUM_CHAT_WINDOWS > 0 then
         return NUM_CHAT_WINDOWS
