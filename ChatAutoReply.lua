@@ -650,20 +650,30 @@ function AutoReply:OnEnable()
     self:RegisterEvent("GROUP_ROSTER_UPDATE", InvalidateActivityCache)
     self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateActivityCache)
 
-    self:RegisterEvent("CHAT_MSG_WHISPER", function(_, message, sender)
-        if IsPlayerSender(sender) then
-            return
-        end
-        SendAutoReply(sender, false, message)
-    end)
+    local restrictedWhispers = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
 
-    self:RegisterEvent("CHAT_MSG_BN_WHISPER", function(_, ...)
-        local message = select(1, ...)
-        local presenceID = GetBNetPresenceID(...)
-        if presenceID then
-            SendAutoReply(presenceID, true, message)
-        end
-    end)
+    if not restrictedWhispers then
+        self:RegisterEvent("CHAT_MSG_WHISPER", function(_, message, sender, ...)
+            if not CanAccess(message, sender, ...) then
+                return
+            end
+            if IsPlayerSender(sender) then
+                return
+            end
+            SendAutoReply(sender, false, message)
+        end)
+
+        self:RegisterEvent("CHAT_MSG_BN_WHISPER", function(_, ...)
+            if not CanAccess(...) then
+                return
+            end
+            local message = select(1, ...)
+            local presenceID = GetBNetPresenceID(...)
+            if presenceID then
+                SendAutoReply(presenceID, true, message)
+            end
+        end)
+    end
 
     self:RegisterEvent("CHAT_MSG_GUILD", function(_, message, sender)
         if IsPlayerSender(sender) then
@@ -674,16 +684,24 @@ function AutoReply:OnEnable()
         end
     end)
 
-    self:RegisterEvent("CHAT_MSG_WHISPER_INFORM", function(_, _, target)
-        RemovePending(target, false)
-    end)
+    if not restrictedWhispers then
+        self:RegisterEvent("CHAT_MSG_WHISPER_INFORM", function(_, _, target, ...)
+            if not CanAccess(target, ...) then
+                return
+            end
+            RemovePending(target, false)
+        end)
 
-    self:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
-        local presenceID = GetBNetPresenceID(...)
-        if presenceID then
-            RemovePending(presenceID, true)
-        end
-    end)
+        self:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
+            if not CanAccess(...) then
+                return
+            end
+            local presenceID = GetBNetPresenceID(...)
+            if presenceID then
+                RemovePending(presenceID, true)
+            end
+        end)
+    end
 
     self:RegisterChatCommand("cauto", "HandleCommand")
     self:RegisterChatCommand("chatifyreply", "HandleCommand")

@@ -202,6 +202,10 @@ local function IsBattleNetSelf(...)
 end
 
 function Sounds:OnEvent(event, msg, author, ...)
+    if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
+        return
+    end
+
     local db = ns.db and ns.db.sounds
     if not db or not db.enable then
         return
@@ -257,7 +261,9 @@ end
 
 function Sounds:OnEnable()
     for event in pairs(eventMap) do
-        self:RegisterEvent(event, "OnEvent")
+        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event)) then
+            self:RegisterEvent(event, "OnEvent")
+        end
     end
 
     UpdatePlayerIdentity()

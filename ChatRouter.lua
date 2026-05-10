@@ -47,8 +47,16 @@ local RECENT_LINES_PRUNE_INTERVAL = 50
 
 
 local function IsRetailSecretValueBuild()
+    if type(ns.IsRetailSecretValueBuild) == "function" then
+        return ns.IsRetailSecretValueBuild()
+    end
+
     if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
         return false
+    end
+
+    if type(issecretvalue) == "function" or type(canaccessvalue) == "function" then
+        return true
     end
 
     if type(GetBuildInfo) ~= "function" then
@@ -56,7 +64,7 @@ local function IsRetailSecretValueBuild()
     end
 
     local interfaceVersion = select(4, GetBuildInfo())
-    return type(interfaceVersion) == "number" and interfaceVersion >= 120000
+    return type(interfaceVersion) == "number" and interfaceVersion >= 110000
 end
 
 local function DB()
@@ -718,17 +726,26 @@ function Router:OnEnable()
             end
         end
 
-        hooksecurefunc("FCF_OpenTemporaryWindow", RefreshChatWindowsSoon)
-        hooksecurefunc("FCF_OpenNewWindow", RefreshChatWindowsSoon)
+        if type(FCF_OpenTemporaryWindow) == "function" then
+            hooksecurefunc("FCF_OpenTemporaryWindow", RefreshChatWindowsSoon)
+        end
+        if type(FCF_OpenNewWindow) == "function" then
+            hooksecurefunc("FCF_OpenNewWindow", RefreshChatWindowsSoon)
+        end
+        if type(FCF_SetTemporaryWindowType) == "function" then
+            hooksecurefunc("FCF_SetTemporaryWindowType", RefreshChatWindowsSoon)
+        end
 
-        hooksecurefunc("FCF_SetChatWindowFontSize", function(frame)
-            if frame then
-                local proxy = EnsureProxy(frame)
-                if proxy then
-                    CopyFrameSettings(frame, proxy)
+        if type(FCF_SetChatWindowFontSize) == "function" then
+            hooksecurefunc("FCF_SetChatWindowFontSize", function(frame)
+                if frame then
+                    local proxy = EnsureProxy(frame)
+                    if proxy then
+                        CopyFrameSettings(frame, proxy)
+                    end
                 end
-            end
-        end)
+            end)
+        end
 
         routerHooksInstalled = true
     end

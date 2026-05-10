@@ -7,7 +7,7 @@ local History = Chatify:NewModule("History", "AceEvent-3.0")
 -- =========================================================
 local eventTypeMap = {
     -- Safe user chat channels only.
-    -- Do not register monster/emote/achievement events on Retail 12.x,
+    -- Do not register monster/emote/achievement events on modern Retail,
     -- because merely touching those payloads can still taint Blizzard's
     -- HistoryKeeper path even if we later bail out.
     CHAT_MSG_CHANNEL = "CHANNEL",
@@ -290,7 +290,7 @@ function History:OnEnable()
         retailRestricted = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() or false
     end
 
-    -- Retail 12.x: custom history tracking through standalone chat events is not
+    -- Modern Retail: custom history tracking through standalone chat events is not
     -- equivalent to Prat's full MessageEventHandler path and can taint Blizzard's
     -- protected HistoryKeeper tables. Keep this module disabled on modern Retail.
     if retailRestricted then

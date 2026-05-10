@@ -589,7 +589,11 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
 -- 4. ПЕРЕХОПЛЕННЯ КЛІКІВ
 -- =========================================================
 local function OnCaptureEvent(_, event, msg, author, ...)
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author) then
+    if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
+        return
+    end
+
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return
     end
 
@@ -609,7 +613,9 @@ local function EnsureChatCapture()
 
     captureFrame = CreateFrame("Frame")
     for _, eventName in ipairs(CHAT_CAPTURE_EVENTS) do
-        pcall(captureFrame.RegisterEvent, captureFrame, eventName)
+        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(eventName)) then
+            pcall(captureFrame.RegisterEvent, captureFrame, eventName)
+        end
     end
     captureFrame:SetScript("OnEvent", OnCaptureEvent)
 end

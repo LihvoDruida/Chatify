@@ -53,7 +53,8 @@ end
 -- SAFE EVENT WHITELIST (КРИТИЧНО ВАЖЛИВО)
 -- =========================================================
 -- Ми додаємо таймстемпи ТІЛЬКИ до цих подій.
--- Всі інші (MONSTER_YELL, SYSTEM, BN_WHISPER) ігноруються, щоб уникнути taint-крашів.
+-- На modern Retail whisper/BNet whisper події не мутуємо: Blizzard сам дублює їх
+-- у General, temporary tabs і popup-вікна.
 local eventsToHandle = {
     CHAT_MSG_CHANNEL = true,
     CHAT_MSG_SAY = true,
@@ -334,12 +335,24 @@ function VisualsModule:OnEnable()
     self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
     self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
 
-    self:SecureHook("FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
-    self:SecureHook("FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
+    if type(FCF_OpenTemporaryWindow) == "function" then
+        self:SecureHook("FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
+    end
+    if type(FCF_OpenNewWindow) == "function" then
+        self:SecureHook("FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
+    end
+    if type(FCF_SetTemporaryWindowType) == "function" then
+        self:SecureHook("FCF_SetTemporaryWindowType", function(chatFrame)
+            StyleFrame(chatFrame)
+            QueueApplyVisuals(0)
+        end)
+    end
 
-    hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame)
-        StyleFrame(chatFrame)
-    end)
+    if type(hooksecurefunc) == "function" and type(FCF_SetChatWindowFontSize) == "function" then
+        hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame)
+            StyleFrame(chatFrame)
+        end)
+    end
 
     if not retailRestricted then
         for _, info in pairs(ChatTypeInfo) do
@@ -350,7 +363,7 @@ function VisualsModule:OnEnable()
     end
 
     -- Віртуальний чат додає власні таймстемпи через Router, тому тут не дублюємо їх.
-    -- На Retail 12.x використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
+    -- На modern Retail використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
     if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
         local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
         for evt in pairs(filterEvents) do

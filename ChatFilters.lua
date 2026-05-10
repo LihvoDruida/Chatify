@@ -52,7 +52,7 @@ local BaseEvents = {
     "CHAT_MSG_LOOT",
 }
 
--- Retail 12.x: use Blizzard's secure message-event filter path only.
+-- Modern Retail: use Blizzard's secure message-event filter path only.
 -- These callbacks are wrapped by ChatFrameUtil's secure registry and will only
 -- run when the event payload is accessible via canaccessvalue(...).
 local RetailRestrictedEvents = {

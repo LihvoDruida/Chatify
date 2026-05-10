@@ -112,7 +112,7 @@ ns.defaults = {
         timestampPost = false,      -- Час на початку повідомлення
 
         -- === HISTORY ===
-        useVirtualChat = false,      -- На Retail 12.x лишається вимкненим: прямий chat-frame layer конфліктує з secret values
+        useVirtualChat = false,      -- На modern Retail лишається вимкненим: прямий chat-frame layer конфліктує з secret values
         enableHistory = true,
         historyLimit = 50,          -- Зберігати 50 рядків
         historyAlpha = true,        -- Робити старі повідомлення сірими
@@ -198,12 +198,20 @@ function ns.IsRetailSecretValueBuild()
         return false
     end
 
+    -- Modern Retail protects parts of chat payloads with secret string values.
+    -- Do not key this only to Interface >= 120000: the protection APIs can exist on
+    -- 11.x builds too, and whisper routing/temporary windows break if we mutate or
+    -- reformat those payloads outside Blizzard's own MessageEventHandler path.
+    if type(issecretvalue) == "function" or type(canaccessvalue) == "function" then
+        return true
+    end
+
     if type(GetBuildInfo) ~= "function" then
         return true
     end
 
     local interfaceVersion = select(4, GetBuildInfo())
-    return type(interfaceVersion) == "number" and interfaceVersion >= 120000
+    return type(interfaceVersion) == "number" and interfaceVersion >= 110000
 end
 
 local whisperSensitiveEvents = {
@@ -216,6 +224,10 @@ local whisperSensitiveEvents = {
 
 function ns.IsWhisperSensitiveEvent(eventName)
     return whisperSensitiveEvents[eventName] and true or false
+end
+
+function ns.ShouldBypassWhisperMutation(eventName)
+    return ns.IsRetailSecretValueBuild() and ns.IsWhisperSensitiveEvent(eventName)
 end
 
 function ns.GetMaxChatWindows()
@@ -277,7 +289,7 @@ function ns.EnforceRetailSafeMode(db)
         return false
     end
 
-    -- Runtime-only safe mode for Retail 12.x.
+    -- Runtime-only safe mode for modern Retail.
     -- Do NOT rewrite user preferences here, otherwise the same SavedVariables
     -- stay crippled when the addon is loaded on older Retail clients.
     return true
@@ -347,7 +359,7 @@ function ns.RunRetailCompatibilityMigration(db)
     end
 
     -- Older safe-retail builds force-disabled several features directly in the DB.
-    -- If we detect that exact legacy pattern on a pre-12.x Retail build, restore
+    -- If we detect that exact legacy pattern on a older Retail build, restore
     -- the non-destructive defaults so the addon works again without manual repair.
     if db.useVirtualChat == false
         and db.enableHistory == false
