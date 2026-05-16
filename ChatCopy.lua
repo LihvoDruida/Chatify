@@ -259,6 +259,41 @@ local copyScroll
 local copyContent
 local copyHint
 local copyButton
+local copyTextValue = ""
+local copySettingText = false
+
+local function StartCopyFrameMoving(frame)
+    if not frame or not frame.StartMoving then
+        return
+    end
+
+    frame:StartMoving()
+end
+
+local function StopCopyFrameMoving(frame)
+    if not frame or not frame.StopMovingOrSizing then
+        return
+    end
+
+    frame:StopMovingOrSizing()
+end
+
+local function CreateMoveHandle(parent, name, anchorFunc)
+    local handle = CreateFrame("Frame", name, parent)
+    handle:EnableMouse(true)
+    handle:RegisterForDrag("LeftButton")
+    anchorFunc(handle)
+    handle:SetScript("OnDragStart", function()
+        StartCopyFrameMoving(parent)
+    end)
+    handle:SetScript("OnDragStop", function()
+        StopCopyFrameMoving(parent)
+    end)
+    handle:SetScript("OnMouseUp", function()
+        StopCopyFrameMoving(parent)
+    end)
+    return handle
+end
 
 local function CreateCopyWindow()
     if copyFrame then return end
@@ -274,20 +309,39 @@ local function CreateCopyWindow()
         f:SetBackdropColor(0, 0, 0, 0.98)
         f:SetBackdropBorderColor(0.95, 0.72, 0.18, 1)
     end
-    f:SetSize(640, 470)
+    f:SetSize(660, 486)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
     f:EnableMouse(true)
     f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:Hide()
 
+    local titleBar = CreateMoveHandle(f, "ChatifyCopyFrameMoveTitle", function(handle)
+        handle:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -6)
+        handle:SetPoint("TOPRIGHT", f, "TOPRIGHT", -34, -6)
+        handle:SetHeight(32)
+    end)
+
+    CreateMoveHandle(f, "ChatifyCopyFrameMoveLeft", function(handle)
+        handle:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        handle:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+        handle:SetWidth(14)
+    end)
+    CreateMoveHandle(f, "ChatifyCopyFrameMoveRight", function(handle)
+        handle:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+        handle:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        handle:SetWidth(14)
+    end)
+    CreateMoveHandle(f, "ChatifyCopyFrameMoveBottom", function(handle)
+        handle:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+        handle:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        handle:SetHeight(14)
+    end)
+
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -12)
-    title:SetPoint("TOPRIGHT", -42, -12)
+    title:SetPoint("TOPLEFT", 18, -13)
+    title:SetPoint("TOPRIGHT", -42, -13)
     title:SetJustifyH("LEFT")
     title:SetText(L("Chatify Copy"))
 
@@ -295,8 +349,9 @@ local function CreateCopyWindow()
     close:SetPoint("TOPRIGHT", 0, 0)
 
     local previewBg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    previewBg:SetPoint("TOPLEFT", 14, -42)
-    previewBg:SetPoint("BOTTOMRIGHT", -32, 54)
+    previewBg:SetPoint("TOPLEFT", 16, -46)
+    previewBg:SetPoint("BOTTOMRIGHT", -34, 58)
+    previewBg:EnableMouse(false)
     if previewBg.SetBackdrop then
         previewBg:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -304,35 +359,57 @@ local function CreateCopyWindow()
             edgeSize = 1,
             insets = { left = 1, right = 1, top = 1, bottom = 1 }
         })
-        previewBg:SetBackdropColor(0.02, 0.02, 0.025, 0.88)
-        previewBg:SetBackdropBorderColor(0.42, 0.32, 0.12, 0.90)
+        previewBg:SetBackdropColor(0.02, 0.02, 0.025, 0.92)
+        previewBg:SetBackdropBorderColor(0.42, 0.32, 0.12, 0.95)
     end
 
     local scrollArea = CreateFrame("ScrollFrame", "ChatifyCopyPreviewScroll", f, "UIPanelScrollFrameTemplate")
-    scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 8, -8)
-    scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -26, 8)
+    scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 10, -10)
+    scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -28, 10)
+    scrollArea:EnableMouse(true)
 
-    -- Selectable copy field.
-    -- Users can manually select any text directly in the window,
-    -- or click Copy All to select the full prepared export.
+    -- Prat-style copy surface: one plain scrollable EditBox.
+    -- The EditBox owns mouse selection; only the title/borders can move the popup.
     local eb = CreateFrame("EditBox", "ChatifyCopySelectableEditBox", scrollArea)
     eb:SetMultiLine(true)
     eb:SetMaxLetters(COPY_WINDOW_MAX_CHARS + 1000)
     eb:SetAutoFocus(false)
     eb:SetFontObject(ChatFontNormal)
-    eb:SetTextColor(0.92, 0.92, 0.92, 1)
+    eb:SetTextColor(0.94, 0.94, 0.94, 1)
+    if eb.SetHighlightColor then
+        eb:SetHighlightColor(0.95, 0.72, 0.18, 0.35)
+    end
+    if eb.SetTextInsets then
+        eb:SetTextInsets(4, 4, 4, 4)
+    end
+    if eb.SetSpacing then
+        eb:SetSpacing(2)
+    end
     eb:SetJustifyH("LEFT")
     eb:SetJustifyV("TOP")
-    eb:SetWidth(560)
+    eb:SetWidth(580)
     eb:SetHeight(1)
     eb:EnableMouse(true)
+    eb:SetScript("OnMouseDown", function(self)
+        self:SetFocus()
+    end)
+    eb:SetScript("OnEditFocusGained", function()
+        if copyHint then
+            copyHint:SetText(L("Select the needed text, then press Ctrl+C."))
+        end
+    end)
+    eb:SetScript("OnEditFocusLost", function()
+        if copyHint then
+            copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
+        end
+    end)
     eb:SetScript("OnEscapePressed", function(self)
         self:ClearFocus()
         f:Hide()
     end)
-    eb:SetScript("OnCursorChanged", function(self, _, y, _, cursorHeight)
+    eb:SetScript("OnCursorChanged", function(self, x, y, w, h)
         if ScrollingEdit_OnCursorChanged then
-            ScrollingEdit_OnCursorChanged(self, 0, y, 0, cursorHeight)
+            ScrollingEdit_OnCursorChanged(self, x, y, w, h)
         end
     end)
     eb:SetScript("OnUpdate", function(self, elapsed)
@@ -340,18 +417,33 @@ local function CreateCopyWindow()
             ScrollingEdit_OnUpdate(self, elapsed, scrollArea)
         end
     end)
+    eb:SetScript("OnTextChanged", function(self, userInput)
+        if userInput and not copySettingText then
+            local cursor = self:GetCursorPosition() or 0
+            copySettingText = true
+            self:SetText(copyTextValue or "")
+            self:SetCursorPosition(math.min(cursor, #(copyTextValue or "")))
+            copySettingText = false
+            return
+        end
+
+        if scrollArea.UpdateScrollChildRect then
+            scrollArea:UpdateScrollChildRect()
+        end
+    end)
     scrollArea:SetScrollChild(eb)
 
     local content = eb
 
     local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    btn:SetSize(108, 24)
-    btn:SetPoint("BOTTOMRIGHT", -16, 16)
-    btn:SetText(L("Copy All"))
+    btn:SetSize(116, 24)
+    btn:SetPoint("BOTTOMRIGHT", -18, 18)
+    btn:SetText(L("Select All"))
     btn:SetScript("OnClick", function()
         if copyEditBox then
             copyEditBox:SetFocus()
-            copyEditBox:HighlightText()
+            copyEditBox:SetCursorPosition(0)
+            copyEditBox:HighlightText(0, -1)
         end
         if copyHint then
             copyHint:SetText(L("Selected text is ready. Press Ctrl+C to copy."))
@@ -359,10 +451,13 @@ local function CreateCopyWindow()
     end)
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hint:SetPoint("BOTTOMLEFT", 16, 20)
+    hint:SetPoint("BOTTOMLEFT", 18, 22)
     hint:SetPoint("RIGHT", btn, "LEFT", -12, 0)
     hint:SetJustifyH("LEFT")
-    hint:SetText(L("Select text manually, or click Copy All and press Ctrl+C."))
+    hint:SetText(L("Click Select All for the full export, or select part of the text manually."))
+
+    titleBar:SetFrameLevel((f:GetFrameLevel() or 1) + 1)
+    close:SetFrameLevel((f:GetFrameLevel() or 1) + 3)
 
     copyFrame = f
     copyEditBox = eb
@@ -375,13 +470,20 @@ end
 
 local BuildTextFromEntries
 
-local function ClearCopyPreview()
+local function SetCopyEditText(text)
+    copyTextValue = text or ""
     if copyContent and type(copyContent.SetText) == "function" then
-        copyContent:SetText("")
+        copySettingText = true
+        copyContent:SetText(copyTextValue)
         copyContent:SetCursorPosition(0)
         copyContent:HighlightText(0, 0)
         copyContent:ClearFocus()
+        copySettingText = false
     end
+end
+
+local function ClearCopyPreview()
+    SetCopyEditText("")
 end
 
 local function RenderCopyPreview(entries)
@@ -396,10 +498,7 @@ local function RenderCopyPreview(entries)
 
     local text = BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS)
     copyContent:SetWidth(width)
-    copyContent:SetText(text)
-    copyContent:SetCursorPosition(0)
-    copyContent:HighlightText(0, 0)
-    copyContent:ClearFocus()
+    SetCopyEditText(text)
 
     local lineCount = 1
     for _ in string.gmatch(text or "", "\n") do
@@ -442,14 +541,15 @@ local function ShowCopyWindow(entries, title)
         copyTitle:SetText(title or L("Chatify Copy"))
     end
     if copyHint then
-        copyHint:SetText(L("Select text manually, or click Copy All and press Ctrl+C."))
+        copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
     end
 
     RenderCopyPreview(entries)
 
-    copyEditBox:SetText(BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS))
-    copyEditBox:ClearFocus()
-    copyEditBox:HighlightText(0, 0)
+    if copyEditBox then
+        copyEditBox:ClearFocus()
+        copyEditBox:HighlightText(0, 0)
+    end
     if copyScroll and copyScroll.SetVerticalScroll then
         copyScroll:SetVerticalScroll(0)
     end
