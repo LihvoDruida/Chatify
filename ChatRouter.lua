@@ -112,6 +112,13 @@ local function SafeString(raw)
 end
 
 local function NormalizeText(text)
+    if type(ns.NormalizeSpamText) == "function" then
+        local ok, forms = pcall(ns.NormalizeSpamText, text)
+        if ok and type(forms) == "table" and type(forms.compact) == "string" then
+            return forms.compact
+        end
+    end
+
     local safe = SafeString(text)
     if not safe then
         return nil
@@ -119,9 +126,11 @@ local function NormalizeText(text)
 
     local ok, normalized = pcall(function()
         local v = safe
+        v = v:gsub("|H.-|h(.-)|h", "%1")
         v = v:gsub("|c%x%x%x%x%x%x%x%x", "")
         v = v:gsub("|r", "")
-        v = v:gsub("|H.-|h(.-)|h", "%1")
+        v = v:gsub("|T.-|t", " ")
+        v = v:gsub("|A.-|a", " ")
         v = v:gsub("[%s%p%c]", "")
         v = v:upper()
         return v
@@ -279,7 +288,7 @@ local function ShouldSuppressForSpam(frameID, text)
     local now = GetTime()
     local state = recentLines[normalized]
 
-    if db.enableSpamFilter and ns.IsSpamMessage and ns.IsSpamMessage(normalized) then
+    if db.enableSpamFilter and ns.IsSpamMessage and ns.IsSpamMessage(text) then
         return true
     end
 

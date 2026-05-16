@@ -129,7 +129,7 @@ ns.defaults = {
 
         -- Базовий список слів для блокування
         spamKeywords = { 
-            "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES"
+            "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES", "VIP"
         },
 
         -- === FORMATTING ===

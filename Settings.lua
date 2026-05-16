@@ -3,6 +3,31 @@ local Chatify = ns.Chatify
 local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
 local ACD = LibStub("AceConfigDialog-3.0", true)
 
+local function TrimInput(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+
+    return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function NormalizeKeywordKey(value)
+    local trimmed = TrimInput(value)
+    if trimmed == "" then
+        return ""
+    end
+
+    if type(ns.NormalizeSpamText) == "function" then
+        local ok, forms = pcall(ns.NormalizeSpamText, trimmed)
+        if ok and type(forms) == "table" and type(forms.compact) == "string" then
+            return forms.compact
+        end
+    end
+
+    return trimmed:gsub("[%s%p%c]", ""):upper()
+end
+
+
 local function GetAddonMetadataValue(key)
     if C_AddOns and C_AddOns.GetAddOnMetadata then
         return C_AddOns.GetAddOnMetadata(addonName, key)
@@ -540,8 +565,22 @@ function Chatify:GetOptions()
                                 type = "input",
                                 width = "full",
                                 set = function(info, val)
-                                    if val and val ~= "" then
-                                        table.insert(self.db.profile.spamKeywords, val)
+                                    local keyword = TrimInput(val)
+                                    if keyword ~= "" then
+                                        self.db.profile.spamKeywords = self.db.profile.spamKeywords or {}
+                                        local normalized = NormalizeKeywordKey(keyword)
+                                        local exists = false
+                                        for _, current in ipairs(self.db.profile.spamKeywords) do
+                                            if NormalizeKeywordKey(current) == normalized then
+                                                exists = true
+                                                break
+                                            end
+                                        end
+
+                                        if not exists then
+                                            table.insert(self.db.profile.spamKeywords, keyword)
+                                        end
+
                                         if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
                                     end
                                 end,
@@ -555,11 +594,13 @@ function Chatify:GetOptions()
                                 width = "full",
                                 values = function()
                                     local t = {}
-                                    for i, word in ipairs(self.db.profile.spamKeywords) do t[i] = word end
+                                    for i, word in ipairs(self.db.profile.spamKeywords or {}) do t[i] = word end
                                     return t
                                 end,
                                 set = function(info, key) 
-                                    table.remove(self.db.profile.spamKeywords, key)
+                                    if self.db.profile.spamKeywords then
+                                        table.remove(self.db.profile.spamKeywords, key)
+                                    end
                                     if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
                                 end,
                                 get = function(info) return nil end,
@@ -570,8 +611,9 @@ function Chatify:GetOptions()
                                 order = 7,
                                 type = "description",
                                 name = function() 
-                                    if #self.db.profile.spamKeywords == 0 then return "\n|cff888888(Blocklist is empty)|r" end
-                                    return "\n|cffff0000Blocked Words:|r " .. table.concat(self.db.profile.spamKeywords, ", ") 
+                                    local keywords = self.db.profile.spamKeywords or {}
+                                    if #keywords == 0 then return "\n|cff888888(Blocklist is empty)|r" end
+                                    return "\n|cffff0000Blocked Words:|r " .. table.concat(keywords, ", ") 
                                 end,
                             }
                         }

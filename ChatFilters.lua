@@ -170,61 +170,167 @@ local function IsRetailRestricted()
     return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
 end
 
-local function NormalizeText(text)
-    if IsSecretValue(text) then
+local function Trim(value)
+    if type(value) ~= "string" then
         return ""
+    end
+
+    return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function EscapePattern(value)
+    return (value:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+local function StripWoWMarkup(text)
+    local value = text
+
+    -- Keep the visible text of hyperlinks. The previous spam normalizer removed the
+    -- whole |H...|hvisible|h block, so ads that linked words like VIP/CARRY could
+    -- slip through even when the keyword existed in the blocklist.
+    local guard = 0
+    while guard < 8 do
+        local changed
+        value, changed = string_gsub(value, "|H.-|h(.-)|h", "%1")
+        if changed == 0 then
+            break
+        end
+        guard = guard + 1
+    end
+
+    value = string_gsub(value, "|c%x%x%x%x%x%x%x%x", "")
+    value = string_gsub(value, "|r", "")
+    value = string_gsub(value, "|T.-|t", " ")
+    value = string_gsub(value, "|A.-|a", " ")
+    value = string_gsub(value, "{.-}", " ")
+
+    return value
+end
+
+function ns.NormalizeSpamText(text)
+    if IsSecretValue(text) then
+        return { compact = "", tokens = " ", clean = "" }
     end
 
     local safe = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(text) or text
+    if type(safe) == "number" then
+        safe = tostring(safe)
+    end
     if type(safe) ~= "string" then
-        return ""
+        return { compact = "", tokens = " ", clean = "" }
     end
 
-    local ok, normalized = pcall(function()
-        local value = safe
-        value = string_gsub(value, "|c%x%x%x%x%x%x%x%x", "")
-        value = string_gsub(value, "|H.-|h.-|h", "")
-        value = string_gsub(value, "|r", "")
-        value = string_gsub(value, "[%s%p%c]", "")
-        return string_upper(value)
+    local ok, forms = pcall(function()
+        local clean = string_upper(StripWoWMarkup(safe))
+        local tokens = string_gsub(clean, "[^%w]+", " ")
+        tokens = " " .. Trim(tokens) .. " "
+        local compact = string_gsub(tokens, "%s+", "")
+
+        return {
+            compact = compact,
+            tokens = tokens,
+            clean = clean,
+        }
     end)
 
-    if ok and type(normalized) == "string" then
-        return normalized
+    if ok and type(forms) == "table" then
+        return forms
     end
 
-    return ""
+    return { compact = "", tokens = " ", clean = "" }
+end
+
+local function NormalizeText(text)
+    local forms = ns.NormalizeSpamText(text)
+    return forms.compact or ""
+end
+
+local function BuildFuzzyWordPattern(compactKeyword)
+    if type(compactKeyword) ~= "string" or compactKeyword == "" then
+        return nil
+    end
+    if not compactKeyword:match("^[%w]+$") then
+        return nil
+    end
+
+    local parts = {}
+    for index = 1, #compactKeyword do
+        parts[#parts + 1] = EscapePattern(compactKeyword:sub(index, index))
+    end
+
+    -- Letter-frontier boundaries keep short keywords like VIP from matching VIPER,
+    -- but still catch VIP 9/9, VIP9/9 and obfuscated forms such as V.I.P or V-I-P.
+    local startBoundary = compactKeyword:match("^[%a]+$") and "%f[%a]" or "%f[%w]"
+    local endBoundary = compactKeyword:match("^[%a]+$") and "%f[%A]" or "%f[%W]"
+    return startBoundary .. table_concat(parts, "[%s%p%c]*") .. endBoundary
 end
 
 function ns.UpdateSpamCache()
     local db = DB()
     CachedKeywords = {}
 
-    if not db or not db.spamKeywords then
+    if not db or type(db.spamKeywords) ~= "table" then
         return
     end
 
+    local seen = {}
     for i = 1, #db.spamKeywords do
-        local word = db.spamKeywords[i]
-        if word and word ~= "" then
-            tinsert(CachedKeywords, NormalizeText(word))
+        local raw = Trim(tostring(db.spamKeywords[i] or ""))
+        if raw ~= "" then
+            local forms = ns.NormalizeSpamText(raw)
+            local compact = forms.compact or ""
+            if compact ~= "" and not seen[compact] then
+                seen[compact] = true
+                tinsert(CachedKeywords, {
+                    raw = raw,
+                    compact = compact,
+                    token = " " .. compact .. " ",
+                    fuzzyPattern = BuildFuzzyWordPattern(compact),
+                    allowCompactSubstring = #compact >= 4,
+                })
+            end
         end
     end
 end
 
-function ns.IsSpamMessage(normalizedMessage)
-    if normalizedMessage == "" then
-        return false
+function ns.GetSpamMatch(messageText)
+    local forms
+    if type(messageText) == "table" then
+        forms = messageText
+    else
+        forms = ns.NormalizeSpamText(messageText)
+    end
+
+    local compactMessage = forms.compact or ""
+    local tokenMessage = forms.tokens or " "
+    local cleanMessage = forms.clean or ""
+
+    if compactMessage == "" then
+        return nil
     end
 
     for i = 1, #CachedKeywords do
         local keyword = CachedKeywords[i]
-        if keyword ~= "" and string_find(normalizedMessage, keyword, 1, true) then
-            return true
+        if keyword and keyword.compact and keyword.compact ~= "" then
+            if keyword.token and string_find(tokenMessage, keyword.token, 1, true) then
+                return keyword.raw or keyword.compact
+            end
+
+            if keyword.fuzzyPattern and string_find(cleanMessage, keyword.fuzzyPattern) then
+                return keyword.raw or keyword.compact
+            end
+
+            if keyword.allowCompactSubstring and string_find(compactMessage, keyword.compact, 1, true) then
+                return keyword.raw or keyword.compact
+            end
         end
     end
 
-    return false
+    return nil
+end
+
+function ns.IsSpamMessage(messageText)
+    return ns.GetSpamMatch(messageText) ~= nil
 end
 
 local function DecorateLink(url)
@@ -444,7 +550,7 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    if db.enableSpamFilter and ns.IsSpamMessage(NormalizeText(msg)) then
+    if db.enableSpamFilter and ns.IsSpamMessage(msg) then
         return true
     end
 
@@ -477,7 +583,7 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    if db.enableSpamFilter and ns.IsSpamMessage(NormalizeText(msg)) then
+    if db.enableSpamFilter and ns.IsSpamMessage(msg) then
         return true
     end
 
