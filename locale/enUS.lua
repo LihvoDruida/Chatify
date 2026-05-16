@@ -182,4 +182,8 @@ Locale:RegisterLocale("enUS", {
     ["Whisper Received"] = "Whisper Received",
     ["|cffff0000Cannot be undone!|r"] = "|cffff0000Cannot be undone!|r",
     ["|cffff0000WARNING:|r Reset all settings?"] = "|cffff0000WARNING:|r Reset all settings?",
+    ["Protected chat line omitted."] = "Protected chat line omitted.",
+    ["Right Click"] = "Right Click",
+    ["Enable native text selection on the active chat frame"] = "Enable native text selection on the active chat frame",
+    ["Chatify Copy — selected chat"] = "Chatify Copy — selected chat",
 })

@@ -180,4 +180,8 @@ Locale:RegisterLocale("ukUA", {
     ["Chatify Copy — selected line"] = "Копіювання Chatify — вибраний рядок",
     ["---------------- Chatify History ----------------"] = "---------------- Історія Chatify ----------------",
     ["-----------------------------------------------"] = "-----------------------------------------------",
+    ["Protected chat line omitted."] = "Захищений рядок чату пропущено.",
+    ["Right Click"] = "Правий клік",
+    ["Enable native text selection on the active chat frame"] = "Увімкнути рідне виділення тексту в активному чаті",
+    ["Chatify Copy — selected chat"] = "Копіювання Chatify — вибраний чат",
 })

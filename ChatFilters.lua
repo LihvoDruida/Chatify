@@ -26,6 +26,42 @@ local SystemEvents = {
 }
 
 local filtersInstalled = false
+local registeredFilters = {}
+
+local function RegisterMessageFilter(eventName, callback)
+    if type(eventName) ~= "string" or type(callback) ~= "function" then
+        return false
+    end
+
+    local ok = false
+    if type(ns.AddMessageEventFilterIfSupported) == "function" then
+        ok = ns.AddMessageEventFilterIfSupported(eventName, callback)
+    elseif type(ChatFrame_AddMessageEventFilter) == "function" then
+        ok = pcall(ChatFrame_AddMessageEventFilter, eventName, callback) and true or false
+    end
+
+    if ok then
+        registeredFilters[eventName] = registeredFilters[eventName] or {}
+        registeredFilters[eventName][callback] = true
+    end
+
+    return ok
+end
+
+local function UnregisterMessageFilters()
+    for eventName, callbacks in pairs(registeredFilters) do
+        for callback in pairs(callbacks) do
+            if type(ns.RemoveMessageEventFilterIfSupported) == "function" then
+                ns.RemoveMessageEventFilterIfSupported(eventName, callback)
+            elseif type(ChatFrame_RemoveMessageEventFilter) == "function" then
+                pcall(ChatFrame_RemoveMessageEventFilter, eventName, callback)
+            end
+        end
+    end
+
+    registeredFilters = {}
+    filtersInstalled = false
+end
 
 local BaseEvents = {
     "CHAT_MSG_CHANNEL",
@@ -508,43 +544,23 @@ function Filters:OnEnable()
     if not filtersInstalled then
         if IsRetailRestricted() then
             for i = 1, #RetailRestrictedEvents do
-                if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                    ns.AddMessageEventFilterIfSupported(RetailRestrictedEvents[i], RetailRestrictedProcessor)
-                else
-                    ChatFrame_AddMessageEventFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
-                end
+                RegisterMessageFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
             end
 
             for eventName in pairs(SystemEvents) do
-                if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                    ns.AddMessageEventFilterIfSupported(eventName, RetailRestrictedProcessor)
-                else
-                    ChatFrame_AddMessageEventFilter(eventName, RetailRestrictedProcessor)
-                end
+                RegisterMessageFilter(eventName, RetailRestrictedProcessor)
             end
         elseif IsVirtualMode() then
             for eventName in pairs(SystemEvents) do
-                if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                    ns.AddMessageEventFilterIfSupported(eventName, SystemOnlyFilter)
-                else
-                    ChatFrame_AddMessageEventFilter(eventName, SystemOnlyFilter)
-                end
+                RegisterMessageFilter(eventName, SystemOnlyFilter)
             end
         else
             for i = 1, #BaseEvents do
-                if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                    ns.AddMessageEventFilterIfSupported(BaseEvents[i], LegacyMessageProcessor)
-                else
-                    ChatFrame_AddMessageEventFilter(BaseEvents[i], LegacyMessageProcessor)
-                end
+                RegisterMessageFilter(BaseEvents[i], LegacyMessageProcessor)
             end
 
             for eventName in pairs(SystemEvents) do
-                if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                    ns.AddMessageEventFilterIfSupported(eventName, LegacyMessageProcessor)
-                else
-                    ChatFrame_AddMessageEventFilter(eventName, LegacyMessageProcessor)
-                end
+                RegisterMessageFilter(eventName, LegacyMessageProcessor)
             end
         end
 
@@ -555,5 +571,14 @@ function Filters:OnEnable()
         self:HookCommunities()
     else
         self:RegisterEvent("ADDON_LOADED")
+    end
+end
+
+
+function Filters:OnDisable()
+    UnregisterMessageFilters()
+    self:UnregisterAllEvents()
+    if type(self.UnhookAll) == "function" then
+        self:UnhookAll()
     end
 end

@@ -171,6 +171,16 @@ local function BuildEntry(text, author, timestamp)
     }
 end
 
+local function BuildProtectedEntry(label, timestamp)
+    return {
+        text = label or L("Protected chat line omitted."),
+        raw = label or L("Protected chat line omitted."),
+        author = nil,
+        time = date("%H:%M:%S", tonumber(timestamp) or time()),
+        protected = true,
+    }
+end
+
 local function BuildPlainLine(entry)
     if type(entry) == "string" then
         return StripChatMarkup(entry) or entry
@@ -618,7 +628,48 @@ local function BuildCachedChatEntries(maxLines, maxChars)
     return entries
 end
 
+local function ReadVisibleLineMessages(chatFrame)
+    if not chatFrame or type(chatFrame.visibleLines) ~= "table" then
+        return nil
+    end
+
+    local entries = {}
+    for i = 1, #chatFrame.visibleLines do
+        local line = chatFrame.visibleLines[i]
+        local text
+
+        if line and line.messageInfo then
+            text = line.messageInfo.message
+        end
+
+        if not text and line and type(line.GetText) == "function" then
+            local ok, value = pcall(line.GetText, line)
+            if ok then
+                text = value
+            end
+        end
+
+        local entry = BuildEntry(text)
+        if entry then
+            entries[#entries + 1] = entry
+        elseif text ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(text) then
+            entries[#entries + 1] = BuildProtectedEntry()
+        end
+    end
+
+    if #entries == 0 then
+        return nil
+    end
+
+    return entries
+end
+
 local function ReadVisibleChatLines(chatFrame)
+    local visibleLineEntries = ReadVisibleLineMessages(chatFrame)
+    if visibleLineEntries then
+        return visibleLineEntries
+    end
+
     if not chatFrame or type(chatFrame.GetRegions) ~= "function" then
         return nil
     end
@@ -633,6 +684,8 @@ local function ReadVisibleChatLines(chatFrame)
                 local entry = BuildEntry(text)
                 if entry then
                     entries[#entries + 1] = entry
+                elseif text ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(text) then
+                    entries[#entries + 1] = BuildProtectedEntry()
                 end
             end
         end
@@ -645,13 +698,18 @@ local function ReadVisibleChatLines(chatFrame)
     return entries
 end
 
-
 local function AddHistoryEntry(entries, rawText)
     local entry = BuildEntry(rawText)
     if entry then
         entries[#entries + 1] = entry
         return true
     end
+
+    if rawText ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(rawText) then
+        entries[#entries + 1] = BuildProtectedEntry()
+        return true
+    end
+
     return false
 end
 
@@ -695,6 +753,30 @@ local function ReadMessageHistory(chatFrame, maxLines)
     end
 
     return entries
+end
+
+function ns.EnterNativeChatCopyMode(chatFrame)
+    chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+    if not chatFrame or type(chatFrame.SetTextCopyable) ~= "function" then
+        return false
+    end
+
+    pcall(chatFrame.SetTextCopyable, chatFrame, true)
+    if type(chatFrame.EnableMouse) == "function" then
+        pcall(chatFrame.EnableMouse, chatFrame, true)
+    end
+
+    if type(chatFrame.SetOnTextCopiedCallback) == "function" then
+        pcall(chatFrame.SetOnTextCopiedCallback, chatFrame, function(frame)
+            pcall(frame.SetTextCopyable, frame, false)
+            if type(frame.EnableMouse) == "function" then
+                pcall(frame.EnableMouse, frame, false)
+            end
+            pcall(frame.SetOnTextCopiedCallback, frame, nil)
+        end)
+    end
+
+    return true
 end
 
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
@@ -777,9 +859,33 @@ local function EnsureChatCapture()
     captureFrame:SetScript("OnEvent", OnCaptureEvent)
 end
 
+local function DisableChatCapture()
+    if not captureFrame then
+        return
+    end
+
+    if type(captureFrame.UnregisterAllEvents) == "function" then
+        pcall(captureFrame.UnregisterAllEvents, captureFrame)
+    end
+    if type(captureFrame.SetScript) == "function" then
+        pcall(captureFrame.SetScript, captureFrame, "OnEvent", nil)
+    end
+    captureFrame = nil
+end
+
 function CopyModule:OnEnable()
-    self:RawHook("SetItemRef", true)
+    if type(SetItemRef) == "function" and not self:IsHooked("SetItemRef") then
+        self:RawHook("SetItemRef", true)
+    end
     EnsureChatCapture()
+    if Chatify and type(Chatify.RegisterChatCommand) == "function" then
+        if type(Chatify.UnregisterChatCommand) == "function" then
+            pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")
+        end
+        pcall(Chatify.RegisterChatCommand, Chatify, "chatcopy", function()
+            ns.OpenChatCopyWindow(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME, COPY_WINDOW_MAX_LINES)
+        end)
+    end
 end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
@@ -810,4 +916,15 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
     end
 
     self.hooks.SetItemRef(link, text, button, chatFrame)
+end
+
+
+function CopyModule:OnDisable()
+    DisableChatCapture()
+    if self:IsHooked("SetItemRef") then
+        self:Unhook("SetItemRef")
+    end
+    if Chatify and type(Chatify.UnregisterChatCommand) == "function" then
+        pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")
+    end
 end

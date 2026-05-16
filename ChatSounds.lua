@@ -268,3 +268,10 @@ function Sounds:OnEnable()
 
     UpdatePlayerIdentity()
 end
+
+
+function Sounds:OnDisable()
+    self:UnregisterAllEvents()
+    soundQueue = {}
+    isQueueProcessing = false
+end

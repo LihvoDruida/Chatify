@@ -5,6 +5,8 @@ local LSM = LibStub("LibSharedMedia-3.0")
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 local visualsFiltersInstalled = false
 local visualsApplyQueued = false
+local registeredTimestampFilters = {}
+local TimestampFilter
 local frameStyleCache = {}
 local C_Timer = C_Timer
 local GetServerTime = GetServerTime
@@ -216,6 +218,32 @@ local function IsRetailRestricted()
     return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
 end
 
+local function RegisterTimestampFilter(eventName)
+    local ok = false
+    if type(ns.AddMessageEventFilterIfSupported) == "function" then
+        ok = ns.AddMessageEventFilterIfSupported(eventName, TimestampFilter)
+    elseif type(ChatFrame_AddMessageEventFilter) == "function" then
+        ok = pcall(ChatFrame_AddMessageEventFilter, eventName, TimestampFilter) and true or false
+    end
+
+    if ok then
+        registeredTimestampFilters[eventName] = true
+    end
+end
+
+local function UnregisterTimestampFilters()
+    for eventName in pairs(registeredTimestampFilters) do
+        if type(ns.RemoveMessageEventFilterIfSupported) == "function" then
+            ns.RemoveMessageEventFilterIfSupported(eventName, TimestampFilter)
+        elseif type(ChatFrame_RemoveMessageEventFilter) == "function" then
+            pcall(ChatFrame_RemoveMessageEventFilter, eventName, TimestampFilter)
+        end
+    end
+
+    registeredTimestampFilters = {}
+    visualsFiltersInstalled = false
+end
+
 function ns.ApplyVisuals()
     local db = GetVisualDB()
     if not db then return end
@@ -249,7 +277,7 @@ end
 -- =========================================================
 -- 4. TIMESTAMPS (SECURE)
 -- =========================================================
-local function TimestampFilter(self, event, msg, author, ...)
+TimestampFilter = function(self, event, msg, author, ...)
     local retailRestricted = IsRetailRestricted()
     if retailRestricted and type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
         return false, msg, author, ...
@@ -370,11 +398,7 @@ function VisualsModule:OnEnable()
     if not visualsFiltersInstalled and not virtualActive then
         local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
         for evt in pairs(filterEvents) do
-            if type(ns.AddMessageEventFilterIfSupported) == "function" then
-                ns.AddMessageEventFilterIfSupported(evt, TimestampFilter)
-            else
-                ChatFrame_AddMessageEventFilter(evt, TimestampFilter)
-            end
+            RegisterTimestampFilter(evt)
         end
         visualsFiltersInstalled = true
     end
@@ -392,4 +416,18 @@ end
 
 function VisualsModule:ApplyStyle()
     QueueApplyVisuals(0)
+end
+
+function VisualsModule:OnDisable()
+    UnregisterTimestampFilters()
+    self:UnregisterAllEvents()
+    if type(self.UnhookAll) == "function" then
+        self:UnhookAll()
+    end
+
+    if next(OriginalChannelMaps) then
+        for key, value in pairs(OriginalChannelMaps) do
+            _G[key] = value
+        end
+    end
 end

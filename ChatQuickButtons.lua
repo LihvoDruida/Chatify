@@ -2280,14 +2280,22 @@ local function EnsureContainer()
 
 
     copyButton = CreateFrame("Button", "ChatifyChatMenuCopyButton", settingsContainer, backdropTemplate)
-    copyButton:RegisterForClicks("LeftButtonUp")
+    copyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     copyButton:SetHitRectInsets(0, 0, 0, 0)
     copyButton.RefreshVisual = RefreshCopyButtonLook
     EnsureSidebarIconButtonVisual(copyButton, COPY_CHAT_ICON, 14)
 
-    copyButton:SetScript("OnClick", function()
+    copyButton:SetScript("OnClick", function(_, mouseButton)
+        local frame = SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+        local shiftCopy = type(IsShiftKeyDown) == "function" and IsShiftKeyDown()
+        if (mouseButton == "RightButton" or shiftCopy) and type(ns.EnterNativeChatCopyMode) == "function" then
+            if ns.EnterNativeChatCopyMode(frame) then
+                return
+            end
+        end
+
         if type(ns.OpenChatCopyWindow) == "function" then
-            ns.OpenChatCopyWindow(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME, 250)
+            ns.OpenChatCopyWindow(frame, 250)
         end
     end)
 
@@ -2305,6 +2313,7 @@ local function EnsureContainer()
             GameTooltip:ClearLines()
             GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
             AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
+            AddTooltipLine(T("Right Click"), T("Enable native text selection on the active chat frame"), 0.80, 0.80, 0.80)
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)

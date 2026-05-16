@@ -194,6 +194,10 @@ ns.defaults = {
 -- 5. BUILD / SECURITY HELPERS
 -- =========================================================
 function ns.IsRetailSecretValueBuild()
+    if WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
+        return false
+    end
+
     if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
         return false
     end
@@ -299,6 +303,7 @@ end
 
 local eventSupportCache = {}
 local eventProbeFrame
+local messageFilterRegistry = {}
 
 function ns.IsEventSupported(eventName)
     if type(eventName) ~= "string" or eventName == "" then
@@ -346,7 +351,33 @@ function ns.AddMessageEventFilterIfSupported(eventName, callback)
         return false
     end
 
+    messageFilterRegistry[eventName] = messageFilterRegistry[eventName] or {}
+    if messageFilterRegistry[eventName][callback] then
+        return true
+    end
+
     local ok = pcall(ChatFrame_AddMessageEventFilter, eventName, callback)
+    if ok then
+        messageFilterRegistry[eventName][callback] = true
+    end
+
+    return ok and true or false
+end
+
+function ns.RemoveMessageEventFilterIfSupported(eventName, callback)
+    if type(ChatFrame_RemoveMessageEventFilter) ~= "function" or type(callback) ~= "function" then
+        return false
+    end
+
+    if not ns.IsEventSupported(eventName) then
+        return false
+    end
+
+    local ok = pcall(ChatFrame_RemoveMessageEventFilter, eventName, callback)
+    if ok and messageFilterRegistry[eventName] then
+        messageFilterRegistry[eventName][callback] = nil
+    end
+
     return ok and true or false
 end
 function ns.RunRetailCompatibilityMigration(db)
