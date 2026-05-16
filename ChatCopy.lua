@@ -278,6 +278,33 @@ local function StopCopyFrameMoving(frame)
     frame:StopMovingOrSizing()
 end
 
+local function ScrollCopyWindow(delta)
+    if not copyScroll or not copyScroll.GetVerticalScroll or not copyScroll.SetVerticalScroll then
+        return
+    end
+
+    local step = 28
+    local current = copyScroll:GetVerticalScroll() or 0
+    local maxScroll = 0
+    local scrollbar = _G["ChatifyCopyPreviewScrollScrollBar"]
+    if scrollbar and scrollbar.GetMinMaxValues then
+        local _, maxValue = scrollbar:GetMinMaxValues()
+        maxScroll = tonumber(maxValue) or 0
+    end
+
+    local nextValue = current - ((tonumber(delta) or 0) * step)
+    if nextValue < 0 then
+        nextValue = 0
+    elseif maxScroll > 0 and nextValue > maxScroll then
+        nextValue = maxScroll
+    end
+
+    copyScroll:SetVerticalScroll(nextValue)
+    if scrollbar and scrollbar.SetValue then
+        scrollbar:SetValue(nextValue)
+    end
+end
+
 local function CreateMoveHandle(parent, name, anchorFunc)
     local handle = CreateFrame("Frame", name, parent)
     handle:EnableMouse(true)
@@ -367,6 +394,10 @@ local function CreateCopyWindow()
     scrollArea:SetPoint("TOPLEFT", previewBg, "TOPLEFT", 10, -10)
     scrollArea:SetPoint("BOTTOMRIGHT", previewBg, "BOTTOMRIGHT", -28, 10)
     scrollArea:EnableMouse(true)
+    scrollArea:EnableMouseWheel(true)
+    scrollArea:SetScript("OnMouseWheel", function(_, delta)
+        ScrollCopyWindow(delta)
+    end)
 
     -- Prat-style copy surface: one plain scrollable EditBox.
     -- The EditBox owns mouse selection; only the title/borders can move the popup.
@@ -390,6 +421,10 @@ local function CreateCopyWindow()
     eb:SetWidth(580)
     eb:SetHeight(1)
     eb:EnableMouse(true)
+    eb:EnableMouseWheel(true)
+    eb:SetScript("OnMouseWheel", function(_, delta)
+        ScrollCopyWindow(delta)
+    end)
     eb:SetScript("OnMouseDown", function(self)
         self:SetFocus()
     end)
@@ -611,6 +646,15 @@ local function ReadVisibleChatLines(chatFrame)
 end
 
 
+local function AddHistoryEntry(entries, rawText)
+    local entry = BuildEntry(rawText)
+    if entry then
+        entries[#entries + 1] = entry
+        return true
+    end
+    return false
+end
+
 local function ReadMessageHistory(chatFrame, maxLines)
     if not chatFrame then
         return nil
@@ -619,18 +663,29 @@ local function ReadMessageHistory(chatFrame, maxLines)
     local entries = {}
     maxLines = tonumber(maxLines) or COPY_WINDOW_MAX_LINES
 
-    if type(chatFrame.GetNumMessages) == "function" and type(chatFrame.GetMessageInfo) == "function" then
-        local okCount, count = pcall(chatFrame.GetNumMessages, chatFrame)
-        if okCount and type(count) == "number" and count > 0 then
-            local first = math.max(1, count - maxLines + 1)
-            for i = first, count do
-                local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
-                if ok and msg then
-                    local entry = BuildEntry(msg)
-                    if entry then
-                        entries[#entries + 1] = entry
-                    end
-                end
+    local count = 0
+    if type(chatFrame.GetNumMessages) == "function" then
+        local okCount, value = pcall(chatFrame.GetNumMessages, chatFrame)
+        if okCount and type(value) == "number" and value > 0 then
+            count = value
+        end
+    end
+
+    if count > 0 and chatFrame.historyBuffer and type(chatFrame.historyBuffer.GetEntryAtIndex) == "function" then
+        local first = math.max(1, count - maxLines + 1)
+        for i = first, count do
+            local ok, historyEntry = pcall(chatFrame.historyBuffer.GetEntryAtIndex, chatFrame.historyBuffer, i)
+            local msg = ok and historyEntry and historyEntry.message or nil
+            AddHistoryEntry(entries, msg)
+        end
+    end
+
+    if #entries == 0 and count > 0 and type(chatFrame.GetMessageInfo) == "function" then
+        local first = math.max(1, count - maxLines + 1)
+        for i = first, count do
+            local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
+            if ok then
+                AddHistoryEntry(entries, msg)
             end
         end
     end
@@ -645,20 +700,22 @@ end
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
     chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
 
-    local entries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
+    -- Match Prat's behavior: copy the selected chat frame first.
+    -- The global event cache is only a fallback for clients/frames that do not expose history.
+    local entries = ReadMessageHistory(chatFrame, maxLines)
     if not entries then
-        entries = ReadMessageHistory(chatFrame, maxLines)
+        entries = ReadVisibleChatLines(chatFrame)
     end
 
     if not entries then
-        entries = ReadVisibleChatLines(chatFrame)
+        entries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
     end
 
     if not entries then
         entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
     end
 
-    ShowCopyWindow(entries, L("Chatify Copy — recent chat"))
+    ShowCopyWindow(entries, L("Chatify Copy — selected chat"))
 end
 
 -- =========================================================
@@ -672,7 +729,7 @@ StaticPopupDialogs["CHATIFY_COPY_URL"] = {
     OnShow = function(self, data)
         local eb = self.editBox or self.EditBox
         if eb then
-            eb:SetText(data)
+            eb:SetText(type(data) == "string" and data or tostring(data or ""))
             eb:SetFocus()
             eb:HighlightText()
         end

@@ -363,8 +363,11 @@ function VisualsModule:OnEnable()
     end
 
     -- Віртуальний чат додає власні таймстемпи через Router, тому тут не дублюємо їх.
-    -- На modern Retail використовуємо той самий safe message-event filter path, яким Prat-подібно обробляємо повідомлення.
-    if not visualsFiltersInstalled and not (Chatify and Chatify.db and Chatify.db.profile and Chatify.db.profile.useVirtualChat) then
+    -- На modern Retail useVirtualChat примусово неефективний, тому не даємо старому SavedVariables
+    -- випадково вимкнути safe timestamp filter path.
+    local db = GetVisualDB()
+    local virtualActive = db and db.useVirtualChat and not retailRestricted
+    if not visualsFiltersInstalled and not virtualActive then
         local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
         for evt in pairs(filterEvents) do
             if type(ns.AddMessageEventFilterIfSupported) == "function" then

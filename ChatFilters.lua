@@ -119,7 +119,15 @@ end
 
 local function IsVirtualMode()
     local db = DB()
-    return db and db.useVirtualChat
+    if not db or not db.useVirtualChat then
+        return false
+    end
+
+    if type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
+        return false
+    end
+
+    return true
 end
 
 local function IsRetailRestricted()
