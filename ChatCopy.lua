@@ -32,17 +32,42 @@ local PLAYER_COLORS = {
     "ff7affb2", "ffffb86b", "ff9ab7ff", "ffff7adf", "ffb7ffea",
 }
 
+local function IsProtectedChatValue(value)
+    if type(ns.IsSecretValue) == "function" then
+        local ok, secret = pcall(ns.IsSecretValue, value)
+        if ok and secret then
+            return true
+        end
+    end
+
+    if type(ns.CanAccessChatValue) == "function" then
+        local ok, accessible = pcall(ns.CanAccessChatValue, value)
+        if ok and not accessible then
+            return true
+        elseif not ok then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function SafeChatText(value)
+    if IsProtectedChatValue(value) then
+        return nil
+    end
+
     if type(ns.TryMakeSafeText) == "function" then
-        return ns.TryMakeSafeText(value)
+        local ok, safe = pcall(ns.TryMakeSafeText, value)
+        if ok and type(safe) == "string" then
+            return safe
+        elseif not ok then
+            return nil
+        end
     end
 
-    if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value) then
-        return nil
-    end
-
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(value) then
-        return nil
+    if type(value) == "number" then
+        return tostring(value)
     end
 
     if type(value) == "string" then
@@ -52,13 +77,26 @@ local function SafeChatText(value)
     return nil
 end
 
+local function IsNonEmptyString(value)
+    if type(value) ~= "string" then
+        return false
+    end
+
+    local ok, length = pcall(string.len, value)
+    return ok and length > 0
+end
+
 local function StripChatMarkup(text)
-    if type(text) ~= "string" then
+    local safe = SafeChatText(text)
+    if not IsNonEmptyString(safe) then
         return nil
     end
 
     local ok, clean = pcall(function()
-        local value = text
+        local value = safe
+        -- Prat-style safety: replace protected/K hyperlinks with a visible marker,
+        -- then strip normal color/texture/hyperlink markup without touching secret payloads.
+        value = value:gsub("|K.-|k", "<protected>")
         value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
         value = value:gsub("|r", "")
         value = value:gsub("|H.-|h(.-)|h", "%1")
@@ -67,20 +105,22 @@ local function StripChatMarkup(text)
         return value
     end)
 
-    if ok and type(clean) == "string" then
+    if ok and not IsProtectedChatValue(clean) and IsNonEmptyString(clean) then
         return clean
     end
 
-    return text
+    return nil
 end
 
 local function NormalizeName(author)
-    if type(author) ~= "string" or author == "" then
+    local safe = SafeChatText(author)
+    if not IsNonEmptyString(safe) then
         return nil
     end
 
     local ok, name = pcall(function()
-        local value = author
+        local value = safe
+        value = value:gsub("|K.-|k", "")
         value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
         value = value:gsub("|r", "")
         value = value:gsub("|H.-|h%[?(.-)%]?|h", "%1")
@@ -90,7 +130,7 @@ local function NormalizeName(author)
         return value
     end)
 
-    if ok and type(name) == "string" and name ~= "" then
+    if ok and not IsProtectedChatValue(name) and IsNonEmptyString(name) then
         return name
     end
 
@@ -98,23 +138,32 @@ local function NormalizeName(author)
 end
 
 local function ExtractAuthorFromText(text)
-    if type(text) ~= "string" then
+    local safe = SafeChatText(text)
+    if not IsNonEmptyString(safe) then
         return nil
     end
 
-    local _, linkName = text:match("|Hplayer:([^|:]+)[^|]*|h%[?([^%]|]+)%]?|h")
-    if linkName then
-        return NormalizeName(linkName)
-    end
+    local ok, author = pcall(function()
+        local _, linkName = safe:match("|Hplayer:([^|:]+)[^|]*|h%[?([^%]|]+)%]?|h")
+        if linkName then
+            return NormalizeName(linkName)
+        end
 
-    local bracketName = text:match("^%s*%[([^%]]+)%]%s*:")
-    if bracketName then
-        return NormalizeName(bracketName)
-    end
+        local bracketName = safe:match("^%s*%[([^%]]+)%]%s*:")
+        if bracketName then
+            return NormalizeName(bracketName)
+        end
 
-    local plainName = text:match("^%s*([^:%[%]]+)%s*:")
-    if plainName and #plainName <= 32 then
-        return NormalizeName(plainName)
+        local plainName = safe:match("^%s*([^:%[%]]+)%s*:")
+        if plainName and #plainName <= 32 then
+            return NormalizeName(plainName)
+        end
+
+        return nil
+    end)
+
+    if ok and IsNonEmptyString(author) then
+        return author
     end
 
     return nil
@@ -154,9 +203,21 @@ local function ColorName(name)
     return "|c" .. GetNameColor(name) .. name .. "|r"
 end
 
+local function BuildProtectedEntry(label, timestamp)
+    local fallback = L("Protected chat line omitted.")
+    local safeLabel = StripChatMarkup(label) or fallback
+    return {
+        text = safeLabel,
+        raw = safeLabel,
+        author = nil,
+        time = date("%H:%M:%S", tonumber(timestamp) or time()),
+        protected = true,
+    }
+end
+
 local function BuildEntry(text, author, timestamp)
     local cleanText = StripChatMarkup(text)
-    if type(cleanText) ~= "string" or cleanText == "" then
+    if not IsNonEmptyString(cleanText) then
         return nil
     end
 
@@ -165,51 +226,53 @@ local function BuildEntry(text, author, timestamp)
 
     return {
         text = cleanText,
-        raw = text,
+        raw = cleanText,
         author = cleanAuthor,
         time = timeText,
     }
 end
 
-local function BuildProtectedEntry(label, timestamp)
-    return {
-        text = label or L("Protected chat line omitted."),
-        raw = label or L("Protected chat line omitted."),
-        author = nil,
-        time = date("%H:%M:%S", tonumber(timestamp) or time()),
-        protected = true,
-    }
-end
-
 local function BuildPlainLine(entry)
     if type(entry) == "string" then
-        return StripChatMarkup(entry) or entry
+        return StripChatMarkup(entry)
     end
     if type(entry) ~= "table" then
         return nil
     end
 
-    if entry.author and entry.author ~= "" then
-        return string.format("[%s] %s: %s", entry.time or "--:--:--", entry.author, entry.text or "")
+    local text = StripChatMarkup(entry.text)
+    if not IsNonEmptyString(text) then
+        return nil
     end
 
-    return string.format("[%s] %s", entry.time or "--:--:--", entry.text or "")
+    local author = NormalizeName(entry.author)
+    if IsNonEmptyString(author) then
+        return string.format("[%s] %s: %s", entry.time or "--:--:--", author, text)
+    end
+
+    return string.format("[%s] %s", entry.time or "--:--:--", text)
 end
 
 local function BuildColoredLine(entry)
     if type(entry) == "string" then
-        return StripChatMarkup(entry) or entry
+        return StripChatMarkup(entry) or ""
     end
     if type(entry) ~= "table" then
         return ""
     end
 
-    local timeText = string.format("|cff888888[%s]|r", entry.time or "--:--:--")
-    if entry.author and entry.author ~= "" then
-        return string.format("%s %s: %s", timeText, ColorName(entry.author), entry.text or "")
+    local text = StripChatMarkup(entry.text)
+    if not IsNonEmptyString(text) then
+        return ""
     end
 
-    return string.format("%s %s", timeText, entry.text or "")
+    local timeText = string.format("|cff888888[%s]|r", entry.time or "--:--:--")
+    local author = NormalizeName(entry.author)
+    if IsNonEmptyString(author) then
+        return string.format("%s %s: %s", timeText, ColorName(author), text)
+    end
+
+    return string.format("%s %s", timeText, text)
 end
 
 local function AddFullChatEntry(entry)
@@ -228,7 +291,7 @@ end
 
 function ns.SaveToCache(text, author, timestamp)
     local safeText = SafeChatText(text)
-    if type(safeText) ~= "string" or safeText == "" then
+    if not IsNonEmptyString(safeText) then
         return nil
     end
 
@@ -559,7 +622,7 @@ BuildTextFromEntries = function(entries, maxChars)
 
     for i = 1, #entries do
         local line = BuildPlainLine(entries[i])
-        if type(line) == "string" and line ~= "" then
+        if IsNonEmptyString(line) then
             chars = chars + #line + 1
             if chars > maxChars then
                 lines[#lines + 1] = "..."
@@ -611,7 +674,7 @@ local function BuildCachedChatEntries(maxLines, maxChars)
     for i = startIndex, fullChatIndex do
         local entry = fullChatCache[i]
         local line = BuildPlainLine(entry)
-        if type(line) == "string" and line ~= "" then
+        if IsNonEmptyString(line) then
             chars = chars + #line + 1
             if chars > maxChars then
                 entries[#entries + 1] = BuildEntry("...")
@@ -652,7 +715,7 @@ local function ReadVisibleLineMessages(chatFrame)
         local entry = BuildEntry(text)
         if entry then
             entries[#entries + 1] = entry
-        elseif text ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(text) then
+        elseif IsProtectedChatValue(text) then
             entries[#entries + 1] = BuildProtectedEntry()
         end
     end
@@ -684,7 +747,7 @@ local function ReadVisibleChatLines(chatFrame)
                 local entry = BuildEntry(text)
                 if entry then
                     entries[#entries + 1] = entry
-                elseif text ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(text) then
+                elseif IsProtectedChatValue(text) then
                     entries[#entries + 1] = BuildProtectedEntry()
                 end
             end
@@ -705,9 +768,26 @@ local function AddHistoryEntry(entries, rawText)
         return true
     end
 
-    if rawText ~= nil and type(ns.IsSecretValue) == "function" and ns.IsSecretValue(rawText) then
+    if IsProtectedChatValue(rawText) then
         entries[#entries + 1] = BuildProtectedEntry()
         return true
+    end
+
+    return false
+end
+
+local function HasReadableEntries(entries)
+    if type(entries) ~= "table" or #entries == 0 then
+        return false
+    end
+
+    for i = 1, #entries do
+        local entry = entries[i]
+        if type(entry) == "table" and not entry.protected and IsNonEmptyString(entry.text) then
+            return true
+        elseif type(entry) == "string" and IsNonEmptyString(entry) then
+            return true
+        end
     end
 
     return false
@@ -729,22 +809,29 @@ local function ReadMessageHistory(chatFrame, maxLines)
         end
     end
 
-    if count > 0 and chatFrame.historyBuffer and type(chatFrame.historyBuffer.GetEntryAtIndex) == "function" then
-        local first = math.max(1, count - maxLines + 1)
-        for i = first, count do
-            local ok, historyEntry = pcall(chatFrame.historyBuffer.GetEntryAtIndex, chatFrame.historyBuffer, i)
-            local msg = ok and historyEntry and historyEntry.message or nil
-            AddHistoryEntry(entries, msg)
-        end
-    end
-
-    if #entries == 0 and count > 0 and type(chatFrame.GetMessageInfo) == "function" then
+    -- Prat's normal copy path uses GetMessageInfo first. On modern Retail this is
+    -- often safer than reading historyBuffer directly, because historyBuffer can
+    -- contain secret string payloads for protected lines.
+    if count > 0 and type(chatFrame.GetMessageInfo) == "function" then
         local first = math.max(1, count - maxLines + 1)
         for i = first, count do
             local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
             if ok then
                 AddHistoryEntry(entries, msg)
             end
+        end
+    end
+
+    if not HasReadableEntries(entries) and count > 0 and chatFrame.historyBuffer and type(chatFrame.historyBuffer.GetEntryAtIndex) == "function" then
+        local fallbackEntries = {}
+        local first = math.max(1, count - maxLines + 1)
+        for i = first, count do
+            local ok, historyEntry = pcall(chatFrame.historyBuffer.GetEntryAtIndex, chatFrame.historyBuffer, i)
+            local msg = ok and historyEntry and historyEntry.message or nil
+            AddHistoryEntry(fallbackEntries, msg)
+        end
+        if HasReadableEntries(fallbackEntries) or #entries == 0 then
+            entries = fallbackEntries
         end
     end
 
@@ -785,12 +872,18 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
     -- Match Prat's behavior: copy the selected chat frame first.
     -- The global event cache is only a fallback for clients/frames that do not expose history.
     local entries = ReadMessageHistory(chatFrame, maxLines)
-    if not entries then
-        entries = ReadVisibleChatLines(chatFrame)
+    if not HasReadableEntries(entries) then
+        local visibleEntries = ReadVisibleChatLines(chatFrame)
+        if HasReadableEntries(visibleEntries) or not entries then
+            entries = visibleEntries
+        end
     end
 
-    if not entries then
-        entries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
+    if not HasReadableEntries(entries) then
+        local cachedEntries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
+        if HasReadableEntries(cachedEntries) or not entries then
+            entries = cachedEntries
+        end
     end
 
     if not entries then
@@ -837,7 +930,7 @@ local function OnCaptureEvent(_, event, msg, author, ...)
     end
 
     local safeMsg = SafeChatText(msg)
-    if type(safeMsg) ~= "string" or safeMsg == "" then
+    if not IsNonEmptyString(safeMsg) then
         return
     end
 
@@ -889,20 +982,13 @@ function CopyModule:OnEnable()
 end
 
 function CopyModule:SetItemRef(link, text, button, chatFrame)
-    if type(ns.IsSecretValue) == "function" and ns.IsSecretValue(link) then
+    local safeLink = SafeChatText(link)
+    if not IsNonEmptyString(safeLink) then
         return self.hooks.SetItemRef(link, text, button, chatFrame)
     end
 
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(link) then
-        return self.hooks.SetItemRef(link, text, button, chatFrame)
-    end
-
-    if type(link) ~= "string" or link == "" then
-        return self.hooks.SetItemRef(link, text, button, chatFrame)
-    end
-
-    if link:sub(1, 9) == "chatcopy:" then
-        local id = tonumber(link:sub(10))
+    if safeLink:sub(1, 9) == "chatcopy:" then
+        local id = tonumber(safeLink:sub(10))
         local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
         if id and payload then
             ShowCopyWindow({ payload }, L("Chatify Copy — selected line"))
@@ -910,8 +996,8 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
         return
     end
 
-    if link:sub(1, 4) == "url:" then
-        StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, link:sub(5))
+    if safeLink:sub(1, 4) == "url:" then
+        StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, safeLink:sub(5))
         return
     end
 

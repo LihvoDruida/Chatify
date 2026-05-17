@@ -444,7 +444,12 @@ function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
 end
 
 function ns.TryMakeSafeText(raw)
-    if raw == nil then
+    -- Check Retail secret/protected payloads before any string operation or
+    -- empty-string comparison. A tainted addon must not inspect those values.
+    if ns.IsSecretValue(raw) then
+        return nil
+    end
+    if not ns.CanAccessChatValue(raw) then
         return nil
     end
 
@@ -454,12 +459,6 @@ function ns.TryMakeSafeText(raw)
     end
 
     if rawType == "string" then
-        if ns.IsSecretValue(raw) then
-            return nil
-        end
-        if not ns.CanAccessChatValue(raw) then
-            return nil
-        end
         return raw
     end
 
