@@ -729,13 +729,19 @@ function Router:OnEnable()
     local retailRestricted = IsRetailSecretValueBuild()
 
     self:ApplyToAllFrames()
-    self:RegisterEvent("PLAYER_LOGIN", "ApplyToAllFrames")
-    self:RegisterEvent("UPDATE_CHAT_WINDOWS", "RefreshProxies")
-    self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "RefreshProxies")
+    local function register(eventName, method)
+        if type(ns.RegisterEventIfSupported) == "function" then
+            return ns.RegisterEventIfSupported(self, eventName, method)
+        end
+        return pcall(self.RegisterEvent, self, eventName, method)
+    end
+    register("PLAYER_LOGIN", "ApplyToAllFrames")
+    register("UPDATE_CHAT_WINDOWS", "RefreshProxies")
+    register("UPDATE_FLOATING_CHAT_WINDOWS", "RefreshProxies")
 
     if not retailRestricted then
-        self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
-        self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
+        register("PLAYER_LOGOUT", "SaveHistory")
+        register("PLAYER_LEAVING_WORLD", "SaveHistory")
     end
 
     if not routerHooksInstalled and type(hooksecurefunc) == "function" then
@@ -751,17 +757,17 @@ function Router:OnEnable()
         end
 
         if type(FCF_OpenTemporaryWindow) == "function" then
-            hooksecurefunc("FCF_OpenTemporaryWindow", RefreshChatWindowsSoon)
+            pcall(hooksecurefunc, "FCF_OpenTemporaryWindow", RefreshChatWindowsSoon)
         end
         if type(FCF_OpenNewWindow) == "function" then
-            hooksecurefunc("FCF_OpenNewWindow", RefreshChatWindowsSoon)
+            pcall(hooksecurefunc, "FCF_OpenNewWindow", RefreshChatWindowsSoon)
         end
         if type(FCF_SetTemporaryWindowType) == "function" then
-            hooksecurefunc("FCF_SetTemporaryWindowType", RefreshChatWindowsSoon)
+            pcall(hooksecurefunc, "FCF_SetTemporaryWindowType", RefreshChatWindowsSoon)
         end
 
         if type(FCF_SetChatWindowFontSize) == "function" then
-            hooksecurefunc("FCF_SetChatWindowFontSize", function(frame)
+            pcall(hooksecurefunc, "FCF_SetChatWindowFontSize", function(frame)
                 if frame then
                     local proxy = EnsureProxy(frame)
                     if proxy then

@@ -68,7 +68,8 @@ local function GetColorComponents(color, fallback)
 end
 
 local function GetElvUI()
-    if type(IsAddOnLoaded) ~= "function" or not IsAddOnLoaded("ElvUI") or not _G.ElvUI then
+    local loaded = type(ns.IsAddOnLoadedCompat) == "function" and ns.IsAddOnLoadedCompat("ElvUI") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("ElvUI"))
+    if not loaded or not _G.ElvUI then
         elvuiEngine = nil
         elvuiChat = nil
         return nil, nil
@@ -99,7 +100,8 @@ local function HasElvUIChat()
 end
 
 local function GetGW2()
-    if type(IsAddOnLoaded) ~= "function" or not IsAddOnLoaded("GW2_UI") or not _G.GW then
+    local loaded = type(ns.IsAddOnLoadedCompat) == "function" and ns.IsAddOnLoadedCompat("GW2_UI") or (type(IsAddOnLoaded) == "function" and IsAddOnLoaded("GW2_UI"))
+    if not loaded or not _G.GW then
         gw2Engine = nil
         return nil
     end
@@ -140,20 +142,30 @@ local function ScheduleRefresh(delay)
         delay = 0
     end
 
-    if not C_Timer or not C_Timer.After then
-        ns.RefreshQuickChatButtons()
+    local after = ns.SafeAfter
+    if type(after) ~= "function" and (not C_Timer or not C_Timer.After) then
+        pcall(ns.RefreshQuickChatButtons)
         return
     end
 
     if delay > 0 then
         delayedRefreshToken = delayedRefreshToken + 1
         local token = delayedRefreshToken
-        C_Timer.After(delay, function()
-            if token ~= delayedRefreshToken then
-                return
-            end
-            ns.RefreshQuickChatButtons()
-        end)
+        if type(after) == "function" then
+            after(delay, function()
+                if token ~= delayedRefreshToken then
+                    return
+                end
+                ns.RefreshQuickChatButtons()
+            end)
+        else
+            C_Timer.After(delay, function()
+                if token ~= delayedRefreshToken then
+                    return
+                end
+                ns.RefreshQuickChatButtons()
+            end)
+        end
         return
     end
 
@@ -162,15 +174,21 @@ local function ScheduleRefresh(delay)
     end
 
     refreshQueued = true
-    C_Timer.After(0, function()
+    local function runRefresh()
         refreshQueued = false
         ns.RefreshQuickChatButtons()
-    end)
+    end
+    if type(after) == "function" then
+        after(0, runRefresh)
+    else
+        C_Timer.After(0, runRefresh)
+    end
 end
 
 local function ScheduleButtonStateUpdate()
-    if not C_Timer or not C_Timer.After then
-        UpdateButtonState()
+    local after = ns.SafeAfter
+    if type(after) ~= "function" and (not C_Timer or not C_Timer.After) then
+        pcall(UpdateButtonState)
         return
     end
 
@@ -179,10 +197,15 @@ local function ScheduleButtonStateUpdate()
     end
 
     stateUpdateQueued = true
-    C_Timer.After(0, function()
+    local function runUpdate()
         stateUpdateQueued = false
         UpdateButtonState()
-    end)
+    end
+    if type(after) == "function" then
+        after(0, runUpdate)
+    else
+        C_Timer.After(0, runUpdate)
+    end
 end
 
 local function ApplyTextureToRegion(region, path)
@@ -1720,7 +1743,7 @@ local function EnsureSocialSidebarButton()
     if not socialButtonHooked and type(hooksecurefunc) == "function" then
         socialButtonHooked = true
         local originalSetPoint = button.SetPoint
-        hooksecurefunc(button, "SetPoint", function(_, _, frame)
+        pcall(hooksecurefunc, button, "SetPoint", function(_, _, frame)
             local currentSidebar = GetMainSidebarButtonFrame()
             if currentSidebar and frame ~= currentSidebar then
                 button:SetParent(currentSidebar)
@@ -2336,73 +2359,73 @@ local function HookGeneralRefreshSignals()
     end
 
     if type(_G.FCF_DockUpdate) == "function" then
-        hooksecurefunc("FCF_DockUpdate", function()
+        pcall(hooksecurefunc, "FCF_DockUpdate", function()
             ScheduleRefresh(0)
         end)
     end
 
     if type(_G.FCFDock_SelectWindow) == "function" then
-        hooksecurefunc("FCFDock_SelectWindow", function()
+        pcall(hooksecurefunc, "FCFDock_SelectWindow", function()
             ScheduleRefresh(0)
             ScheduleButtonStateUpdate()
         end)
     end
 
     if type(_G.FCF_SelectDockFrame) == "function" then
-        hooksecurefunc("FCF_SelectDockFrame", function()
+        pcall(hooksecurefunc, "FCF_SelectDockFrame", function()
             ScheduleRefresh(0)
             ScheduleButtonStateUpdate()
         end)
     end
 
     if type(_G.FloatingChatFrame_Update) == "function" then
-        hooksecurefunc("FloatingChatFrame_Update", function()
+        pcall(hooksecurefunc, "FloatingChatFrame_Update", function()
             ScheduleRefresh(0)
         end)
     end
 
     if type(_G.ChatEdit_UpdateHeader) == "function" then
-        hooksecurefunc("ChatEdit_UpdateHeader", function()
+        pcall(hooksecurefunc, "ChatEdit_UpdateHeader", function()
             ScheduleButtonStateUpdate()
         end)
     end
 
     if _G.ChatFrameUtil then
         if type(_G.ChatFrameUtil.ActivateChat) == "function" then
-            hooksecurefunc(_G.ChatFrameUtil, "ActivateChat", function()
+            pcall(hooksecurefunc, _G.ChatFrameUtil, "ActivateChat", function()
                 ScheduleRefresh(0)
                 ScheduleButtonStateUpdate()
             end)
         end
 
         if type(_G.ChatFrameUtil.DeactivateChat) == "function" then
-            hooksecurefunc(_G.ChatFrameUtil, "DeactivateChat", function()
+            pcall(hooksecurefunc, _G.ChatFrameUtil, "DeactivateChat", function()
                 ScheduleButtonStateUpdate()
             end)
         end
 
         if type(_G.ChatFrameUtil.SetLastActiveWindow) == "function" then
-            hooksecurefunc(_G.ChatFrameUtil, "SetLastActiveWindow", function()
+            pcall(hooksecurefunc, _G.ChatFrameUtil, "SetLastActiveWindow", function()
                 ScheduleRefresh(0)
                 ScheduleButtonStateUpdate()
             end)
         end
     else
         if type(_G.ChatEdit_ActivateChat) == "function" then
-            hooksecurefunc("ChatEdit_ActivateChat", function()
+            pcall(hooksecurefunc, "ChatEdit_ActivateChat", function()
                 ScheduleRefresh(0)
                 ScheduleButtonStateUpdate()
             end)
         end
 
         if type(_G.ChatEdit_DeactivateChat) == "function" then
-            hooksecurefunc("ChatEdit_DeactivateChat", function()
+            pcall(hooksecurefunc, "ChatEdit_DeactivateChat", function()
                 ScheduleButtonStateUpdate()
             end)
         end
 
         if type(_G.ChatEdit_SetLastActiveWindow) == "function" then
-            hooksecurefunc("ChatEdit_SetLastActiveWindow", function()
+            pcall(hooksecurefunc, "ChatEdit_SetLastActiveWindow", function()
                 ScheduleRefresh(0)
                 ScheduleButtonStateUpdate()
             end)
@@ -2423,7 +2446,7 @@ local function HookGW2RefreshSignals()
     end
 
     if not gw2HooksInstalled and type(GW.UpdateChatSettings) == "function" then
-        hooksecurefunc(GW, "UpdateChatSettings", function()
+        pcall(hooksecurefunc, GW, "UpdateChatSettings", function()
             ScheduleRefresh(0)
         end)
     end
@@ -2464,7 +2487,7 @@ local function HookElvUIRefreshSignals()
 
     local function hookMethod(name)
         if type(CH[name]) == "function" then
-            hooksecurefunc(CH, name, function()
+            pcall(hooksecurefunc, CH, name, function()
                 ScheduleRefresh(0)
             end)
         end
@@ -2573,22 +2596,29 @@ function QuickButtonsModule:Refresh()
 end
 
 function QuickButtonsModule:OnEnable()
-    self:RegisterEvent("PLAYER_LOGIN", "Refresh")
-    self:RegisterEvent("PLAYER_ENTERING_WORLD", "Refresh")
-    self:RegisterEvent("GROUP_ROSTER_UPDATE", "Refresh")
-    self:RegisterEvent("PLAYER_GUILD_UPDATE", "Refresh")
-    self:RegisterEvent("UPDATE_CHAT_WINDOWS", "Refresh")
-    self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
-    self:RegisterEvent("CHANNEL_UI_UPDATE", "Refresh")
-    self:RegisterEvent("MODIFIER_STATE_CHANGED", function() ScheduleButtonStateUpdate() end)
-    self:RegisterEvent("DISPLAY_SIZE_CHANGED", "Refresh")
-    self:RegisterEvent("UI_SCALE_CHANGED", "Refresh")
-    self:RegisterEvent("CVAR_UPDATE", function(_, cvar)
+    local function register(eventName, method)
+        if type(ns.RegisterEventIfSupported) == "function" then
+            return ns.RegisterEventIfSupported(self, eventName, method)
+        end
+        return pcall(self.RegisterEvent, self, eventName, method)
+    end
+
+    register("PLAYER_LOGIN", "Refresh")
+    register("PLAYER_ENTERING_WORLD", "Refresh")
+    register("GROUP_ROSTER_UPDATE", "Refresh")
+    register("PLAYER_GUILD_UPDATE", "Refresh")
+    register("UPDATE_CHAT_WINDOWS", "Refresh")
+    register("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
+    register("CHANNEL_UI_UPDATE", "Refresh")
+    register("MODIFIER_STATE_CHANGED", function() ScheduleButtonStateUpdate() end)
+    register("DISPLAY_SIZE_CHANGED", "Refresh")
+    register("UI_SCALE_CHANGED", "Refresh")
+    register("CVAR_UPDATE", function(_, cvar)
         if cvar == "useUiScale" or cvar == "uiScale" then
             ScheduleRefresh(0)
         end
     end)
-    self:RegisterEvent("ADDON_LOADED", function(_, addon)
+    register("ADDON_LOADED", function(_, addon)
         if addon == "ElvUI" then
             elvuiEngine = nil
             elvuiChat = nil
@@ -2605,7 +2635,10 @@ function QuickButtonsModule:OnEnable()
 
     ns.RefreshQuickChatButtons()
 
-    if C_Timer and C_Timer.After then
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(0, function() ns.RefreshQuickChatButtons() end)
+        ns.SafeAfter(1, function() ns.RefreshQuickChatButtons() end)
+    elseif C_Timer and C_Timer.After then
         C_Timer.After(0, function() ns.RefreshQuickChatButtons() end)
         C_Timer.After(1, function() ns.RefreshQuickChatButtons() end)
     end

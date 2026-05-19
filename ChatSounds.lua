@@ -141,7 +141,9 @@ local function ProcessQueue()
             pcall(PlaySoundFile, item.file, item.channel)
         end
 
-        if C_Timer and C_Timer.After then
+        if type(ns.SafeAfter) == "function" then
+            ns.SafeAfter(0.5, PlayNext)
+        elseif C_Timer and C_Timer.After then
             C_Timer.After(0.5, PlayNext)
         else
             isQueueProcessing = false
@@ -262,7 +264,11 @@ end
 function Sounds:OnEnable()
     for event in pairs(eventMap) do
         if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event)) then
-            self:RegisterEvent(event, "OnEvent")
+            if type(ns.RegisterEventIfSupported) == "function" then
+                ns.RegisterEventIfSupported(self, event, "OnEvent")
+            else
+                pcall(self.RegisterEvent, self, event, "OnEvent")
+            end
         end
     end
 

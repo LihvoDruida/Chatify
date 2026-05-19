@@ -307,7 +307,7 @@ function History:OnEnable()
         if type(ns.RegisterEventIfSupported) == "function" then
             ns.RegisterEventIfSupported(self, event, "OnChatEvent")
         else
-            self:RegisterEvent(event, "OnChatEvent")
+            pcall(self.RegisterEvent, self, event, "OnChatEvent")
         end
     end
 
@@ -318,11 +318,11 @@ function History:OnEnable()
         ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
         ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     else
-        self:RegisterEvent("PLAYER_LOGOUT", "SaveHistory")
-        self:RegisterEvent("PLAYER_LEAVING_WORLD", "SaveHistory")
-        self:RegisterEvent("UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        self:RegisterEvent("CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
+        pcall(self.RegisterEvent, self, "PLAYER_LOGOUT", "SaveHistory")
+        pcall(self.RegisterEvent, self, "PLAYER_LEAVING_WORLD", "SaveHistory")
+        pcall(self.RegisterEvent, self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        pcall(self.RegisterEvent, self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
+        pcall(self.RegisterEvent, self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     end
     InvalidateTargetFrameCache()
     if type(ns.SafeAfter) == "function" then

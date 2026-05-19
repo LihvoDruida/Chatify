@@ -246,6 +246,186 @@ function ns.GetMaxChatWindows()
     return 10
 end
 
+
+
+-- =========================================================
+-- 5a. CROSS-VERSION API COMPATIBILITY HELPERS
+-- =========================================================
+-- Based on the safer patterns used by Prat 3 and ElvUI: detect the project at
+-- runtime, never assume a client-only API exists, and probe events before
+-- registering them. These helpers are intentionally small and side-effect free.
+local function SafeGlobalCall(func, ...)
+    if type(func) ~= "function" then
+        return false, nil
+    end
+    return pcall(func, ...)
+end
+
+function ns.GetAddonMetadata(name, key)
+    if C_AddOns and type(C_AddOns.GetAddOnMetadata) == "function" then
+        local ok, value = pcall(C_AddOns.GetAddOnMetadata, name, key)
+        if ok then return value end
+    end
+    if type(GetAddOnMetadata) == "function" then
+        local ok, value = pcall(GetAddOnMetadata, name, key)
+        if ok then return value end
+    end
+    return nil
+end
+
+function ns.IsAddOnLoadedCompat(name)
+    if C_AddOns and type(C_AddOns.IsAddOnLoaded) == "function" then
+        local ok, loaded = pcall(C_AddOns.IsAddOnLoaded, name)
+        if ok then return loaded and true or false end
+    end
+    if type(IsAddOnLoaded) == "function" then
+        local ok, loaded = pcall(IsAddOnLoaded, name)
+        if ok then return loaded and true or false end
+    end
+    return false
+end
+
+function ns.LoadAddOnCompat(name)
+    if C_AddOns and type(C_AddOns.LoadAddOn) == "function" then
+        local ok, loadedOrReason = pcall(C_AddOns.LoadAddOn, name)
+        return ok and loadedOrReason ~= false, loadedOrReason
+    end
+    if type(LoadAddOn) == "function" then
+        local ok, loadedOrReason = pcall(LoadAddOn, name)
+        return ok and loadedOrReason ~= false, loadedOrReason
+    end
+    return false, "missing LoadAddOn API"
+end
+
+function ns.GetBuildInterface()
+    if type(GetBuildInfo) ~= "function" then
+        return 0
+    end
+    local ok, _, _, _, interfaceVersion = pcall(GetBuildInfo)
+    if ok and type(interfaceVersion) == "number" then
+        return interfaceVersion
+    end
+    return 0
+end
+
+function ns.GetProjectKey()
+    local project = WOW_PROJECT_ID
+    if WOW_PROJECT_MAINLINE and project == WOW_PROJECT_MAINLINE then return "retail" end
+    if WOW_PROJECT_CLASSIC and project == WOW_PROJECT_CLASSIC then return "vanilla" end
+    if WOW_PROJECT_BURNING_CRUSADE_CLASSIC and project == WOW_PROJECT_BURNING_CRUSADE_CLASSIC then return "tbc" end
+    if WOW_PROJECT_WRATH_CLASSIC and project == WOW_PROJECT_WRATH_CLASSIC then return "wrath" end
+    if WOW_PROJECT_CATACLYSM_CLASSIC and project == WOW_PROJECT_CATACLYSM_CLASSIC then return "cata" end
+    if WOW_PROJECT_MISTS_CLASSIC and project == WOW_PROJECT_MISTS_CLASSIC then return "mists" end
+
+    local interfaceVersion = ns.GetBuildInterface()
+    if interfaceVersion >= 120000 then return "retail" end
+    if interfaceVersion >= 50500 and interfaceVersion < 50600 then return "mists" end
+    if interfaceVersion >= 38000 and interfaceVersion < 38100 then return "titan" end
+    if interfaceVersion >= 30400 and interfaceVersion < 30500 then return "wrath" end
+    if interfaceVersion >= 20500 and interfaceVersion < 20600 then return "tbc" end
+    if interfaceVersion >= 11500 and interfaceVersion < 11600 then return "vanilla" end
+    return "unknown"
+end
+
+function ns.IsMainlineClient()
+    return ns.GetProjectKey() == "retail"
+end
+
+function ns.IsClassicClient()
+    local key = ns.GetProjectKey()
+    return key ~= "retail" and key ~= "unknown"
+end
+
+function ns.GetSelectedChatFrame()
+    if SELECTED_CHAT_FRAME then return SELECTED_CHAT_FRAME end
+    if _G and _G.GeneralDockManager and _G.GeneralDockManager.selected then
+        return _G.GeneralDockManager.selected
+    end
+    if type(FCF_GetCurrentChatFrame) == "function" then
+        local ok, frame = pcall(FCF_GetCurrentChatFrame)
+        if ok and frame then return frame end
+    end
+    return DEFAULT_CHAT_FRAME or _G.ChatFrame1
+end
+
+function ns.GetChatFrameByID(id)
+    id = tonumber(id)
+    if not id then return nil end
+    return _G and _G["ChatFrame" .. id] or nil
+end
+
+function ns.GetChatEditBox(chatFrame)
+    if chatFrame and chatFrame.editBox then return chatFrame.editBox end
+    if chatFrame and type(chatFrame.GetName) == "function" then
+        local ok, name = pcall(chatFrame.GetName, chatFrame)
+        if ok and name and _G[name .. "EditBox"] then return _G[name .. "EditBox"] end
+    end
+    if ChatFrame1EditBox then return ChatFrame1EditBox end
+    return nil
+end
+
+function ns.ChatFrameOpenChat(text, chatFrame)
+    local util = _G.ChatFrameUtil
+    if type(ChatFrame_OpenChat) == "function" then
+        return pcall(ChatFrame_OpenChat, text or "", chatFrame)
+    end
+    if util and type(util.OpenChat) == "function" then
+        return pcall(util.OpenChat, util, text or "", chatFrame)
+    end
+    local editBox = ns.GetChatEditBox(chatFrame or ns.GetSelectedChatFrame())
+    if editBox and type(editBox.SetText) == "function" and type(editBox.Show) == "function" then
+        pcall(editBox.Show, editBox)
+        pcall(editBox.SetText, editBox, text or "")
+        pcall(editBox.SetFocus, editBox)
+        return true
+    end
+    return false
+end
+
+function ns.RegisterEventIfSupported(target, eventName, method)
+    if not target or type(target.RegisterEvent) ~= "function" then
+        return false
+    end
+
+    if not ns.IsEventSupported(eventName) then
+        return false
+    end
+
+    local ok = pcall(target.RegisterEvent, target, eventName, method)
+    return ok and true or false
+end
+
+function ns.RegisterEventsIfSupported(target, events, method)
+    local count = 0
+    if type(events) ~= "table" then return count end
+    for i = 1, #events do
+        if ns.RegisterEventIfSupported(target, events[i], method) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+function ns.SafeSecureHook(module, target, method, callback)
+    if not module or type(callback) ~= "function" or type(module.SecureHook) ~= "function" then
+        return false
+    end
+
+    local ok
+    if type(target) == "string" then
+        if type(_G[target]) ~= "function" then return false end
+        if type(module.IsHooked) == "function" and module:IsHooked(target) then return true end
+        ok = pcall(module.SecureHook, module, target, callback)
+    elseif type(target) == "table" and type(method) == "string" then
+        if type(target[method]) ~= "function" then return false end
+        if type(module.IsHooked) == "function" and module:IsHooked(target, method) then return true end
+        ok = pcall(module.SecureHook, module, target, method, callback)
+    else
+        return false
+    end
+    return ok and true or false
+end
+
 -- =========================================================
 -- 6. SAFE TEXT HELPERS (WoW 12.0.x / Secret Values)
 -- =========================================================
@@ -346,19 +526,6 @@ function ns.IsEventSupported(eventName)
 
     eventSupportCache[eventName] = ok and true or false
     return eventSupportCache[eventName]
-end
-
-function ns.RegisterEventIfSupported(target, eventName, method)
-    if not target or type(target.RegisterEvent) ~= "function" then
-        return false
-    end
-
-    if not ns.IsEventSupported(eventName) then
-        return false
-    end
-
-    local ok = pcall(target.RegisterEvent, target, eventName, method)
-    return ok and true or false
 end
 
 function ns.AddMessageEventFilterIfSupported(eventName, callback)

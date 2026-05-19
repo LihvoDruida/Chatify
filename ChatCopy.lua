@@ -866,7 +866,7 @@ local function ReadMessageHistory(chatFrame, maxLines)
 end
 
 function ns.EnterNativeChatCopyMode(chatFrame)
-    chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+    chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
     if not chatFrame or type(chatFrame.SetTextCopyable) ~= "function" then
         return false
     end
@@ -890,7 +890,7 @@ function ns.EnterNativeChatCopyMode(chatFrame)
 end
 
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
-    chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+    chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
 
     -- Match Prat's behavior: copy the selected chat frame first.
     -- The global event cache is only a fallback for clients/frames that do not expose history.
@@ -921,26 +921,37 @@ end
 -- =========================================================
 -- 3. ПОПАП ДЛЯ URL
 -- =========================================================
-StaticPopupDialogs["CHATIFY_COPY_URL"] = {
-    text = L("Press Ctrl+C to copy the link:"),
-    button1 = L("OK"),
-    hasEditBox = true,
-    editBoxWidth = 350,
-    OnShow = function(self, data)
-        local eb = self.editBox or self.EditBox
-        if eb then
-            eb:SetText(type(data) == "string" and data or tostring(data or ""))
-            eb:SetFocus()
-            eb:HighlightText()
-        end
-    end,
-    EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
+if type(StaticPopupDialogs) == "table" then
+    StaticPopupDialogs["CHATIFY_COPY_URL"] = {
+        text = L("Press Ctrl+C to copy the link:"),
+        button1 = L("OK"),
+        hasEditBox = true,
+        editBoxWidth = 350,
+        OnShow = function(self, data)
+            local eb = self.editBox or self.EditBox
+            if eb then
+                eb:SetText(type(data) == "string" and data or tostring(data or ""))
+                eb:SetFocus()
+                eb:HighlightText()
+            end
+        end,
+        EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
+        EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+end
+
+local function ShowUrlCopyPopup(url)
+    url = SafeChatText(url) or tostring(url or "")
+    if type(StaticPopup_Show) == "function" and type(StaticPopupDialogs) == "table" and StaticPopupDialogs["CHATIFY_COPY_URL"] then
+        StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, url)
+        return
+    end
+    ShowCopyWindow({ BuildEntry(url) or url }, L("Chatify Copy — link"))
+end
 
 -- =========================================================
 -- 4. ПЕРЕХОПЛЕННЯ КЛІКІВ
@@ -1002,7 +1013,7 @@ function CopyModule:OnEnable()
         end
         pcall(Chatify.RegisterChatCommand, Chatify, "chatcopy", function(input)
             local command = type(input) == "string" and input:lower():match("^%s*(.-)%s*$") or ""
-            local frame = SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+            local frame = (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
 
             if command == "select" or command == "native" then
                 if type(ns.EnterNativeChatCopyMode) == "function" then
@@ -1037,7 +1048,7 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
     end
 
     if safeLink:sub(1, 4) == "url:" then
-        StaticPopup_Show("CHATIFY_COPY_URL", nil, nil, safeLink:sub(5))
+        ShowUrlCopyPopup(safeLink:sub(5))
         return
     end
 

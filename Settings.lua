@@ -29,11 +29,16 @@ end
 
 
 local function GetAddonMetadataValue(key)
+    if type(ns.GetAddonMetadata) == "function" then
+        return ns.GetAddonMetadata(addonName, key)
+    end
     if C_AddOns and C_AddOns.GetAddOnMetadata then
-        return C_AddOns.GetAddOnMetadata(addonName, key)
+        local ok, value = pcall(C_AddOns.GetAddOnMetadata, addonName, key)
+        if ok then return value end
     end
     if GetAddOnMetadata then
-        return GetAddOnMetadata(addonName, key)
+        local ok, value = pcall(GetAddOnMetadata, addonName, key)
+        if ok then return value end
     end
     return nil
 end
@@ -934,12 +939,10 @@ function Chatify:OpenConfig()
 
     if Settings and Settings.OpenToCategory then
         pcall(Settings.OpenToCategory, category)
-        pcall(Settings.OpenToCategory, category)
         return
     end
 
     if InterfaceOptionsFrame_OpenToCategory then
-        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
         pcall(InterfaceOptionsFrame_OpenToCategory, frame)
     end
 end
@@ -948,7 +951,11 @@ end
 -- 6. AUTO TABS FUNCTION
 -- =========================================================
 function Chatify:SetupDefaultTabs()
-    if InCombatLockdown() then return end
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then return end
+    if type(FCF_OpenNewWindow) ~= "function" then
+        self:Print(T("Chat window creation is not available on this client."))
+        return
+    end
     
     local tabs = {
         { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } },
@@ -958,15 +965,18 @@ function Chatify:SetupDefaultTabs()
 
     local count = 0
     for _, tabInfo in ipairs(tabs) do
-        local frame = FCF_OpenNewWindow(tabInfo.name)
-        if frame then
+        local okOpen, frame = pcall(FCF_OpenNewWindow, tabInfo.name)
+        if okOpen and frame then
             count = count + 1
-            ChatFrame_RemoveAllMessageGroups(frame)
-            ChatFrame_RemoveAllChannels(frame)
+            local removeGroups = frame.RemoveAllMessageGroups or ChatFrame_RemoveAllMessageGroups
+            local removeChannels = frame.RemoveAllChannels or ChatFrame_RemoveAllChannels
+            local addGroup = frame.AddMessageGroup or ChatFrame_AddMessageGroup
+            if type(removeGroups) == "function" then pcall(removeGroups, frame) end
+            if type(removeChannels) == "function" then pcall(removeChannels, frame) end
             for _, group in ipairs(tabInfo.groups) do
-                ChatFrame_AddMessageGroup(frame, group)
+                if type(addGroup) == "function" then pcall(addGroup, frame, group) end
             end
-            if FCF_SelectDockFrame then FCF_SelectDockFrame(frame) end
+            if type(FCF_SelectDockFrame) == "function" then pcall(FCF_SelectDockFrame, frame) end
         end
     end
     self:Print(string.format(T("Tabs created: %d"), count))

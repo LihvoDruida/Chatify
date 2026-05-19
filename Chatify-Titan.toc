@@ -1,11 +1,6 @@
-## X-Flavor: retail
-## X-Expansion: TWW
-## Interface: 120005, 120001, 120000
-## Interface-Classic: 11508
-## Interface-BCC: 20505
-## Interface-Wrath: 30405
-## Interface-Titan: 38001
-## Interface-Mists: 50503
+## Interface: 38001
+## X-Flavor: classic
+## X-Expansion: Titan
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.

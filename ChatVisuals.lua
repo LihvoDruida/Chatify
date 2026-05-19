@@ -28,15 +28,18 @@ local function QueueApplyVisuals(delay)
         delay = 0
     end
 
-    if not C_Timer or not C_Timer.After then
+    local after = ns.SafeAfter
+    if type(after) ~= "function" and (not C_Timer or not C_Timer.After) then
         pcall(ns.ApplyVisuals)
         return
     end
 
     if delay > 0 then
-        C_Timer.After(delay, function()
-            pcall(ns.ApplyVisuals)
-        end)
+        if type(after) == "function" then
+            after(delay, function() pcall(ns.ApplyVisuals) end)
+        else
+            C_Timer.After(delay, function() pcall(ns.ApplyVisuals) end)
+        end
         return
     end
 
@@ -45,10 +48,15 @@ local function QueueApplyVisuals(delay)
     end
 
     visualsApplyQueued = true
-    C_Timer.After(0, function()
+    local function runApply()
         visualsApplyQueued = false
         pcall(ns.ApplyVisuals)
-    end)
+    end
+    if type(after) == "function" then
+        after(0, runApply)
+    else
+        C_Timer.After(0, runApply)
+    end
 end
 
 -- =========================================================
@@ -383,32 +391,38 @@ function VisualsModule:OnEnable()
 
     local retailRestricted = IsRetailRestricted()
 
-    self:RegisterEvent("PLAYER_LOGIN")
-    self:RegisterEvent("PLAYER_ENTERING_WORLD", "ApplyStyle")
-
-    self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
-    self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+    if type(ns.RegisterEventIfSupported) == "function" then
+        ns.RegisterEventIfSupported(self, "PLAYER_LOGIN", "PLAYER_LOGIN")
+        ns.RegisterEventIfSupported(self, "PLAYER_ENTERING_WORLD", "ApplyStyle")
+        ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", "ApplyStyle")
+        ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+    else
+        self:RegisterEvent("PLAYER_LOGIN")
+        self:RegisterEvent("PLAYER_ENTERING_WORLD", "ApplyStyle")
+        self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
+        self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+    end
 
     if type(FCF_OpenTemporaryWindow) == "function" then
-        self:SecureHook("FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
+        pcall(self.SecureHook, self, "FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
     end
     if type(FCF_OpenNewWindow) == "function" then
-        self:SecureHook("FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
+        pcall(self.SecureHook, self, "FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
     end
     if type(FCF_SetTemporaryWindowType) == "function" then
-        self:SecureHook("FCF_SetTemporaryWindowType", function(chatFrame)
+        pcall(self.SecureHook, self, "FCF_SetTemporaryWindowType", function(chatFrame)
             StyleFrame(chatFrame)
             QueueApplyVisuals(0)
         end)
     end
 
     if type(hooksecurefunc) == "function" and type(FCF_SetChatWindowFontSize) == "function" then
-        hooksecurefunc("FCF_SetChatWindowFontSize", function(chatFrame)
+        pcall(hooksecurefunc, "FCF_SetChatWindowFontSize", function(chatFrame)
             StyleFrame(chatFrame)
         end)
     end
 
-    if not retailRestricted then
+    if not retailRestricted and type(ChatTypeInfo) == "table" then
         for _, info in pairs(ChatTypeInfo) do
             if type(info) == "table" then
                 info.colorNameByClass = true
@@ -434,7 +448,10 @@ end
 
 function VisualsModule:PLAYER_LOGIN()
     QueueApplyVisuals(0)
-    if C_Timer and C_Timer.After then
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(1, function() ns.ApplyVisuals() end)
+        ns.SafeAfter(3, function() ns.ApplyVisuals() end)
+    elseif C_Timer and C_Timer.After then
         C_Timer.After(1, function() ns.ApplyVisuals() end)
         C_Timer.After(3, function() ns.ApplyVisuals() end)
     end

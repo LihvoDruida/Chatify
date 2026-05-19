@@ -640,20 +640,31 @@ function AutoReply:HandleCommand(input)
     self:Print(L("Commands: /cauto toggle, /cauto busy, /cauto status, /cauto config"))
 end
 
+local function RegisterEventSafe(module, eventName, method)
+    if type(ns.RegisterEventIfSupported) == "function" then
+        return ns.RegisterEventIfSupported(module, eventName, method)
+    end
+    if module and type(module.RegisterEvent) == "function" then
+        local ok = pcall(module.RegisterEvent, module, eventName, method)
+        return ok and true or false
+    end
+    return false
+end
+
 function AutoReply:OnEnable()
     EnsureCharState()
     InvalidateActivityCache()
 
-    self:RegisterEvent("PLAYER_FLAGS_CHANGED", InvalidateActivityCache)
-    self:RegisterEvent("ZONE_CHANGED_NEW_AREA", InvalidateActivityCache)
-    self:RegisterEvent("LFG_UPDATE", InvalidateActivityCache)
-    self:RegisterEvent("GROUP_ROSTER_UPDATE", InvalidateActivityCache)
-    self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateActivityCache)
+    RegisterEventSafe(self, "PLAYER_FLAGS_CHANGED", InvalidateActivityCache)
+    RegisterEventSafe(self, "ZONE_CHANGED_NEW_AREA", InvalidateActivityCache)
+    RegisterEventSafe(self, "LFG_UPDATE", InvalidateActivityCache)
+    RegisterEventSafe(self, "GROUP_ROSTER_UPDATE", InvalidateActivityCache)
+    RegisterEventSafe(self, "PLAYER_ENTERING_WORLD", InvalidateActivityCache)
 
     local restrictedWhispers = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
 
     if not restrictedWhispers then
-        self:RegisterEvent("CHAT_MSG_WHISPER", function(_, message, sender, ...)
+        RegisterEventSafe(self, "CHAT_MSG_WHISPER", function(_, message, sender, ...)
             if not CanAccess(message, sender, ...) then
                 return
             end
@@ -663,7 +674,7 @@ function AutoReply:OnEnable()
             SendAutoReply(sender, false, message)
         end)
 
-        self:RegisterEvent("CHAT_MSG_BN_WHISPER", function(_, ...)
+        RegisterEventSafe(self, "CHAT_MSG_BN_WHISPER", function(_, ...)
             if not CanAccess(...) then
                 return
             end
@@ -675,7 +686,7 @@ function AutoReply:OnEnable()
         end)
     end
 
-    self:RegisterEvent("CHAT_MSG_GUILD", function(_, message, sender)
+    RegisterEventSafe(self, "CHAT_MSG_GUILD", function(_, message, sender)
         if IsPlayerSender(sender) then
             return
         end
@@ -685,14 +696,14 @@ function AutoReply:OnEnable()
     end)
 
     if not restrictedWhispers then
-        self:RegisterEvent("CHAT_MSG_WHISPER_INFORM", function(_, _, target, ...)
+        RegisterEventSafe(self, "CHAT_MSG_WHISPER_INFORM", function(_, _, target, ...)
             if not CanAccess(target, ...) then
                 return
             end
             RemovePending(target, false)
         end)
 
-        self:RegisterEvent("CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
+        RegisterEventSafe(self, "CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
             if not CanAccess(...) then
                 return
             end
@@ -712,7 +723,8 @@ function AutoReply:OnEnable()
     end
 
     if C_Timer and C_Timer.NewTicker then
-        activityTicker = C_Timer.NewTicker(1, CheckActivityStatus)
+        local ok, ticker = pcall(C_Timer.NewTicker, 1, CheckActivityStatus)
+        if ok then activityTicker = ticker end
     end
 end
 
