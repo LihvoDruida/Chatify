@@ -659,6 +659,82 @@ function Chatify:GetOptions()
                                 get = function(info) return self.db.profile.historyLimit end,
                             }
                         }
+                    },
+
+                    -- 3. COPY CHAT GROUP
+                    groupCopy = {
+                        name = "Copy Chat",
+                        type = "group",
+                        inline = true,
+                        order = 3,
+                        args = {
+                            copyNativeSelection = {
+                                order = 1,
+                                name = "Enable Native Chat Selection",
+                                desc = "Allows Blizzard native direct selection from the chat frame. Right Click or Shift + Left Click the Copy Chat button, then drag text in chat and press Ctrl+C.",
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.copyNativeSelection = val end,
+                                get = function(info) return self.db.profile.copyNativeSelection ~= false end,
+                            },
+                            copyNativeLeftClick = {
+                                order = 2,
+                                name = "Left Click Uses Native Selection",
+                                desc = "When enabled, the Copy Chat button opens Blizzard native selection on Left Click. Ctrl + Left Click still opens the copy window.",
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                set = function(info, val) self.db.profile.copyNativeLeftClick = val end,
+                                get = function(info) return self.db.profile.copyNativeLeftClick == true end,
+                            },
+                            copyNativeScope = {
+                                order = 3,
+                                name = "Native Selection Target",
+                                desc = "Choose which chat frame gets Blizzard native selection. Smart is safest and closest to Prat. Visible Frames is a fallback for unusual ElvUI/Prat layouts, but can touch more chat frames.",
+                                type = "select",
+                                width = "double",
+                                disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                values = {
+                                    smart = "Smart / button chat",
+                                    active = "Selected active chat",
+                                    main = "Main chat only",
+                                    visible = "All visible chat frames",
+                                },
+                                set = function(info, val) self.db.profile.copyNativeScope = val end,
+                                get = function(info)
+                                    local value = self.db.profile.copyNativeScope or "smart"
+                                    if value ~= "smart" and value ~= "active" and value ~= "main" and value ~= "visible" then
+                                        value = "smart"
+                                    end
+                                    return value
+                                end,
+                            },
+                            copyNativeTimeout = {
+                                order = 4,
+                                name = "Native Selection Timeout",
+                                desc = "Seconds before Chatify restores the temporary native selection state. Set to 0 to leave it enabled until text is copied or UI reloads.",
+                                type = "range",
+                                min = 0, max = 300, step = 15,
+                                disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                set = function(info, val) self.db.profile.copyNativeTimeout = val end,
+                                get = function(info) return tonumber(self.db.profile.copyNativeTimeout) or 180 end,
+                            },
+                            copyNativeAnnounce = {
+                                order = 5,
+                                name = "Show Native Selection Hint",
+                                desc = "Print a short Chatify message when native selection mode is enabled.",
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                set = function(info, val) self.db.profile.copyNativeAnnounce = val end,
+                                get = function(info) return self.db.profile.copyNativeAnnounce ~= false end,
+                            },
+                            copyNativeHelp = {
+                                order = 6,
+                                type = "description",
+                                name = "\n|cffffd200Shortcut:|r Right Click or Shift + Left Click the Copy Chat button. If left-click native mode is enabled, Ctrl + Left Click opens the normal copy window.\n|cff999999Slash: /chatcopy native, /chatcopy nativeoff, /chatcopy nativestatus.|r",
+                            },
+                        },
                     }
                 }
             },

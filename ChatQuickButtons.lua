@@ -2143,6 +2143,53 @@ local function HookEditBoxSignals()
     editBox:HookScript("OnTextChanged", ScheduleButtonStateUpdate)
 end
 
+
+local function IsNativeCopyEnabled()
+    local db = GetDB()
+    return not (db and db.copyNativeSelection == false)
+end
+
+local function IsNativeLeftClickEnabled()
+    local db = GetDB()
+    return db and db.copyNativeLeftClick == true
+end
+
+local function ShouldUseNativeCopy(mouseButton)
+    if not IsNativeCopyEnabled() then
+        return false
+    end
+
+    if mouseButton == "RightButton" then
+        return true
+    end
+
+    if mouseButton == "LeftButton" and type(IsControlKeyDown) == "function" and IsControlKeyDown() then
+        return false
+    end
+
+    if mouseButton == "LeftButton" and type(IsShiftKeyDown) == "function" and IsShiftKeyDown() then
+        return true
+    end
+
+    if mouseButton == "LeftButton" and IsNativeLeftClickEnabled() then
+        return true
+    end
+
+    return false
+end
+
+local function GetNativeCopyTooltipMode()
+    if not IsNativeCopyEnabled() then
+        return T("disabled in settings")
+    end
+
+    if IsNativeLeftClickEnabled() then
+        return T("Left Click uses native selection")
+    end
+
+    return T("Right Click or Shift + Left Click")
+end
+
 local function EnsureContainer()
     if container then
         return
@@ -2313,9 +2360,8 @@ local function EnsureContainer()
         -- SELECTED_CHAT_FRAME here: a whisper/temporary tab can remain selected
         -- while the visible main chat still has readable lines, which made the
         -- custom copy window open with the native-selection fallback only.
-        local frame = GetAnchorFrame() or GetMainSidebarHostFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
-        local shiftCopy = type(IsShiftKeyDown) == "function" and IsShiftKeyDown()
-        if (mouseButton == "RightButton" or shiftCopy) and type(ns.EnterNativeChatCopyMode) == "function" then
+        local frame = GetMainSidebarHostFrame() or GetAnchorFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+        if ShouldUseNativeCopy(mouseButton) and type(ns.EnterNativeChatCopyMode) == "function" then
             if ns.EnterNativeChatCopyMode(frame) then
                 return
             end
@@ -2339,9 +2385,16 @@ local function EnsureContainer()
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             GameTooltip:ClearLines()
             GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
-            AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
-            AddTooltipLine(T("Right Click"), T("Native selection: select text directly in the active chat frame, then press Ctrl+C"), 0.80, 0.80, 0.80)
-            AddTooltipLine(T("Shift + Left Click"), T("Native selection: same as Right Click"), 0.80, 0.80, 0.80)
+            if IsNativeLeftClickEnabled() and IsNativeCopyEnabled() then
+                AddTooltipLine(T("Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.95, 0.95, 0.95)
+                AddTooltipLine(T("Ctrl + Left Click"), T("Open recent chat in a copy window"), 0.80, 0.80, 0.80)
+                AddTooltipLine(T("Shift + Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+            else
+                AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
+                AddTooltipLine(T("Shift + Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+            end
+            AddTooltipLine(T("Right Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+            AddTooltipLine(T("Native Mode"), GetNativeCopyTooltipMode(), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
