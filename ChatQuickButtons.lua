@@ -2309,7 +2309,11 @@ local function EnsureContainer()
     EnsureSidebarIconButtonVisual(copyButton, COPY_CHAT_ICON, 14)
 
     copyButton:SetScript("OnClick", function(_, mouseButton)
-        local frame = SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+        -- The sidebar button belongs to the main chat host. Do not blindly use
+        -- SELECTED_CHAT_FRAME here: a whisper/temporary tab can remain selected
+        -- while the visible main chat still has readable lines, which made the
+        -- custom copy window open with the native-selection fallback only.
+        local frame = GetMainSidebarHostFrame() or GetAnchorFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
         local shiftCopy = type(IsShiftKeyDown) == "function" and IsShiftKeyDown()
         if (mouseButton == "RightButton" or shiftCopy) and type(ns.EnterNativeChatCopyMode) == "function" then
             if ns.EnterNativeChatCopyMode(frame) then
@@ -2336,7 +2340,8 @@ local function EnsureContainer()
             GameTooltip:ClearLines()
             GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
             AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
-            AddTooltipLine(T("Right Click"), T("Enable native text selection on the active chat frame"), 0.80, 0.80, 0.80)
+            AddTooltipLine(T("Right Click"), T("Native selection: select text directly in the active chat frame, then press Ctrl+C"), 0.80, 0.80, 0.80)
+            AddTooltipLine(T("Shift + Left Click"), T("Native selection: same as Right Click"), 0.80, 0.80, 0.80)
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)

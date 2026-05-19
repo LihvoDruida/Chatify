@@ -446,18 +446,10 @@ function ns.IsSecretValue(value)
 end
 
 function ns.IsProtectedChatValue(value)
+    -- Prat only treats actual secret values as unreadable. Calling
+    -- canaccessvalue() on every normal chat string is too aggressive on
+    -- modern Retail and can make the copy window think every line is hidden.
     if ns.IsSecretValue(value) then
-        return true
-    end
-
-    if type(canaccessvalue) == "function" then
-        local ok, accessible = pcall(canaccessvalue, value)
-        if ok then
-            return accessible and false or true
-        end
-
-        -- If Blizzard refuses access, treat it like Prat treats secret values:
-        -- do not inspect, compare, gsub, format or cache this payload.
         return true
     end
 
@@ -470,16 +462,9 @@ function ns.CanAccessChatValue(...)
         return true
     end
 
-    if type(canaccessvalue) == "function" then
-        local ok, accessible = pcall(canaccessvalue, ...)
-        if ok then
-            return accessible and true or false
-        end
-    end
-
     for i = 1, count do
         local value = select(i, ...)
-        if ns.IsSecretValue(value) then
+        if ns.IsProtectedChatValue(value) then
             return false
         end
     end

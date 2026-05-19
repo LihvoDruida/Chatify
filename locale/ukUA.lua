@@ -184,4 +184,9 @@ Locale:RegisterLocale("ukUA", {
     ["Right Click"] = "Правий клік",
     ["Enable native text selection on the active chat frame"] = "Увімкнути рідне виділення тексту в активному чаті",
     ["Chatify Copy — selected chat"] = "Копіювання Chatify — вибраний чат",
+    ["Native selection: select text directly in the active chat frame, then press Ctrl+C"] = "Нативне виділення: виділіть текст прямо в активному чаті й натисніть Ctrl+C",
+    ["Native selection: same as Right Click"] = "Нативне виділення: те саме, що правий клік",
+    ["Shift + Left Click"] = "Shift + ліва кнопка миші",
+    ["Use Right Click or Shift+Left Click on the copy button for Blizzard native selection."] = "Використайте правий клік або Shift+ліву кнопку по кнопці копіювання для нативного виділення Blizzard.",
+    ["Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Left Click on the copy button for native selection."] = "Частина рядків захищена Blizzard і не може бути експортована аддонами. Використайте правий клік або Shift+ліву кнопку по кнопці копіювання для нативного виділення.",
 })

@@ -186,4 +186,9 @@ Locale:RegisterLocale("enUS", {
     ["Right Click"] = "Right Click",
     ["Enable native text selection on the active chat frame"] = "Enable native text selection on the active chat frame",
     ["Chatify Copy — selected chat"] = "Chatify Copy — selected chat",
+    ["Native selection: select text directly in the active chat frame, then press Ctrl+C"] = "Native selection: select text directly in the active chat frame, then press Ctrl+C",
+    ["Native selection: same as Right Click"] = "Native selection: same as Right Click",
+    ["Shift + Left Click"] = "Shift + Left Click",
+    ["Use Right Click or Shift+Left Click on the copy button for Blizzard native selection."] = "Use Right Click or Shift+Left Click on the copy button for Blizzard native selection.",
+    ["Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Left Click on the copy button for native selection."] = "Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Left Click on the copy button for native selection.",
 })

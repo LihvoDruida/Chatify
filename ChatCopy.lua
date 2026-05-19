@@ -94,6 +94,22 @@ local function IsNonEmptyString(value)
     return ok and length > 0
 end
 
+local function GetMessagePayload(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    return value.message or value.text or value[1]
+end
+
+local function GetMessageAuthor(value)
+    if type(value) ~= "table" then
+        return nil
+    end
+
+    return value.author or value.sender or value.playerName or value[2]
+end
+
 local function StripChatMarkup(text)
     local safe = SafeChatText(text)
     if not IsNonEmptyString(safe) then
@@ -224,12 +240,14 @@ local function BuildProtectedEntry(label, timestamp)
 end
 
 local function BuildEntry(text, author, timestamp)
-    local cleanText = StripChatMarkup(text)
+    local rawPayload = GetMessagePayload(text)
+    local rawAuthor = author or GetMessageAuthor(text)
+    local cleanText = StripChatMarkup(rawPayload)
     if not IsNonEmptyString(cleanText) then
         return nil
     end
 
-    local cleanAuthor = NormalizeName(author) or ExtractAuthorFromText(text) or ExtractAuthorFromText(cleanText)
+    local cleanAuthor = NormalizeName(rawAuthor) or ExtractAuthorFromText(rawPayload) or ExtractAuthorFromText(cleanText)
     local timeText = date("%H:%M:%S", tonumber(timestamp) or time())
 
     return {
@@ -342,6 +360,8 @@ local copyHint
 local copyButton
 local copyTextValue = ""
 local copySettingText = false
+local nativeCopySessions = setmetatable({}, { __mode = "k" })
+local nativeCopySessionId = 0
 
 local function StartCopyFrameMoving(frame)
     if not frame or not frame.StartMoving then
@@ -647,7 +667,7 @@ BuildTextFromEntries = function(entries, maxChars)
     if #lines == 0 then
         lines[#lines + 1] = L("No readable chat lines were available for the copy window.")
         if type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
-            lines[#lines + 1] = L("Use Right Click or Shift+Click on the copy button for Blizzard native selection.")
+            lines[#lines + 1] = L("Use Right Click or Shift+Left Click on the copy button for Blizzard native selection.")
         end
     end
 
@@ -780,15 +800,17 @@ local function ReadVisibleChatLines(chatFrame)
     return entries
 end
 
-local function AddHistoryEntry(entries, rawText)
-    local entry = BuildEntry(rawText)
+local function AddHistoryEntry(entries, rawText, author, timestamp)
+    local payload = GetMessagePayload(rawText)
+    local payloadAuthor = author or GetMessageAuthor(rawText)
+    local entry = BuildEntry(payload, payloadAuthor, timestamp)
     if entry then
         entries[#entries + 1] = entry
         return true
     end
 
-    if IsProtectedChatValue(rawText) then
-        entries[#entries + 1] = BuildProtectedEntry()
+    if IsProtectedChatValue(payload) then
+        entries[#entries + 1] = BuildProtectedEntry(nil, timestamp)
         return true
     end
 
@@ -832,15 +854,15 @@ local function ReadMessageHistory(chatFrame, maxLines)
         end
     end
 
-    -- Prat's normal copy path uses GetMessageInfo first. On modern Retail this is
-    -- often safer than reading historyBuffer directly, because historyBuffer can
-    -- contain secret string payloads for protected lines.
+    -- Prat's copy window uses GetMessageInfo first. Keep that path, but
+    -- collect only the first return value and never treat normal Retail text
+    -- as protected just because canaccessvalue() exists.
     if count > 0 and type(chatFrame.GetMessageInfo) == "function" then
         local first = math.max(1, count - maxLines + 1)
         for i = first, count do
-            local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
+            local ok, msg, r, g, b, messageId, extraData = pcall(chatFrame.GetMessageInfo, chatFrame, i)
             if ok then
-                AddHistoryEntry(entries, msg)
+                AddHistoryEntry(entries, msg, nil, nil)
             end
         end
     end
@@ -850,8 +872,9 @@ local function ReadMessageHistory(chatFrame, maxLines)
         local first = math.max(1, count - maxLines + 1)
         for i = first, count do
             local ok, historyEntry = pcall(chatFrame.historyBuffer.GetEntryAtIndex, chatFrame.historyBuffer, i)
-            local msg = ok and historyEntry and historyEntry.message or nil
-            AddHistoryEntry(fallbackEntries, msg)
+            if ok then
+                AddHistoryEntry(fallbackEntries, historyEntry)
+            end
         end
         if HasReadableEntries(fallbackEntries) or #entries == 0 then
             entries = fallbackEntries
@@ -865,24 +888,96 @@ local function ReadMessageHistory(chatFrame, maxLines)
     return entries
 end
 
+local function GetFrameMouseEnabled(frame)
+    if not frame or type(frame.IsMouseEnabled) ~= "function" then
+        return nil
+    end
+
+    local ok, enabled = pcall(frame.IsMouseEnabled, frame)
+    if ok then
+        return enabled and true or false
+    end
+
+    return nil
+end
+
+local function GetFrameTextCopyable(frame)
+    if not frame or type(frame.IsTextCopyable) ~= "function" then
+        return nil
+    end
+
+    local ok, enabled = pcall(frame.IsTextCopyable, frame)
+    if ok then
+        return enabled and true or false
+    end
+
+    return nil
+end
+
+local function RestoreNativeChatCopyMode(frame, sessionId)
+    local session = frame and nativeCopySessions[frame]
+    if not session or session.id ~= sessionId then
+        return
+    end
+
+    nativeCopySessions[frame] = nil
+
+    if type(frame.SetOnTextCopiedCallback) == "function" then
+        pcall(frame.SetOnTextCopiedCallback, frame, nil)
+    end
+
+    if session.originalCopyable ~= true and type(frame.SetTextCopyable) == "function" then
+        pcall(frame.SetTextCopyable, frame, false)
+    end
+
+    if session.originalMouseEnabled ~= nil and type(frame.EnableMouse) == "function" then
+        pcall(frame.EnableMouse, frame, session.originalMouseEnabled)
+    end
+end
+
 function ns.EnterNativeChatCopyMode(chatFrame)
     chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
     if not chatFrame or type(chatFrame.SetTextCopyable) ~= "function" then
         return false
     end
 
-    pcall(chatFrame.SetTextCopyable, chatFrame, true)
+    nativeCopySessionId = nativeCopySessionId + 1
+    local sessionId = nativeCopySessionId
+    local originalMouseEnabled = GetFrameMouseEnabled(chatFrame)
+    local originalCopyable = GetFrameTextCopyable(chatFrame)
+
+    nativeCopySessions[chatFrame] = {
+        id = sessionId,
+        originalMouseEnabled = originalMouseEnabled,
+        originalCopyable = originalCopyable,
+    }
+
+    local okCopyable = pcall(chatFrame.SetTextCopyable, chatFrame, true)
+    if not okCopyable then
+        nativeCopySessions[chatFrame] = nil
+        return false
+    end
+
     if type(chatFrame.EnableMouse) == "function" then
         pcall(chatFrame.EnableMouse, chatFrame, true)
     end
 
     if type(chatFrame.SetOnTextCopiedCallback) == "function" then
         pcall(chatFrame.SetOnTextCopiedCallback, chatFrame, function(frame)
-            pcall(frame.SetTextCopyable, frame, false)
-            if type(frame.EnableMouse) == "function" then
-                pcall(frame.EnableMouse, frame, false)
-            end
-            pcall(frame.SetOnTextCopiedCallback, frame, nil)
+            RestoreNativeChatCopyMode(frame, sessionId)
+        end)
+    end
+
+    -- ElvUI/Prat compatibility: do not leave the chat frame permanently in
+    -- copyable/mouse-enabled mode if the user clicked native mode by mistake
+    -- and never copied anything. Restore only the state Chatify changed.
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(30, function()
+            RestoreNativeChatCopyMode(chatFrame, sessionId)
+        end)
+    elseif C_Timer and type(C_Timer.After) == "function" then
+        pcall(C_Timer.After, 30, function()
+            RestoreNativeChatCopyMode(chatFrame, sessionId)
         end)
     end
 
@@ -912,7 +1007,7 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
     if not HasAnyCopyEntries(entries) then
         entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
     elseif not HasReadableEntries(entries) and type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
-        entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Click on the copy button for native selection."))
+        entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Left Click on the copy button for native selection."))
     end
 
     ShowCopyWindow(entries, L("Chatify Copy — selected chat"))
