@@ -671,7 +671,7 @@ function Chatify:GetOptions()
                             copyNativeSelection = {
                                 order = 1,
                                 name = "Enable Direct Chat Selection",
-                                desc = "Shift + Left Click the Copy Chat button to use Blizzard direct selection in the chat frame. Select text in chat, then press Ctrl+C. WoW addons cannot write to the system clipboard automatically.",
+                                desc = "Shift + Left Click the Copy Chat button toggles Blizzard direct selection inside the chat frame. Select text in chat, then press Ctrl+C. WoW addons cannot write to the system clipboard automatically.",
                                 type = "toggle",
                                 width = "full",
                                 set = function(info, val) self.db.profile.copyNativeSelection = val end,
@@ -680,17 +680,28 @@ function Chatify:GetOptions()
                             copyNativeUseVisibleFrames = {
                                 order = 2,
                                 name = "Compatibility Mode for Custom Chat Layouts",
-                                desc = "Enable direct selection on all visible chat frames instead of only the best detected frame. Use this only if ElvUI/Prat/custom chat layouts prevent Shift + Left Click from selecting text.",
+                                desc = "Enable direct selection on all visible chat frames instead of only the best detected frame. Use this only if ElvUI/Prat/custom chat layouts prevent Shift + Left Click from selecting text. Keeping this off is safer.",
                                 type = "toggle",
                                 width = "full",
                                 disabled = function() return self.db.profile.copyNativeSelection == false end,
                                 set = function(info, val) self.db.profile.copyNativeUseVisibleFrames = val end,
                                 get = function(info) return self.db.profile.copyNativeUseVisibleFrames == true end,
                             },
-                            copyNativeAnnounce = {
+                            copyNativeTimeout = {
                                 order = 3,
+                                name = "Auto-disable Direct Selection",
+                                desc = "Seconds before Chatify turns direct selection off automatically. Use 0 only if you want to turn it off manually with Shift + Left Click.",
+                                type = "range",
+                                min = 0, max = 120, step = 5,
+                                width = "full",
+                                disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                set = function(info, val) self.db.profile.copyNativeTimeout = val end,
+                                get = function(info) return tonumber(self.db.profile.copyNativeTimeout) or 30 end,
+                            },
+                            copyNativeAnnounce = {
+                                order = 4,
                                 name = "Show Direct Selection Hint",
-                                desc = "Print a short Chatify message when Shift + Left Click enables direct chat selection.",
+                                desc = "Print a short Chatify message when Shift + Left Click toggles direct chat selection.",
                                 type = "toggle",
                                 width = "full",
                                 disabled = function() return self.db.profile.copyNativeSelection == false end,
@@ -698,9 +709,9 @@ function Chatify:GetOptions()
                                 get = function(info) return self.db.profile.copyNativeAnnounce ~= false end,
                             },
                             copyNativeHelp = {
-                                order = 4,
+                                order = 5,
                                 type = "description",
-                                name = "\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click enables direct selection in the chat frame. After selecting text, press Ctrl+C.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so the addon cannot copy selected chat text without Ctrl+C.|r",
+                                name = "\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r",
                             },
                         },
                     }

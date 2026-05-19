@@ -2338,8 +2338,12 @@ local function EnsureContainer()
         -- while the visible main chat still has readable lines, which made the
         -- custom copy window open with the native-selection fallback only.
         local frame = GetMainSidebarHostFrame() or GetAnchorFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
-        if ShouldUseNativeCopy(mouseButton) and type(ns.EnterNativeChatCopyMode) == "function" then
-            if ns.EnterNativeChatCopyMode(frame) then
+        if ShouldUseNativeCopy(mouseButton) then
+            if type(ns.ToggleNativeChatCopyMode) == "function" then
+                ns.ToggleNativeChatCopyMode(frame)
+                return
+            elseif type(ns.EnterNativeChatCopyMode) == "function" then
+                ns.EnterNativeChatCopyMode(frame)
                 return
             end
         end
@@ -2364,11 +2368,10 @@ local function EnsureContainer()
             GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
             AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
             if IsNativeCopyEnabled() then
-                AddTooltipLine(T("Shift + Left Click"), T("Direct chat selection: select text in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+                AddTooltipLine(T("Shift + Left Click"), T("Toggle direct selection inside the chat frame. Press Ctrl+C after selecting text."), 0.80, 0.80, 0.80)
             else
                 AddTooltipLine(T("Shift + Left Click"), T("Direct chat selection is disabled in settings"), 0.62, 0.62, 0.62)
             end
-            AddTooltipLine(T("Native Mode"), GetNativeCopyTooltipMode(), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)

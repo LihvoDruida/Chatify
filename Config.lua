@@ -150,7 +150,7 @@ ns.defaults = {
         -- === COPY CHAT ===
         copyNativeSelection = true, -- Shift + Left Click enables Blizzard direct chat selection
         copyNativeUseVisibleFrames = false, -- Optional compatibility mode for custom chat layouts
-        copyNativeTimeout = 0, -- 0 = Prat-like: stay enabled until text is copied or UI reloads
+        copyNativeTimeout = 30, -- Auto-disable native selection after N seconds; 0 = until copied/toggled/reload
         copyNativeAnnounce = true, -- Print a short hint when native selection mode is enabled
         language = "client", -- Мова аддона: client, enUS, ukUA
 

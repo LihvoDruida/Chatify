@@ -362,6 +362,40 @@ local copyTextValue = ""
 local copySettingText = false
 local nativeCopySessions = setmetatable({}, { __mode = "k" })
 local nativeCopySessionId = 0
+local nativeCopyActiveSessionId
+local nativeCopyGuardFrame
+local nativeCopyLastBlockedWarning = 0
+
+local function IsInCombatLockdown()
+    return type(InCombatLockdown) == "function" and InCombatLockdown()
+end
+
+local function SafeFrameCall(frame, methodName, ...)
+    if not frame or type(methodName) ~= "string" then
+        return false
+    end
+
+    local method = frame[methodName]
+    if type(method) ~= "function" then
+        return false
+    end
+
+    -- securecallfunction reduces taint propagation for Blizzard frame methods.
+    -- It does not make protected calls legal in combat, so callers still avoid
+    -- combat lockdown before toggling native chat selection.
+    if type(securecallfunction) == "function" then
+        local args = { ... }
+        local ok = pcall(function()
+            return securecallfunction(method, frame, unpack(args))
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    local ok = pcall(method, frame, ...)
+    return ok and true or false
+end
 
 local function StartCopyFrameMoving(frame)
     if not frame or not frame.StartMoving then
@@ -1091,29 +1125,46 @@ local function RestoreNativeFrame(frame, session)
         return
     end
 
-    if type(frame.SetOnTextCopiedCallback) == "function" and session.changedCallback then
-        pcall(frame.SetOnTextCopiedCallback, frame, nil)
+    if session.changedCallback then
+        SafeFrameCall(frame, "SetOnTextCopiedCallback", nil)
     end
 
-    if session.changedCopyable and type(frame.SetTextCopyable) == "function" then
-        pcall(frame.SetTextCopyable, frame, session.originalCopyable and true or false)
+    if session.changedCopyable then
+        SafeFrameCall(frame, "SetTextCopyable", session.originalCopyable and true or false)
     end
 
-    -- Do not touch SetMouseClickEnabled/SetMouseMotionEnabled here. Prat only
-    -- toggles the frame's copyable state and mouse flag; forcing the newer
-    -- mouse APIs is what caused conflicts with other chat addons.
-    if session.changedMouseEnabled and type(frame.EnableMouse) == "function" then
-        pcall(frame.EnableMouse, frame, session.originalMouseEnabled and true or false)
+    -- Only restore the mouse flag if Chatify was the one that enabled it. This
+    -- prevents fighting ElvUI/Prat/Blizzard layouts that already owned mouse
+    -- handling for the chat frame.
+    if session.changedMouseEnabled then
+        SafeFrameCall(frame, "EnableMouse", session.originalMouseEnabled and true or false)
     end
 end
 
 local function RestoreNativeCopySession(sessionId)
+    local restored = false
     for frame, session in pairs(nativeCopySessions) do
         if session and (not sessionId or session.id == sessionId) then
             nativeCopySessions[frame] = nil
             RestoreNativeFrame(frame, session)
+            restored = true
         end
     end
+
+    if not sessionId or nativeCopyActiveSessionId == sessionId then
+        nativeCopyActiveSessionId = nil
+    end
+
+    return restored
+end
+
+local function HasNativeCopySession()
+    for _, session in pairs(nativeCopySessions) do
+        if session then
+            return true
+        end
+    end
+    return false
 end
 
 local function RestoreNativeChatCopyMode(frame, sessionId)
@@ -1141,23 +1192,30 @@ local function EnableNativeCopyOnFrame(frame, sessionId)
 
     nativeCopySessions[frame] = session
 
-    -- Prat's reliable core is exactly this pair: make the ScrollingMessageFrame
-    -- copyable and make sure it receives mouse input. Avoid extra mouse APIs;
-    -- ElvUI/Prat/Blizzard can own those without us fighting them.
-    local okCopyable = pcall(frame.SetTextCopyable, frame, true)
-    if not okCopyable then
+    -- In combat lockdown, changing Blizzard chat frame interaction state can taint
+    -- other addons and produce the "action only available to Blizzard UI" popup.
+    if IsInCombatLockdown() then
         nativeCopySessions[frame] = nil
-        return false
+        return false, "combat"
+    end
+
+    if not SafeFrameCall(frame, "SetTextCopyable", true) then
+        nativeCopySessions[frame] = nil
+        return false, "copyable"
     end
     session.changedCopyable = true
 
-    if type(frame.EnableMouse) == "function" then
-        local ok = pcall(frame.EnableMouse, frame, true)
-        session.changedMouseEnabled = ok and session.originalMouseEnabled ~= true
+    -- Do not call EnableMouse(true) if the frame already had mouse enabled.
+    -- This keeps selection limited to the actual chat frame and avoids changing
+    -- click-through behavior more than needed.
+    if session.originalMouseEnabled ~= true then
+        if SafeFrameCall(frame, "EnableMouse", true) then
+            session.changedMouseEnabled = true
+        end
     end
 
     if type(frame.SetOnTextCopiedCallback) == "function" then
-        local ok = pcall(frame.SetOnTextCopiedCallback, frame, function(this)
+        local ok = SafeFrameCall(frame, "SetOnTextCopiedCallback", function(this)
             RestoreNativeChatCopyMode(this or frame, sessionId)
         end)
         session.changedCallback = ok and true or false
@@ -1190,11 +1248,42 @@ local function NotifyNativeCopyEnabled(enabledCount, firstFrame)
     end
 end
 
+
+local function NotifyNativeCopyDisabled()
+    local db = GetCopyDB()
+    if db and db.copyNativeAnnounce == false then
+        return
+    end
+    PrintChatifySystemMessage(L("direct chat selection disabled."))
+end
+
+local function NotifyNativeCopyCombatBlocked()
+    local now = type(GetTime) == "function" and GetTime() or time()
+    if now - nativeCopyLastBlockedWarning < 2 then
+        return
+    end
+    nativeCopyLastBlockedWarning = now
+    PrintChatifySystemMessage(L("direct chat selection is blocked during combat to avoid Blizzard taint popups."))
+end
+
+function ns.IsNativeChatCopyModeActive()
+    return nativeCopyActiveSessionId ~= nil and HasNativeCopySession()
+end
+
 function ns.EnterNativeChatCopyMode(chatFrame)
     local db = GetCopyDB()
     if db and db.copyNativeSelection == false then
         return false
     end
+
+    if IsInCombatLockdown() then
+        NotifyNativeCopyCombatBlocked()
+        return false
+    end
+
+    -- Starting a fresh session first restores any stale state left by another
+    -- target frame from a previous attempt.
+    RestoreNativeCopySession(nil)
 
     local frames = ResolveNativeCopyFrames(chatFrame)
     if type(frames) ~= "table" or #frames == 0 then
@@ -1206,25 +1295,37 @@ function ns.EnterNativeChatCopyMode(chatFrame)
     local sessionId = nativeCopySessionId
     local enabledCount = 0
     local firstFrame
+    local blockedByCombat = false
 
     for i = 1, #frames do
-        if EnableNativeCopyOnFrame(frames[i], sessionId) then
+        local ok, reason = EnableNativeCopyOnFrame(frames[i], sessionId)
+        if ok then
             enabledCount = enabledCount + 1
             firstFrame = firstFrame or frames[i]
+        elseif reason == "combat" then
+            blockedByCombat = true
         end
     end
 
     if enabledCount == 0 then
-        PrintChatifySystemMessage(L("direct chat selection is unavailable on this client/chat frame."))
+        RestoreNativeCopySession(sessionId)
+        if blockedByCombat then
+            NotifyNativeCopyCombatBlocked()
+        else
+            PrintChatifySystemMessage(L("direct chat selection is unavailable on this client/chat frame."))
+        end
         return false
     end
 
+    nativeCopyActiveSessionId = sessionId
     NotifyNativeCopyEnabled(enabledCount, firstFrame)
 
-    local timeout = tonumber(db and db.copyNativeTimeout) or 0
+    local timeout = tonumber(db and db.copyNativeTimeout) or 30
     if timeout and timeout > 0 then
         local function delayedRestore()
-            RestoreNativeCopySession(sessionId)
+            if RestoreNativeCopySession(sessionId) then
+                NotifyNativeCopyDisabled()
+            end
         end
 
         if type(ns.SafeAfter) == "function" and C_Timer and type(C_Timer.After) == "function" then
@@ -1237,8 +1338,22 @@ function ns.EnterNativeChatCopyMode(chatFrame)
     return true
 end
 
-function ns.ExitNativeChatCopyMode()
-    RestoreNativeCopySession(nil)
+function ns.ToggleNativeChatCopyMode(chatFrame)
+    if ns.IsNativeChatCopyModeActive() then
+        if RestoreNativeCopySession(nil) then
+            NotifyNativeCopyDisabled()
+        end
+        return true, false
+    end
+
+    return ns.EnterNativeChatCopyMode(chatFrame), true
+end
+
+function ns.ExitNativeChatCopyMode(silent)
+    local restored = RestoreNativeCopySession(nil)
+    if restored and not silent then
+        NotifyNativeCopyDisabled()
+    end
 end
 
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
@@ -1354,11 +1469,47 @@ local function DisableChatCapture()
     captureFrame = nil
 end
 
+
+local function EnsureNativeCopyGuard()
+    if nativeCopyGuardFrame or type(CreateFrame) ~= "function" then
+        return
+    end
+
+    nativeCopyGuardFrame = CreateFrame("Frame")
+    pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_REGEN_DISABLED")
+    pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_ENTERING_WORLD")
+    nativeCopyGuardFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            -- Turn selection off before combat lockdown can turn a harmless chat
+            -- copy mode into a taint source for other addons.
+            RestoreNativeCopySession(nil)
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- Clear stale callbacks after reload/instance transitions.
+            RestoreNativeCopySession(nil)
+        end
+    end)
+end
+
+local function DisableNativeCopyGuard()
+    if not nativeCopyGuardFrame then
+        return
+    end
+
+    if type(nativeCopyGuardFrame.UnregisterAllEvents) == "function" then
+        pcall(nativeCopyGuardFrame.UnregisterAllEvents, nativeCopyGuardFrame)
+    end
+    if type(nativeCopyGuardFrame.SetScript) == "function" then
+        pcall(nativeCopyGuardFrame.SetScript, nativeCopyGuardFrame, "OnEvent", nil)
+    end
+    nativeCopyGuardFrame = nil
+end
+
 function CopyModule:OnEnable()
     if type(SetItemRef) == "function" and not self:IsHooked("SetItemRef") then
         self:RawHook("SetItemRef", true)
     end
     EnsureChatCapture()
+    EnsureNativeCopyGuard()
     if Chatify and type(Chatify.RegisterChatCommand) == "function" then
         if type(Chatify.UnregisterChatCommand) == "function" then
             pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")
@@ -1403,9 +1554,10 @@ end
 
 function CopyModule:OnDisable()
     if type(ns.ExitNativeChatCopyMode) == "function" then
-        ns.ExitNativeChatCopyMode()
+        ns.ExitNativeChatCopyMode(true)
     end
     DisableChatCapture()
+    DisableNativeCopyGuard()
     if self:IsHooked("SetItemRef") then
         self:Unhook("SetItemRef")
     end
