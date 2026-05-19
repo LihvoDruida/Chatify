@@ -2149,33 +2149,14 @@ local function IsNativeCopyEnabled()
     return not (db and db.copyNativeSelection == false)
 end
 
-local function IsNativeLeftClickEnabled()
-    local db = GetDB()
-    return db and db.copyNativeLeftClick == true
-end
-
 local function ShouldUseNativeCopy(mouseButton)
     if not IsNativeCopyEnabled() then
         return false
     end
 
-    if mouseButton == "RightButton" then
-        return true
-    end
-
-    if mouseButton == "LeftButton" and type(IsControlKeyDown) == "function" and IsControlKeyDown() then
-        return false
-    end
-
-    if mouseButton == "LeftButton" and type(IsShiftKeyDown) == "function" and IsShiftKeyDown() then
-        return true
-    end
-
-    if mouseButton == "LeftButton" and IsNativeLeftClickEnabled() then
-        return true
-    end
-
-    return false
+    return mouseButton == "LeftButton"
+        and type(IsShiftKeyDown) == "function"
+        and IsShiftKeyDown()
 end
 
 local function GetNativeCopyTooltipMode()
@@ -2183,11 +2164,7 @@ local function GetNativeCopyTooltipMode()
         return T("disabled in settings")
     end
 
-    if IsNativeLeftClickEnabled() then
-        return T("Left Click uses native selection")
-    end
-
-    return T("Right Click or Shift + Left Click")
+    return T("Shift + Left Click")
 end
 
 local function EnsureContainer()
@@ -2350,7 +2327,7 @@ local function EnsureContainer()
 
 
     copyButton = CreateFrame("Button", "ChatifyChatMenuCopyButton", settingsContainer, backdropTemplate)
-    copyButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    copyButton:RegisterForClicks("LeftButtonUp")
     copyButton:SetHitRectInsets(0, 0, 0, 0)
     copyButton.RefreshVisual = RefreshCopyButtonLook
     EnsureSidebarIconButtonVisual(copyButton, COPY_CHAT_ICON, 14)
@@ -2385,15 +2362,12 @@ local function EnsureContainer()
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             GameTooltip:ClearLines()
             GameTooltip:AddLine(T("Copy Chat"), 1.00, 0.82, 0.18, true)
-            if IsNativeLeftClickEnabled() and IsNativeCopyEnabled() then
-                AddTooltipLine(T("Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.95, 0.95, 0.95)
-                AddTooltipLine(T("Ctrl + Left Click"), T("Open recent chat in a copy window"), 0.80, 0.80, 0.80)
-                AddTooltipLine(T("Shift + Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+            AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
+            if IsNativeCopyEnabled() then
+                AddTooltipLine(T("Shift + Left Click"), T("Direct chat selection: select text in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
             else
-                AddTooltipLine(T("Left Click"), T("Open recent chat in a copy window"), 0.95, 0.95, 0.95)
-                AddTooltipLine(T("Shift + Left Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
+                AddTooltipLine(T("Shift + Left Click"), T("Direct chat selection is disabled in settings"), 0.62, 0.62, 0.62)
             end
-            AddTooltipLine(T("Right Click"), T("Native selection: select text directly in chat, then press Ctrl+C"), 0.80, 0.80, 0.80)
             AddTooltipLine(T("Native Mode"), GetNativeCopyTooltipMode(), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
             AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)

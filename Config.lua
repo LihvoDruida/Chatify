@@ -148,10 +148,9 @@ ns.defaults = {
         quickChatSettingsButton = true, -- Кнопка налаштувань у лівому блоці біля активного чат-фрейму
 
         -- === COPY CHAT ===
-        copyNativeSelection = true, -- Right Click / Shift + Left Click enables Blizzard direct chat selection
-        copyNativeLeftClick = false, -- Optional: make the Copy button left click enable native selection instead of opening the export window
-        copyNativeScope = "smart", -- smart, active, main, visible
-        copyNativeTimeout = 180, -- Seconds before Chatify restores native selection state; 0 disables timeout restore
+        copyNativeSelection = true, -- Shift + Left Click enables Blizzard direct chat selection
+        copyNativeUseVisibleFrames = false, -- Optional compatibility mode for custom chat layouts
+        copyNativeTimeout = 0, -- 0 = Prat-like: stay enabled until text is copied or UI reloads
         copyNativeAnnounce = true, -- Print a short hint when native selection mode is enabled
         language = "client", -- Мова аддона: client, enUS, ukUA
 
