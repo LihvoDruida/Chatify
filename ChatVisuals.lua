@@ -38,7 +38,7 @@ local function QueueApplyVisuals(delay)
         if type(after) == "function" then
             after(delay, function() pcall(ns.ApplyVisuals) end)
         else
-            C_Timer.After(delay, function() pcall(ns.ApplyVisuals) end)
+            pcall(C_Timer.After, delay, function() pcall(ns.ApplyVisuals) end)
         end
         return
     end
@@ -55,7 +55,7 @@ local function QueueApplyVisuals(delay)
     if type(after) == "function" then
         after(0, runApply)
     else
-        C_Timer.After(0, runApply)
+        pcall(C_Timer.After, 0, runApply)
     end
 end
 
@@ -246,6 +246,10 @@ local function IsRetailRestricted()
 end
 
 local function RegisterTimestampFilter(eventName)
+    if registeredTimestampFilters[eventName] then
+        return
+    end
+
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, TimestampFilter)
@@ -452,8 +456,8 @@ function VisualsModule:PLAYER_LOGIN()
         ns.SafeAfter(1, function() ns.ApplyVisuals() end)
         ns.SafeAfter(3, function() ns.ApplyVisuals() end)
     elseif C_Timer and C_Timer.After then
-        C_Timer.After(1, function() ns.ApplyVisuals() end)
-        C_Timer.After(3, function() ns.ApplyVisuals() end)
+        pcall(C_Timer.After, 1, function() pcall(ns.ApplyVisuals) end)
+        pcall(C_Timer.After, 3, function() pcall(ns.ApplyVisuals) end)
     end
 end
 

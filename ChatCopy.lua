@@ -24,6 +24,7 @@ local CHAT_CAPTURE_EVENTS = {
     "CHAT_MSG_SYSTEM", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "CHAT_MSG_ACHIEVEMENT",
 }
 local captureFrame
+local captureRegisteredCount = 0
 local lastEntrySignature
 local lastEntryTime = 0
 
@@ -1446,13 +1447,28 @@ local function EnsureChatCapture()
         return
     end
 
-    captureFrame = CreateFrame("Frame")
+    local okFrame, frame = pcall(CreateFrame, "Frame")
+    if not okFrame or not frame then
+        return
+    end
+
+    captureFrame = frame
+    captureRegisteredCount = 0
     for _, eventName in ipairs(CHAT_CAPTURE_EVENTS) do
-        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(eventName)) then
-            pcall(captureFrame.RegisterEvent, captureFrame, eventName)
+        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(eventName))
+            and (type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported(eventName)) then
+            local ok = pcall(captureFrame.RegisterEvent, captureFrame, eventName)
+            if ok then
+                captureRegisteredCount = captureRegisteredCount + 1
+            end
         end
     end
-    captureFrame:SetScript("OnEvent", OnCaptureEvent)
+
+    if captureRegisteredCount > 0 then
+        pcall(captureFrame.SetScript, captureFrame, "OnEvent", OnCaptureEvent)
+    else
+        captureFrame = nil
+    end
 end
 
 local function DisableChatCapture()
@@ -1467,6 +1483,7 @@ local function DisableChatCapture()
         pcall(captureFrame.SetScript, captureFrame, "OnEvent", nil)
     end
     captureFrame = nil
+    captureRegisteredCount = 0
 end
 
 
@@ -1475,10 +1492,19 @@ local function EnsureNativeCopyGuard()
         return
     end
 
-    nativeCopyGuardFrame = CreateFrame("Frame")
-    pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_REGEN_DISABLED")
-    pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_ENTERING_WORLD")
-    nativeCopyGuardFrame:SetScript("OnEvent", function(_, event)
+    local okFrame, frame = pcall(CreateFrame, "Frame")
+    if not okFrame or not frame then
+        return
+    end
+
+    nativeCopyGuardFrame = frame
+    if type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported("PLAYER_REGEN_DISABLED") then
+        pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_REGEN_DISABLED")
+    end
+    if type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported("PLAYER_ENTERING_WORLD") then
+        pcall(nativeCopyGuardFrame.RegisterEvent, nativeCopyGuardFrame, "PLAYER_ENTERING_WORLD")
+    end
+    pcall(nativeCopyGuardFrame.SetScript, nativeCopyGuardFrame, "OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" then
             -- Turn selection off before combat lockdown can turn a harmless chat
             -- copy mode into a taint source for other addons.

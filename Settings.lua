@@ -936,34 +936,58 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("mcm", "OpenConfig")
     
-    -- Initial Update
-    if ns.ApplyVisuals then ns.ApplyVisuals() end
-    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Critical: Build cache on load
+    -- Runtime modules refresh themselves on enable. Avoid doing a second full
+    -- style/filter pass here because Ace will immediately enable modules after
+    -- initialization.
 end
 
-local function RefreshRuntimeModules()
-    if ns.ApplyVisuals then ns.ApplyVisuals() end
-    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
-    if ns.NotifyQuickChatSettingsChanged then ns.NotifyQuickChatSettingsChanged() end
+local refreshQueued = false
+local function RefreshRuntimeModulesNow()
+    if type(ns.UpdateSpamCache) == "function" then
+        pcall(ns.UpdateSpamCache)
+    end
+
+    -- One visual pass is enough. Calling both ns.ApplyVisuals() and the module
+    -- method caused duplicate style/filter work during profile changes.
+    if type(ns.ApplyVisuals) == "function" then
+        pcall(ns.ApplyVisuals)
+    end
+
+    if type(ns.NotifyQuickChatSettingsChanged) == "function" then
+        pcall(ns.NotifyQuickChatSettingsChanged)
+    end
 
     local router = Chatify.GetModule and Chatify:GetModule("Router", true)
     if router then
         if type(router.ApplyToAllFrames) == "function" then
-            router:ApplyToAllFrames()
+            pcall(router.ApplyToAllFrames, router)
         end
         if type(router.RefreshProxies) == "function" then
-            router:RefreshProxies()
+            pcall(router.RefreshProxies, router)
         end
-    end
-
-    local visuals = Chatify.GetModule and Chatify:GetModule("Visuals", true)
-    if visuals and type(visuals.ApplyStyle) == "function" then
-        visuals:ApplyStyle()
     end
 
     local quickButtons = Chatify.GetModule and Chatify:GetModule("QuickButtons", true)
     if quickButtons and type(quickButtons.Refresh) == "function" then
-        quickButtons:Refresh()
+        pcall(quickButtons.Refresh, quickButtons)
+    end
+end
+
+local function RefreshRuntimeModules()
+    if refreshQueued then
+        return
+    end
+
+    refreshQueued = true
+    local function run()
+        refreshQueued = false
+        RefreshRuntimeModulesNow()
+    end
+
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(0, run)
+    else
+        run()
     end
 end
 

@@ -116,16 +116,40 @@ local function GetTargetFrames(event)
 end
 
 local function AddWithLimit(tbl, message, limit)
+    limit = tonumber(limit) or 50
+    if limit < 1 then
+        limit = 1
+    end
+
     table.insert(tbl, message)
-    if #tbl > limit then
+
+    -- Avoid table.remove(tbl, 1) on every chat line. That shifts the whole
+    -- array and becomes noisy in busy trade/general chats. Trim in one compact
+    -- pass when the buffer grows beyond a small margin.
+    local overflow = #tbl - limit
+    if overflow > 16 then
+        for i = 1, limit do
+            tbl[i] = tbl[i + overflow]
+        end
+        for i = limit + 1, #tbl do
+            tbl[i] = nil
+        end
+    elseif overflow > 0 then
         table.remove(tbl, 1)
     end
 end
 
 local function FormatMessage(msg, author)
-    local timestamp = date("%H:%M")
+    local okDate, timestamp = pcall(date, "%H:%M")
+    if not okDate or type(timestamp) ~= "string" then
+        timestamp = "--:--"
+    end
+
     if author and author ~= "" then
-        local shortAuthor = author:match("([^%-]+)") or author
+        local okAuthor, shortAuthor = pcall(function() return author:match("([^%-]+)") or author end)
+        if not okAuthor or type(shortAuthor) ~= "string" then
+            shortAuthor = tostring(author or "")
+        end
         return string.format("|cffaaaaaa[%s]|r |cffffd700[%s]|r: %s", timestamp, shortAuthor, msg)
     else
         return string.format("|cffaaaaaa[%s]|r %s", timestamp, msg)

@@ -27,6 +27,7 @@ local SystemEvents = {
 
 local filtersInstalled = false
 local registeredFilters = {}
+local communitiesHooked = false
 
 local function RegisterMessageFilter(eventName, callback)
     if type(eventName) ~= "string" or type(callback) ~= "function" then
@@ -591,12 +592,12 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
 end
 
 function Filters:HookCommunities()
-    if IsVirtualMode() then
+    if communitiesHooked or IsVirtualMode() then
         return
     end
 
     if CommunitiesChatLineMixin and CommunitiesChatLineMixin.SetMessage then
-        self:SecureHook(CommunitiesChatLineMixin, "SetMessage", function(frame, messageInfo)
+        local function callback(frame, messageInfo)
             if not messageInfo or not messageInfo.text or not frame or not frame.Message then
                 return
             end
@@ -629,7 +630,15 @@ function Filters:HookCommunities()
                     pcall(frame.Message.SetFont, frame.Message, fontPath, size, flags)
                 end
             end
-        end)
+        end
+
+        local hooked = false
+        if type(ns.SafeSecureHook) == "function" then
+            hooked = ns.SafeSecureHook(self, CommunitiesChatLineMixin, "SetMessage", callback)
+        elseif type(self.SecureHook) == "function" then
+            hooked = pcall(self.SecureHook, self, CommunitiesChatLineMixin, "SetMessage", callback) and true or false
+        end
+        communitiesHooked = hooked or communitiesHooked
     end
 end
 
@@ -673,10 +682,21 @@ function Filters:OnEnable()
         filtersInstalled = true
     end
 
-    if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_Communities") then
+    if type(ns.IsAddOnLoadedCompat) == "function" and ns.IsAddOnLoadedCompat("Blizzard_Communities") then
         self:HookCommunities()
+    elseif C_AddOns and C_AddOns.IsAddOnLoaded then
+        local ok, loaded = pcall(C_AddOns.IsAddOnLoaded, "Blizzard_Communities")
+        if ok and loaded then
+            self:HookCommunities()
+        elseif type(ns.RegisterEventIfSupported) == "function" then
+            ns.RegisterEventIfSupported(self, "ADDON_LOADED", "ADDON_LOADED")
+        else
+            pcall(self.RegisterEvent, self, "ADDON_LOADED")
+        end
+    elseif type(ns.RegisterEventIfSupported) == "function" then
+        ns.RegisterEventIfSupported(self, "ADDON_LOADED", "ADDON_LOADED")
     else
-        self:RegisterEvent("ADDON_LOADED")
+        pcall(self.RegisterEvent, self, "ADDON_LOADED")
     end
 end
 
@@ -687,4 +707,5 @@ function Filters:OnDisable()
     if type(self.UnhookAll) == "function" then
         self:UnhookAll()
     end
+    communitiesHooked = false
 end

@@ -653,12 +653,31 @@ function ns.SafeAfter(delay, callback)
     end
 
     if C_Timer and type(C_Timer.After) == "function" then
-        C_Timer.After(delay, function()
+        local ok = pcall(C_Timer.After, delay, function()
             pcall(callback)
         end)
-        return true
+        if ok then
+            return true
+        end
     end
 
     pcall(callback)
     return true
+end
+
+local scheduledKeys = {}
+function ns.ScheduleUnique(key, delay, callback)
+    if type(key) ~= "string" or key == "" or type(callback) ~= "function" then
+        return false
+    end
+
+    scheduledKeys[key] = (scheduledKeys[key] or 0) + 1
+    local token = scheduledKeys[key]
+    return ns.SafeAfter(delay or 0, function()
+        if scheduledKeys[key] ~= token then
+            return
+        end
+        scheduledKeys[key] = nil
+        callback()
+    end)
 end
