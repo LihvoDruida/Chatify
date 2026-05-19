@@ -18,11 +18,35 @@ Locale._localizedValuesNodes = Locale._localizedValuesNodes or setmetatable({}, 
 local type = type
 local tostring = tostring
 local format = string.format
+local gsub = string.gsub
+local find = string.find
+local pairs = pairs
 local GetLocale = GetLocale
+
+local function NormalizeLocaleKey(key)
+    if type(key) ~= "string" then
+        return key
+    end
+
+    -- Older generated locale tables accidentally stored some multiline option keys
+    -- with a literal "\n" sequence instead of a real newline. Normalize both the
+    -- registered keys and lookup keys so settings text does not fall back to English.
+    if find(key, "\\n", 1, true) then
+        return (gsub(key, "\\n", "\n"))
+    end
+
+    return key
+end
 
 function Locale:RegisterLocale(localeCode, localeTable)
     if type(localeCode) ~= "string" or type(localeTable) ~= "table" then return end
-    self.tables[localeCode] = localeTable
+
+    local normalized = {}
+    for key, value in pairs(localeTable) do
+        normalized[NormalizeLocaleKey(key)] = value
+    end
+
+    self.tables[localeCode] = normalized
 end
 
 function Locale:IsSupported(localeCode)
@@ -73,14 +97,15 @@ function Locale:Get(key)
         return key
     end
 
+    local normalizedKey = NormalizeLocaleKey(key)
     local activeTable = self:GetTable(self:GetActiveLocale())
-    local value = activeTable and activeTable[key]
+    local value = activeTable and activeTable[normalizedKey]
     if value ~= nil then
         return value
     end
 
     local fallbackTable = self.tables.enUS or {}
-    value = fallbackTable[key]
+    value = fallbackTable[normalizedKey]
     if value ~= nil then
         return value
     end

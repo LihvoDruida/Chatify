@@ -617,8 +617,8 @@ function Chatify:GetOptions()
                                 type = "description",
                                 name = function() 
                                     local keywords = self.db.profile.spamKeywords or {}
-                                    if #keywords == 0 then return "\n|cff888888(Blocklist is empty)|r" end
-                                    return "\n|cffff0000Blocked Words:|r " .. table.concat(keywords, ", ") 
+                                    if #keywords == 0 then return "\n|cff888888" .. T("(Blocklist is empty)") .. "|r" end
+                                    return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ") 
                                 end,
                             }
                         }
