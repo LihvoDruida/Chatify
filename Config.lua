@@ -265,6 +265,25 @@ function ns.IsSecretValue(value)
     return ok and secret or false
 end
 
+function ns.IsProtectedChatValue(value)
+    if ns.IsSecretValue(value) then
+        return true
+    end
+
+    if type(canaccessvalue) == "function" then
+        local ok, accessible = pcall(canaccessvalue, value)
+        if ok then
+            return accessible and false or true
+        end
+
+        -- If Blizzard refuses access, treat it like Prat treats secret values:
+        -- do not inspect, compare, gsub, format or cache this payload.
+        return true
+    end
+
+    return false
+end
+
 function ns.CanAccessChatValue(...)
     local count = select("#", ...)
     if count == 0 then
@@ -446,7 +465,7 @@ end
 function ns.TryMakeSafeText(raw)
     -- Check Retail secret/protected payloads before any string operation or
     -- empty-string comparison. A tainted addon must not inspect those values.
-    if ns.IsSecretValue(raw) then
+    if ns.IsProtectedChatValue(raw) then
         return nil
     end
     if not ns.CanAccessChatValue(raw) then
@@ -463,4 +482,25 @@ function ns.TryMakeSafeText(raw)
     end
 
     return nil
+end
+
+function ns.SafeAfter(delay, callback)
+    if type(callback) ~= "function" then
+        return false
+    end
+
+    delay = tonumber(delay) or 0
+    if delay < 0 then
+        delay = 0
+    end
+
+    if C_Timer and type(C_Timer.After) == "function" then
+        C_Timer.After(delay, function()
+            pcall(callback)
+        end)
+        return true
+    end
+
+    pcall(callback)
+    return true
 end

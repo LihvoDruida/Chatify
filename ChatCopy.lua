@@ -33,6 +33,14 @@ local PLAYER_COLORS = {
 }
 
 local function IsProtectedChatValue(value)
+    if type(ns.IsProtectedChatValue) == "function" then
+        local ok, protected = pcall(ns.IsProtectedChatValue, value)
+        if ok then
+            return protected and true or false
+        end
+        return true
+    end
+
     if type(ns.IsSecretValue) == "function" then
         local ok, secret = pcall(ns.IsSecretValue, value)
         if ok and secret then
@@ -620,6 +628,10 @@ BuildTextFromEntries = function(entries, maxChars)
     local chars = 0
     maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
 
+    if type(entries) ~= "table" then
+        return L("Chat buffer is empty. Send or receive a new message, then open this window again.")
+    end
+
     for i = 1, #entries do
         local line = BuildPlainLine(entries[i])
         if IsNonEmptyString(line) then
@@ -629,6 +641,13 @@ BuildTextFromEntries = function(entries, maxChars)
                 break
             end
             lines[#lines + 1] = line
+        end
+    end
+
+    if #lines == 0 then
+        lines[#lines + 1] = L("No readable chat lines were available for the copy window.")
+        if type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
+            lines[#lines + 1] = L("Use Right Click or Shift+Click on the copy button for Blizzard native selection.")
         end
     end
 
@@ -793,6 +812,10 @@ local function HasReadableEntries(entries)
     return false
 end
 
+local function HasAnyCopyEntries(entries)
+    return type(entries) == "table" and #entries > 0
+end
+
 local function ReadMessageHistory(chatFrame, maxLines)
     if not chatFrame then
         return nil
@@ -874,20 +897,22 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
     local entries = ReadMessageHistory(chatFrame, maxLines)
     if not HasReadableEntries(entries) then
         local visibleEntries = ReadVisibleChatLines(chatFrame)
-        if HasReadableEntries(visibleEntries) or not entries then
+        if HasReadableEntries(visibleEntries) or (not HasAnyCopyEntries(entries) and HasAnyCopyEntries(visibleEntries)) then
             entries = visibleEntries
         end
     end
 
     if not HasReadableEntries(entries) then
         local cachedEntries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
-        if HasReadableEntries(cachedEntries) or not entries then
+        if HasReadableEntries(cachedEntries) or (not HasAnyCopyEntries(entries) and HasAnyCopyEntries(cachedEntries)) then
             entries = cachedEntries
         end
     end
 
-    if not entries then
+    if not HasAnyCopyEntries(entries) then
         entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
+    elseif not HasReadableEntries(entries) and type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
+        entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Right Click or Shift+Click on the copy button for native selection."))
     end
 
     ShowCopyWindow(entries, L("Chatify Copy — selected chat"))
@@ -975,8 +1000,23 @@ function CopyModule:OnEnable()
         if type(Chatify.UnregisterChatCommand) == "function" then
             pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")
         end
-        pcall(Chatify.RegisterChatCommand, Chatify, "chatcopy", function()
-            ns.OpenChatCopyWindow(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME, COPY_WINDOW_MAX_LINES)
+        pcall(Chatify.RegisterChatCommand, Chatify, "chatcopy", function(input)
+            local command = type(input) == "string" and input:lower():match("^%s*(.-)%s*$") or ""
+            local frame = SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+
+            if command == "select" or command == "native" then
+                if type(ns.EnterNativeChatCopyMode) == "function" then
+                    ns.EnterNativeChatCopyMode(frame)
+                end
+                return
+            end
+
+            if command == "full" or command == "all" then
+                ns.OpenChatCopyWindow(frame, 5000)
+                return
+            end
+
+            ns.OpenChatCopyWindow(frame, COPY_WINDOW_MAX_LINES)
         end)
     end
 end

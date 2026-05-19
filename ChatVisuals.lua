@@ -29,13 +29,13 @@ local function QueueApplyVisuals(delay)
     end
 
     if not C_Timer or not C_Timer.After then
-        ns.ApplyVisuals()
+        pcall(ns.ApplyVisuals)
         return
     end
 
     if delay > 0 then
         C_Timer.After(delay, function()
-            ns.ApplyVisuals()
+            pcall(ns.ApplyVisuals)
         end)
         return
     end
@@ -47,7 +47,7 @@ local function QueueApplyVisuals(delay)
     visualsApplyQueued = true
     C_Timer.After(0, function()
         visualsApplyQueued = false
-        ns.ApplyVisuals()
+        pcall(ns.ApplyVisuals)
     end)
 end
 
@@ -163,7 +163,10 @@ local function StyleFrame(frame)
         fontPath = ChatFontNormal:GetFont()
     end
 
-    local _, size, flags = frame:GetFont()
+    local okFont, _, size, flags = pcall(frame.GetFont, frame)
+    if not okFont then
+        size, flags = 14, ""
+    end
     size = NormalizeFontSize(size)
     local outline = db.fontOutline or flags or ""
 
@@ -172,23 +175,39 @@ local function StyleFrame(frame)
         return
     end
 
-    local ok = pcall(frame.SetFont, frame, fontPath, size, outline)
+    local ok = false
+    if type(ns.SafeSetFont) == "function" then
+        ok = ns.SafeSetFont(frame, fontPath, size, outline)
+    elseif type(frame.SetFont) == "function" then
+        ok = pcall(frame.SetFont, frame, fontPath, size, outline) and true or false
+    end
+
     if not ok and ChatFontNormal and ChatFontNormal.GetFont then
         local fallbackPath = ChatFontNormal:GetFont()
         fontPath = fallbackPath or fontPath
-        pcall(frame.SetFont, frame, fallbackPath, size, flags or "")
+        if type(frame.SetFont) == "function" then
+            pcall(frame.SetFont, frame, fallbackPath, size, flags or "")
+        end
     end
-    frame:SetShadowOffset(1, -1)
+
+    if type(frame.SetShadowOffset) == "function" then
+        pcall(frame.SetShadowOffset, frame, 1, -1)
+    end
 
     local editBox = ns.GetEditBox(frame)
     if editBox then
-        local header = _G[editBox:GetName().."Header"]
+        local editName = type(editBox.GetName) == "function" and editBox:GetName() or nil
+        local header = editName and _G[editName.."Header"] or nil
         if header then pcall(header.SetFont, header, fontPath, size, outline) end
 
-        local suffix = _G[editBox:GetName().."HeaderSuffix"]
+        local suffix = editName and _G[editName.."HeaderSuffix"] or nil
         if suffix then pcall(suffix.SetFont, suffix, fontPath, size, outline) end
 
-        pcall(editBox.SetFont, editBox, fontPath, size, outline)
+        if type(ns.SafeSetFont) == "function" then
+            ns.SafeSetFont(editBox, fontPath, size, outline)
+        elseif type(editBox.SetFont) == "function" then
+            pcall(editBox.SetFont, editBox, fontPath, size, outline)
+        end
     end
 
     frameStyleCache[frame] = table.concat({ tostring(fontPath or ""), tostring(size), tostring(outline) }, "|")
@@ -317,7 +336,14 @@ TimestampFilter = function(self, event, msg, author, ...)
         end
     end
 
-    local timestamp = db.useServerTime and GetServerTime() or time()
+    local timestamp = time()
+    if db.useServerTime and type(GetServerTime) == "function" then
+        local okServer, serverTime = pcall(GetServerTime)
+        if okServer and serverTime then
+            timestamp = serverTime
+        end
+    end
+
     local okBuild, finalMsg = pcall(function()
         local timeStr = date(timestampFormat, timestamp)
         local tsColor = db.timestampColor or "68ccef"

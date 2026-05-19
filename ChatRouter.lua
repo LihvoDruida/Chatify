@@ -74,6 +74,26 @@ local function DB()
     return ns.db
 end
 
+local function SafeAfter(delay, callback)
+    if type(ns.SafeAfter) == "function" then
+        return ns.SafeAfter(delay, callback)
+    end
+
+    if C_Timer and type(C_Timer.After) == "function" then
+        C_Timer.After(delay or 0, function()
+            pcall(callback)
+        end)
+        return true
+    end
+
+    if type(callback) == "function" then
+        pcall(callback)
+        return true
+    end
+
+    return false
+end
+
 local function IsVirtualEnabled()
     local db = DB()
     if not db or not db.useVirtualChat then
@@ -724,15 +744,10 @@ function Router:OnEnable()
                 HookFrame(candidateFrame)
             end
 
-            if C_Timer and C_Timer.After then
-                C_Timer.After(0, function()
-                    self:ApplyToAllFrames()
-                    self:RefreshProxies()
-                end)
-            else
+            SafeAfter(0, function()
                 self:ApplyToAllFrames()
                 self:RefreshProxies()
-            end
+            end)
         end
 
         if type(FCF_OpenTemporaryWindow) == "function" then
@@ -759,7 +774,7 @@ function Router:OnEnable()
         routerHooksInstalled = true
     end
 
-    C_Timer.After(1, function()
+    SafeAfter(1, function()
         self:ApplyToAllFrames()
         self:RefreshProxies()
         if not retailRestricted then

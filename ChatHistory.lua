@@ -103,8 +103,11 @@ local function GetTargetFrames(event)
     local frames = {}
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
-        if frame and frame:IsEventRegistered(event) then
-            table.insert(frames, i)
+        if frame and type(frame.IsEventRegistered) == "function" then
+            local ok, registered = pcall(frame.IsEventRegistered, frame, event)
+            if ok and registered then
+                table.insert(frames, i)
+            end
         end
     end
 
@@ -322,5 +325,16 @@ function History:OnEnable()
         self:RegisterEvent("CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     end
     InvalidateTargetFrameCache()
-    C_Timer.After(1, function() pcall(function() self:RestoreHistory() end) end)
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(1, function() self:RestoreHistory() end)
+    elseif C_Timer and C_Timer.After then
+        C_Timer.After(1, function() pcall(function() self:RestoreHistory() end) end)
+    else
+        pcall(function() self:RestoreHistory() end)
+    end
+end
+
+function History:OnDisable()
+    self:UnregisterAllEvents()
+    InvalidateTargetFrameCache()
 end
