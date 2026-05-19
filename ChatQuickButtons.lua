@@ -2313,7 +2313,7 @@ local function EnsureContainer()
         -- SELECTED_CHAT_FRAME here: a whisper/temporary tab can remain selected
         -- while the visible main chat still has readable lines, which made the
         -- custom copy window open with the native-selection fallback only.
-        local frame = GetMainSidebarHostFrame() or GetAnchorFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+        local frame = GetAnchorFrame() or GetMainSidebarHostFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
         local shiftCopy = type(IsShiftKeyDown) == "function" and IsShiftKeyDown()
         if (mouseButton == "RightButton" or shiftCopy) and type(ns.EnterNativeChatCopyMode) == "function" then
             if ns.EnterNativeChatCopyMode(frame) then

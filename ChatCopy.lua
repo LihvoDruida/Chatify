@@ -914,13 +914,102 @@ local function GetFrameTextCopyable(frame)
     return nil
 end
 
-local function RestoreNativeChatCopyMode(frame, sessionId)
-    local session = frame and nativeCopySessions[frame]
-    if not session or session.id ~= sessionId then
+local function GetFrameMouseClickEnabled(frame)
+    if not frame or type(frame.IsMouseClickEnabled) ~= "function" then
+        return nil
+    end
+
+    local ok, enabled = pcall(frame.IsMouseClickEnabled, frame)
+    if ok then
+        return enabled and true or false
+    end
+
+    return nil
+end
+
+local function GetFrameMouseMotionEnabled(frame)
+    if not frame or type(frame.IsMouseMotionEnabled) ~= "function" then
+        return nil
+    end
+
+    local ok, enabled = pcall(frame.IsMouseMotionEnabled, frame)
+    if ok then
+        return enabled and true or false
+    end
+
+    return nil
+end
+
+local function IsNativeCopyFrame(frame)
+    return type(frame) == "table" and type(frame.SetTextCopyable) == "function"
+end
+
+local function AddNativeCandidate(list, seen, frame)
+    if not IsNativeCopyFrame(frame) or seen[frame] then
         return
     end
 
-    nativeCopySessions[frame] = nil
+    seen[frame] = true
+    list[#list + 1] = frame
+end
+
+local function AddNamedChatFrameCandidates(list, seen)
+    local total = tonumber(_G.NUM_CHAT_WINDOWS) or 10
+    if total < 1 then
+        total = 10
+    elseif total > 20 then
+        total = 20
+    end
+
+    for i = 1, total do
+        local frame = _G["ChatFrame" .. i]
+        if frame and (type(frame.IsShown) ~= "function" or frame:IsShown()) then
+            AddNativeCandidate(list, seen, frame)
+        end
+    end
+end
+
+local function GetDockSelectedFrame()
+    if type(_G.FCFDock_GetSelectedWindow) == "function" and _G.GeneralDockManager then
+        local ok, frame = pcall(_G.FCFDock_GetSelectedWindow, _G.GeneralDockManager)
+        if ok and frame then
+            return frame
+        end
+    end
+
+    if _G.GeneralDockManager then
+        return _G.GeneralDockManager.selected or _G.GeneralDockManager.primary
+    end
+
+    return nil
+end
+
+local function ResolveNativeCopyFrames(preferred)
+    local list = {}
+    local seen = {}
+
+    AddNativeCandidate(list, seen, preferred)
+
+    if type(ns.GetSelectedChatFrame) == "function" then
+        local ok, frame = pcall(ns.GetSelectedChatFrame)
+        if ok then
+            AddNativeCandidate(list, seen, frame)
+        end
+    end
+
+    AddNativeCandidate(list, seen, SELECTED_CHAT_FRAME)
+    AddNativeCandidate(list, seen, GetDockSelectedFrame())
+    AddNativeCandidate(list, seen, DEFAULT_CHAT_FRAME)
+    AddNativeCandidate(list, seen, _G.ChatFrame1)
+    AddNamedChatFrameCandidates(list, seen)
+
+    return list
+end
+
+local function RestoreNativeFrame(frame, session)
+    if not frame or not session then
+        return
+    end
 
     if type(frame.SetOnTextCopiedCallback) == "function" then
         pcall(frame.SetOnTextCopiedCallback, frame, nil)
@@ -930,55 +1019,127 @@ local function RestoreNativeChatCopyMode(frame, sessionId)
         pcall(frame.SetTextCopyable, frame, false)
     end
 
-    if session.originalMouseEnabled ~= nil and type(frame.EnableMouse) == "function" then
-        pcall(frame.EnableMouse, frame, session.originalMouseEnabled)
+    if session.originalClickEnabled == false and type(frame.SetMouseClickEnabled) == "function" then
+        pcall(frame.SetMouseClickEnabled, frame, false)
+    elseif session.originalClickEnabled == true and type(frame.SetMouseClickEnabled) == "function" then
+        pcall(frame.SetMouseClickEnabled, frame, true)
+    end
+
+    if session.originalMotionEnabled == false and type(frame.SetMouseMotionEnabled) == "function" then
+        pcall(frame.SetMouseMotionEnabled, frame, false)
+    elseif session.originalMotionEnabled == true and type(frame.SetMouseMotionEnabled) == "function" then
+        pcall(frame.SetMouseMotionEnabled, frame, true)
+    end
+
+    if session.originalMouseEnabled == false and type(frame.EnableMouse) == "function" then
+        pcall(frame.EnableMouse, frame, false)
+    elseif session.originalMouseEnabled == true and type(frame.EnableMouse) == "function" then
+        pcall(frame.EnableMouse, frame, true)
+    end
+end
+
+local function RestoreNativeCopySession(sessionId)
+    for frame, session in pairs(nativeCopySessions) do
+        if session and session.id == sessionId then
+            nativeCopySessions[frame] = nil
+            RestoreNativeFrame(frame, session)
+        end
+    end
+end
+
+local function RestoreNativeChatCopyMode(frame, sessionId)
+    local session = frame and nativeCopySessions[frame]
+    if not session or session.id ~= sessionId then
+        return
+    end
+
+    -- One successful native copy should close the whole Chatify native-copy
+    -- session. This matches the Prat idea, but avoids leaving secondary chat
+    -- frames copyable when we enabled multiple visible candidates.
+    RestoreNativeCopySession(sessionId)
+end
+
+local function EnableNativeCopyOnFrame(frame, sessionId)
+    if not IsNativeCopyFrame(frame) then
+        return false
+    end
+
+    nativeCopySessions[frame] = {
+        id = sessionId,
+        originalMouseEnabled = GetFrameMouseEnabled(frame),
+        originalCopyable = GetFrameTextCopyable(frame),
+        originalClickEnabled = GetFrameMouseClickEnabled(frame),
+        originalMotionEnabled = GetFrameMouseMotionEnabled(frame),
+    }
+
+    local okCopyable = pcall(frame.SetTextCopyable, frame, true)
+    if not okCopyable then
+        nativeCopySessions[frame] = nil
+        return false
+    end
+
+    -- Prat only calls EnableMouse(true). Retail clients may split mouse click
+    -- and motion handling, so enable those when the methods exist. We restore
+    -- the original state after copy/timeout only for frames changed by Chatify.
+    if type(frame.EnableMouse) == "function" then
+        pcall(frame.EnableMouse, frame, true)
+    end
+    if type(frame.SetMouseClickEnabled) == "function" then
+        pcall(frame.SetMouseClickEnabled, frame, true)
+    end
+    if type(frame.SetMouseMotionEnabled) == "function" then
+        pcall(frame.SetMouseMotionEnabled, frame, true)
+    end
+
+    if type(frame.SetOnTextCopiedCallback) == "function" then
+        pcall(frame.SetOnTextCopiedCallback, frame, function(this)
+            RestoreNativeChatCopyMode(this or frame, sessionId)
+        end)
+    end
+
+    return true
+end
+
+local function NotifyNativeCopyEnabled(enabledCount)
+    if type(DEFAULT_CHAT_FRAME) == "table" and type(DEFAULT_CHAT_FRAME.AddMessage) == "function" then
+        pcall(DEFAULT_CHAT_FRAME.AddMessage, DEFAULT_CHAT_FRAME,
+            string.format("|cffffd200Chatify:|r native chat selection enabled on %d chat frame(s). Drag text in chat, then press Ctrl+C.", tonumber(enabledCount) or 1))
     end
 end
 
 function ns.EnterNativeChatCopyMode(chatFrame)
-    chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
-    if not chatFrame or type(chatFrame.SetTextCopyable) ~= "function" then
+    local frames = ResolveNativeCopyFrames(chatFrame)
+    if type(frames) ~= "table" or #frames == 0 then
         return false
     end
 
     nativeCopySessionId = nativeCopySessionId + 1
     local sessionId = nativeCopySessionId
-    local originalMouseEnabled = GetFrameMouseEnabled(chatFrame)
-    local originalCopyable = GetFrameTextCopyable(chatFrame)
+    local enabledCount = 0
 
-    nativeCopySessions[chatFrame] = {
-        id = sessionId,
-        originalMouseEnabled = originalMouseEnabled,
-        originalCopyable = originalCopyable,
-    }
+    for i = 1, #frames do
+        if EnableNativeCopyOnFrame(frames[i], sessionId) then
+            enabledCount = enabledCount + 1
+        end
+    end
 
-    local okCopyable = pcall(chatFrame.SetTextCopyable, chatFrame, true)
-    if not okCopyable then
-        nativeCopySessions[chatFrame] = nil
+    if enabledCount == 0 then
         return false
     end
 
-    if type(chatFrame.EnableMouse) == "function" then
-        pcall(chatFrame.EnableMouse, chatFrame, true)
+    NotifyNativeCopyEnabled(enabledCount)
+
+    -- Do not run the fallback immediately on clients without C_Timer; immediate
+    -- restore is exactly what makes native mode look broken. With C_Timer we
+    -- clean up later so ElvUI/Prat/Blizzard frames are not left modified forever.
+    local function delayedRestore()
+        RestoreNativeCopySession(sessionId)
     end
 
-    if type(chatFrame.SetOnTextCopiedCallback) == "function" then
-        pcall(chatFrame.SetOnTextCopiedCallback, chatFrame, function(frame)
-            RestoreNativeChatCopyMode(frame, sessionId)
-        end)
-    end
-
-    -- ElvUI/Prat compatibility: do not leave the chat frame permanently in
-    -- copyable/mouse-enabled mode if the user clicked native mode by mistake
-    -- and never copied anything. Restore only the state Chatify changed.
-    if type(ns.SafeAfter) == "function" then
-        ns.SafeAfter(30, function()
-            RestoreNativeChatCopyMode(chatFrame, sessionId)
-        end)
+    if type(ns.SafeAfter) == "function" and C_Timer and type(C_Timer.After) == "function" then
+        ns.SafeAfter(120, delayedRestore)
     elseif C_Timer and type(C_Timer.After) == "function" then
-        pcall(C_Timer.After, 30, function()
-            RestoreNativeChatCopyMode(chatFrame, sessionId)
-        end)
+        pcall(C_Timer.After, 120, delayedRestore)
     end
 
     return true
