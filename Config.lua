@@ -240,6 +240,52 @@ function ns.ShouldBypassWhisperMutation(eventName)
     return ns.IsRetailSecretValueBuild() and ns.IsWhisperSensitiveEvent(eventName)
 end
 
+local retailCaptureBypassEvents = {
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true,
+    CHAT_MSG_BN_WHISPER_INFORM = true,
+    CHAT_MSG_BN_CONVERSATION = true,
+    CHAT_MSG_EMOTE = true,
+    CHAT_MSG_TEXT_EMOTE = true,
+    CHAT_MSG_ACHIEVEMENT = true,
+    CHAT_MSG_GUILD_ACHIEVEMENT = true,
+}
+
+function ns.ShouldBypassChatCaptureEvent(eventName)
+    if not ns.IsRetailSecretValueBuild() then
+        return false
+    end
+    return retailCaptureBypassEvents[eventName] and true or false
+end
+
+function ns.HasSecretChatValue(...)
+    local count = select("#", ...)
+    for i = 1, count do
+        if ns.IsSecretValue(select(i, ...)) then
+            return true
+        end
+    end
+    return false
+end
+
+function ns.CanMutateChatPayload(eventName, msg, author, ...)
+    -- Prat-style guard: decide before doing ANY string operation on the payload.
+    if type(eventName) == "string" and ns.ShouldBypassWhisperMutation(eventName) then
+        return false
+    end
+
+    if ns.HasSecretChatValue(msg, author, ...) then
+        return false
+    end
+
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+        return false
+    end
+
+    return type(msg) == "string" or type(msg) == "number"
+end
+
 function ns.GetMaxChatWindows()
     if type(NUM_CHAT_WINDOWS) == "number" and NUM_CHAT_WINDOWS > 0 then
         return NUM_CHAT_WINDOWS

@@ -203,13 +203,26 @@ local function IsBattleNetSelf(...)
     return false
 end
 
+local function IsIncomingWhisperEvent(event)
+    return event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_BN_WHISPER"
+end
+
 function Sounds:OnEvent(event, msg, author, ...)
-    if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
+    local db = ns.db and ns.db.sounds
+    if not db or not db.enable then
         return
     end
 
-    local db = ns.db and ns.db.sounds
-    if not db or not db.enable then
+    if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
+        -- Sounds do not need to inspect protected whisper payloads. Keep the useful
+        -- incoming whisper notification, but skip all message/author processing.
+        if IsIncomingWhisperEvent(event) then
+            local now = GetTime()
+            if (now - lastNormalSound) >= adaptiveThrottle then
+                self:Play(db.events["WHISPER"])
+                lastNormalSound = now
+            end
+        end
         return
     end
 
@@ -263,12 +276,10 @@ end
 
 function Sounds:OnEnable()
     for event in pairs(eventMap) do
-        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event)) then
-            if type(ns.RegisterEventIfSupported) == "function" then
-                ns.RegisterEventIfSupported(self, event, "OnEvent")
-            else
-                pcall(self.RegisterEvent, self, event, "OnEvent")
-            end
+        if type(ns.RegisterEventIfSupported) == "function" then
+            ns.RegisterEventIfSupported(self, event, "OnEvent")
+        else
+            pcall(self.RegisterEvent, self, event, "OnEvent")
         end
     end
 

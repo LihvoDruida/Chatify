@@ -23,6 +23,19 @@ local CHAT_CAPTURE_EVENTS = {
     "CHAT_MSG_CHANNEL", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM",
     "CHAT_MSG_SYSTEM", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "CHAT_MSG_ACHIEVEMENT",
 }
+
+-- Modern Retail-safe capture list. We still keep copy cache useful for normal
+-- public/group chat, but avoid registering sensitive whisper/BN/emote/achievement
+-- payloads. Protected lines remain available through Blizzard native selection.
+local RETAIL_CHAT_CAPTURE_EVENTS = {
+    "CHAT_MSG_SAY", "CHAT_MSG_YELL",
+    "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
+    "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_CHANNEL",
+    "CHAT_MSG_SYSTEM", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY",
+}
 local captureFrame
 local captureRegisteredCount = 0
 local lastEntrySignature
@@ -198,19 +211,6 @@ local function GetNameColor(name)
     name = NormalizeName(name)
     if not name then
         return "ffffffff"
-    end
-
-    if type(UnitClass) == "function" then
-        local ok, classFile = pcall(function()
-            return select(2, UnitClass(name))
-        end)
-        if ok and classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-            local c = RAID_CLASS_COLORS[classFile]
-            return string.format("ff%02x%02x%02x",
-                math.floor(((c.r or 1) * 255) + 0.5),
-                math.floor(((c.g or 1) * 255) + 0.5),
-                math.floor(((c.b or 1) * 255) + 0.5))
-        end
     end
 
     local hash = 0
@@ -1424,12 +1424,23 @@ end
 -- =========================================================
 -- 4. ПЕРЕХОПЛЕННЯ КЛІКІВ
 -- =========================================================
+local function GetCaptureEventsForClient()
+    if type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
+        return RETAIL_CHAT_CAPTURE_EVENTS
+    end
+    return CHAT_CAPTURE_EVENTS
+end
+
 local function OnCaptureEvent(_, event, msg, author, ...)
-    if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
+    if type(ns.ShouldBypassChatCaptureEvent) == "function" and ns.ShouldBypassChatCaptureEvent(event) then
         return
     end
 
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+    if type(ns.CanMutateChatPayload) == "function" then
+        if not ns.CanMutateChatPayload(event, msg, author, ...) then
+            return
+        end
+    elseif type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return
     end
 
@@ -1454,8 +1465,8 @@ local function EnsureChatCapture()
 
     captureFrame = frame
     captureRegisteredCount = 0
-    for _, eventName in ipairs(CHAT_CAPTURE_EVENTS) do
-        if not (type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(eventName))
+    for _, eventName in ipairs(GetCaptureEventsForClient()) do
+        if not (type(ns.ShouldBypassChatCaptureEvent) == "function" and ns.ShouldBypassChatCaptureEvent(eventName))
             and (type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported(eventName)) then
             local ok = pcall(captureFrame.RegisterEvent, captureFrame, eventName)
             if ok then
@@ -1530,9 +1541,17 @@ local function DisableNativeCopyGuard()
     nativeCopyGuardFrame = nil
 end
 
+local function CallOriginalSetItemRef(module, link, text, button, chatFrame)
+    local hooks = module and module.hooks
+    local original = hooks and hooks.SetItemRef
+    if type(original) == "function" then
+        return original(link, text, button, chatFrame)
+    end
+end
+
 function CopyModule:OnEnable()
-    if type(SetItemRef) == "function" and not self:IsHooked("SetItemRef") then
-        self:RawHook("SetItemRef", true)
+    if type(SetItemRef) == "function" and (type(self.IsHooked) ~= "function" or not self:IsHooked("SetItemRef")) then
+        pcall(self.RawHook, self, "SetItemRef", true)
     end
     EnsureChatCapture()
     EnsureNativeCopyGuard()
@@ -1557,7 +1576,7 @@ end
 function CopyModule:SetItemRef(link, text, button, chatFrame)
     local safeLink = SafeChatText(link)
     if not IsNonEmptyString(safeLink) then
-        return self.hooks.SetItemRef(link, text, button, chatFrame)
+        return CallOriginalSetItemRef(self, link, text, button, chatFrame)
     end
 
     if safeLink:sub(1, 9) == "chatcopy:" then
@@ -1574,7 +1593,7 @@ function CopyModule:SetItemRef(link, text, button, chatFrame)
         return
     end
 
-    self.hooks.SetItemRef(link, text, button, chatFrame)
+    return CallOriginalSetItemRef(self, link, text, button, chatFrame)
 end
 
 
@@ -1584,8 +1603,8 @@ function CopyModule:OnDisable()
     end
     DisableChatCapture()
     DisableNativeCopyGuard()
-    if self:IsHooked("SetItemRef") then
-        self:Unhook("SetItemRef")
+    if type(self.IsHooked) == "function" and self:IsHooked("SetItemRef") then
+        pcall(self.Unhook, self, "SetItemRef")
     end
     if Chatify and type(Chatify.UnregisterChatCommand) == "function" then
         pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")

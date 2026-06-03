@@ -34,6 +34,10 @@ local function RegisterMessageFilter(eventName, callback)
         return false
     end
 
+    if registeredFilters[eventName] and registeredFilters[eventName][callback] then
+        return true
+    end
+
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, callback)
@@ -535,20 +539,26 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    if IsSecretValue(msg) or IsSecretValue(author) then
-        return false, msg, author, ...
-    end
-
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
-        return false, msg, author, ...
-    end
-
     if db.hideSystemSpam and SystemEvents[event] then
         return true
     end
 
-    if type(msg) ~= "string" then
-        return false, msg, author, ...
+    if type(ns.CanMutateChatPayload) == "function" then
+        if not ns.CanMutateChatPayload(event, msg, author, ...) then
+            return false, msg, author, ...
+        end
+    else
+        if IsSecretValue(msg) or IsSecretValue(author) then
+            return false, msg, author, ...
+        end
+
+        if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+            return false, msg, author, ...
+        end
+
+        if type(msg) ~= "string" then
+            return false, msg, author, ...
+        end
     end
 
     if db.enableSpamFilter and ns.IsSpamMessage(msg) then
@@ -568,20 +578,26 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    if IsSecretValue(msg) or IsSecretValue(author) then
-        return false, msg, author, ...
-    end
-
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
-        return false, msg, author, ...
-    end
-
     if db.hideSystemSpam and SystemEvents[event] then
         return true
     end
 
-    if type(msg) ~= "string" then
-        return false, msg, author, ...
+    if type(ns.CanMutateChatPayload) == "function" then
+        if not ns.CanMutateChatPayload(event, msg, author, ...) then
+            return false, msg, author, ...
+        end
+    else
+        if IsSecretValue(msg) or IsSecretValue(author) then
+            return false, msg, author, ...
+        end
+
+        if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+            return false, msg, author, ...
+        end
+
+        if type(msg) ~= "string" then
+            return false, msg, author, ...
+        end
     end
 
     if db.enableSpamFilter and ns.IsSpamMessage(msg) then

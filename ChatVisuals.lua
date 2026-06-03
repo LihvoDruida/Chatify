@@ -320,12 +320,18 @@ TimestampFilter = function(self, event, msg, author, ...)
     local allowedEvents = retailRestricted and retailTimestampEvents or eventsToHandle
     if not allowedEvents[event] then return false, msg, author, ... end
 
-    if IsSecretValue(msg) or IsSecretValue(author) then
-        return false, msg, author, ...
-    end
+    if type(ns.CanMutateChatPayload) == "function" then
+        if not ns.CanMutateChatPayload(event, msg, author, ...) then
+            return false, msg, author, ...
+        end
+    else
+        if IsSecretValue(msg) or IsSecretValue(author) then
+            return false, msg, author, ...
+        end
 
-    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
-        return false, msg, author, ...
+        if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
+            return false, msg, author, ...
+        end
     end
 
     local safeMsg = GetSafeText(msg)
