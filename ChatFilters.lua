@@ -404,6 +404,60 @@ end
 
 ns.GetChatifyEventCategory = GetEventCategory
 
+local function IsSelfAuthorForMention(author)
+    local safeAuthor = GetSafeString(author)
+    if type(safeAuthor) ~= "string" or safeAuthor == "" or type(PLAYER_NAME) ~= "string" or PLAYER_NAME == "" then
+        return false
+    end
+
+    local shortName = safeAuthor
+    if type(Ambiguate) == "function" then
+        local ok, result = pcall(Ambiguate, safeAuthor, "none")
+        if ok and type(result) == "string" and result ~= "" then
+            shortName = result
+        end
+    end
+    shortName = shortName:match("([^%-]+)") or shortName
+
+    return strlower(shortName) == strlower(PLAYER_NAME)
+end
+
+local function QueueMentionRuleSound(rule, index, eventName, author, ...)
+    if not rule or eventName == "CHAT_MSG_WHISPER_INFORM" or eventName == "CHAT_MSG_BN_WHISPER_INFORM" then
+        return
+    end
+
+    if IsSelfAuthorForMention(author) then
+        return
+    end
+
+    local soundName = rule.sound
+    if type(soundName) ~= "string" or soundName == "" or soundName == "None" then
+        return
+    end
+
+    if type(ns.CanPlayMentionRuleSound) == "function" then
+        local ok, canPlay = pcall(ns.CanPlayMentionRuleSound, rule, index)
+        if not ok or not canPlay then
+            return
+        end
+    end
+
+    local function play()
+        if type(ns.PlayMentionSound) == "function" then
+            ns.PlayMentionSound(soundName)
+        end
+    end
+
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(0, play)
+    elseif C_Timer and type(C_Timer.After) == "function" then
+        C_Timer.After(0, play)
+    else
+        play()
+    end
+end
+
 local function IsFriendAuthor(author)
     local safeAuthor = GetSafeString(author)
     if type(safeAuthor) ~= "string" or safeAuthor == "" then
@@ -917,15 +971,15 @@ function ns.CanPlayMentionRuleSound(rule, index)
     if cooldown < 0 then cooldown = 0 end
     local now = GetTime and GetTime() or 0
     local key = tostring(index or RuleText(rule) or "mention")
-    local last = MentionCooldowns[key] or 0
-    if cooldown > 0 and (now - last) < cooldown then
+    local last = MentionCooldowns[key]
+    if last and cooldown > 0 and (now - last) < cooldown then
         return false
     end
     MentionCooldowns[key] = now
     return true
 end
 
-function ns.ApplyMentionRules(text, eventName, ...)
+function ns.ApplyMentionRules(text, eventName, author, ...)
     local db = DB()
     local rules = GetMentionRules(db)
     if not rules or type(text) ~= "string" or IsSecretValue(text) then
@@ -933,12 +987,22 @@ function ns.ApplyMentionRules(text, eventName, ...)
     end
 
     local output = text
+    local soundQueued = false
     for i = 1, #rules do
         local rule = rules[i]
         if type(rule) == "table" and rule.enabled ~= false and RuleText(rule) and MentionRuleAppliesToEvent(rule, eventName, ...) then
+            local matchedRule = false
             output = TransformPlainTextSegments(output, function(segment)
+                if not matchedRule and SegmentContainsRule(segment, rule) then
+                    matchedRule = true
+                end
                 return HighlightMentionRuleInSegment(segment, rule)
             end)
+
+            if matchedRule and not soundQueued then
+                QueueMentionRuleSound(rule, i, eventName, author, ...)
+                soundQueued = true
+            end
         end
     end
     return output
@@ -983,7 +1047,7 @@ function ns.FormatMessage(msg, eventName, author, ...)
         local output = safeMsg
 
         if type(ns.ApplyMentionRules) == "function" then
-            output = ns.ApplyMentionRules(output, eventName, unpackValues(args, 1, argCount))
+            output = ns.ApplyMentionRules(output, eventName, author, unpackValues(args, 1, argCount))
         end
 
         output = DecorateLinksInText(output)
@@ -1101,7 +1165,7 @@ function Filters:HookCommunities()
             end
 
             local formatter = ns.FormatMessage
-            local ok, formatted = pcall(formatter, sourceText, "CHAT_MSG_COMMUNITIES_CHANNEL")
+            local ok, formatted = pcall(formatter, sourceText, "CHAT_MSG_COMMUNITIES_CHANNEL", messageInfo.author or messageInfo.sender or messageInfo.displayName)
             local finalText = ok and formatted or sourceText
             if finalText then
                 frame.Message:SetText(finalText)

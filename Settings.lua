@@ -588,7 +588,7 @@ function Chatify:GetOptions()
                     enable = {
                         order = 2,
                         name = "Enable Chat Sounds",
-                        desc = "Toggle all sound effects.",
+                        desc = "Toggle channel notification sounds.",
                         type = "toggle",
                         width = "full",
                         set = function(info, val) self.db.profile.sounds.enable = val end,
@@ -596,8 +596,8 @@ function Chatify:GetOptions()
                     },
                     masterChannel = {
                         order = 3,
-                        name = "Force Master Channel",
-                        desc = "Play sounds through 'Master' channel to hear them even if SFX is muted.",
+                        name = "Use Master Channel",
+                        desc = "Play channel notifications through Master. Mention alerts always use Master.",
                         type = "toggle",
                         width = "full",
                         disabled = function() return not self.db.profile.sounds.enable end,
@@ -609,7 +609,7 @@ function Chatify:GetOptions()
                     mentionRoutingNotice = {
                         order = 10.5,
                         type = "description",
-                        name = "Mention sounds and text highlighting are configured in Mention Manager. This tab only controls generic channel notifications.",
+                        name = "Channel notification sounds. Mention alerts are configured in Mention Manager.",
                     },
 
                     soundWhisper = {
@@ -948,7 +948,7 @@ function Chatify:GetOptions()
                     headerMentions = {
                         order = 1,
                         type = "description",
-                        name = "Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown.\n|cff999999Mention sounds work from this tab and do not require generic channel sounds to be enabled.|r",
+                        name = "Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown.",
                         fontSize = "medium",
                     },
                     enableMentionManager = {

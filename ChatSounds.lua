@@ -130,7 +130,13 @@ local function ProcessQueue()
 
         local item = tremove(soundQueue, 1)
         if item and item.file and type(PlaySoundFile) == "function" then
-            pcall(PlaySoundFile, item.file, item.channel)
+            local ok, willPlay = pcall(PlaySoundFile, item.file, item.channel or "Master")
+            -- Prat's sound path always uses Master. If a non-master channel is muted
+            -- or rejected by the client, retry once on Master so important mention
+            -- alerts are not silently lost.
+            if ok and willPlay == false and item.channel ~= "Master" then
+                pcall(PlaySoundFile, item.file, "Master")
+            end
         end
 
         if type(ns.SafeAfter) == "function" then
@@ -151,7 +157,7 @@ local function GetSoundConfig()
     return profile, soundDb
 end
 
-function Sounds:Play(soundName)
+function Sounds:Play(soundName, forceMaster)
     local _, db = GetSoundConfig()
     if not soundName or soundName == "None" then
         return
@@ -169,7 +175,7 @@ function Sounds:Play(soundName)
         return
     end
 
-    local channel = db.masterVolume and "Master" or "SFX"
+    local channel = forceMaster and "Master" or (db.masterVolume and "Master" or "SFX")
 
     local lastQueued = soundQueue[#soundQueue]
     if lastQueued and lastQueued.file == soundFile and lastQueued.channel == channel then
@@ -182,6 +188,31 @@ function Sounds:Play(soundName)
 
     tinsert(soundQueue, { file = soundFile, channel = channel })
     ProcessQueue()
+end
+
+function Sounds:PlayMention(soundName)
+    self:Play(soundName, true)
+end
+
+function ns.PlayMentionSound(soundName)
+    if type(soundName) ~= "string" or soundName == "" or soundName == "None" then
+        return false
+    end
+
+    local module = Chatify and Chatify.GetModule and Chatify:GetModule("Sounds", true)
+    if module and type(module.PlayMention) == "function" then
+        module:PlayMention(soundName)
+        return true
+    end
+
+    local soundFile = type(ns.ResolveSoundPath) == "function" and ns.ResolveSoundPath(soundName)
+        or (LSM and LSM.Fetch and LSM:Fetch("sound", soundName, true))
+    if soundFile and type(PlaySoundFile) == "function" then
+        pcall(PlaySoundFile, soundFile, "Master")
+        return true
+    end
+
+    return false
 end
 
 local function IsBattleNetSelf(...)
@@ -209,10 +240,12 @@ end
 
 function Sounds:OnEvent(event, msg, author, ...)
     local profile, db = GetSoundConfig()
-    local mentionEnabled = profile and profile.enableMentionManager ~= false
     local normalSoundsEnabled = db and db.enable == true
 
-    if not mentionEnabled and not normalSoundsEnabled then
+    -- Mention sounds are intentionally handled from the same formatting path that
+    -- applies the highlight. This mirrors Prat's post-message sound model and
+    -- prevents the common "highlighted but no sound" split-brain bug.
+    if not normalSoundsEnabled then
         return
     end
 
@@ -253,20 +286,6 @@ function Sounds:OnEvent(event, msg, author, ...)
 
     if not isSelf and event == "CHAT_MSG_BN_WHISPER" then
         isSelf = IsBattleNetSelf(...)
-    end
-
-    if mentionEnabled and safeMsg and not isSelf and type(ns.GetMentionRuleMatch) == "function" then
-        local okRule, rule, ruleIndex = pcall(ns.GetMentionRuleMatch, safeMsg, event, ...)
-        if okRule and rule then
-            local soundName = rule.sound
-            if type(soundName) == "string" and soundName ~= "" and soundName ~= "None" and type(ns.CanPlayMentionRuleSound) == "function" then
-                local okCanPlay, canPlay = pcall(ns.CanPlayMentionRuleSound, rule, ruleIndex)
-                if okCanPlay and canPlay then
-                    self:Play(soundName)
-                    return
-                end
-            end
-        end
     end
 
     if not normalSoundsEnabled then
