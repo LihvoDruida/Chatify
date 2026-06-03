@@ -250,6 +250,28 @@ function Sounds:OnEvent(event, msg, author, ...)
         isSelf = IsBattleNetSelf(...)
     end
 
+    if safeMsg and not isSelf and type(ns.GetMentionRuleMatch) == "function" then
+        local okRule, rule, ruleIndex = pcall(ns.GetMentionRuleMatch, safeMsg, event, ...)
+        if okRule and rule then
+            local soundName = rule.sound
+            if type(soundName) ~= "string" or soundName == "" then
+                soundName = db.events["MENTION"]
+            end
+            if type(ns.CanPlayMentionRuleSound) == "function" then
+                local okCanPlay, canPlay = pcall(ns.CanPlayMentionRuleSound, rule, ruleIndex)
+                if okCanPlay and canPlay then
+                    self:Play(soundName)
+                    lastMentionSound = now
+                    return
+                end
+            elseif (now - lastMentionSound) >= MENTION_THROTTLE then
+                self:Play(soundName)
+                lastMentionSound = now
+                return
+            end
+        end
+    end
+
     if safeMsg and myNameLower then
         local okMention, isMention = pcall(function()
             local msgLower = strlower(safeMsg)

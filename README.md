@@ -12,8 +12,8 @@
 * **🎨 Visual Customization:** Configurable fonts and shadows.
 * **📜 Chat History:** Saves chat messages between sessions and reloads (Multi-frame support).
 * **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and copy-text functionality via timestamps.
-* **🛡 Spam Filter:** Blocks messages containing specific user-defined keywords.
-* **🔔 Alerts:** Plays a sound when you receive a Whisper or when your name is mentioned in raid/party chat.
+* **🛡 Spam Filter 2.0:** Blocks spam keywords and repeated messages with channel rules, whitelists, counters, and a log-only tuning mode.
+* **🔔 Mention Manager:** Per-word or per-phrase highlights with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
 * **⚙️ Settings GUI:** Built-in configuration menu (no code editing required).
 
 ## 📂 Project Structure
@@ -23,7 +23,7 @@ The addon is split into logical modules for better maintainability:
 * `Chatify.toc` — Addon manifest (metadata and file list).
 * `Config.lua` — Default settings and variable initialization.
 * `Settings.lua` — GUI code (Options panel).
-* `ChatFilters.lua` — Text processing logic (URLs, spam, class colors).
+* `ChatFilters.lua` — Safe text processing logic (URLs, spam rules, mention highlights).
 * `ChatHistory.lua` — System for saving and restoring chat history.
 * `ChatVisuals.lua` — Visual tweaks (fonts, hiding elements).
 * `ChatCopy.lua` — Logic for the copy-text window.
@@ -60,6 +60,27 @@ Contributions are welcome!
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
+
+## Retail Safe Mode
+
+On modern Retail builds, Chatify avoids mutating protected whisper / BNet whisper payloads. Settings now show the active safe-mode status so users can clearly see why these paths are limited:
+
+- History is limited to safely captured events.
+- Virtual Chat remains disabled on protected Retail builds.
+- Whisper / BN whisper auto-replies are disabled when payloads are protected.
+- Native direct chat selection is the recommended copy path.
+
+## Spam Filter 2.0
+
+Spam filtering remains compact but now supports channel rules, guild/friend/party/raid whitelist, repeated-message cooldown, runtime counters, and a last-20 debug log. Use **Log Only** mode to tune rules without hiding messages.
+
+## Mention Manager
+
+Mention rules can target words or phrases such as `Sebas`, `RL`, or `Ключ`. Each rule can define highlight color, sound, channels, case sensitivity, whole-word matching, and sound cooldown.
+
+## Safe Chat Tabs
+
+The setup panel can create or update PM, Guild, and Raid/Guild/PM tab templates. Existing tabs are reused instead of duplicated, and the restore action only repairs the main chat groups without deleting custom windows.
 
 ## Compatibility Notes
 

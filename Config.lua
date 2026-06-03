@@ -120,17 +120,69 @@ ns.defaults = {
         -- === SPAM FILTERS (Updated) ===
         enableSpamFilter = true,
         
-        -- Anti-Flood (Нові налаштування)
+        -- Anti-Flood / Spam Filter 2.0
         enableThrottle = true,      -- Блокувати повтор повідомлень
         throttleTime = 60,          -- Час блокування (сек)
+        throttleMinLength = 20,     -- Мінімальна довжина нормалізованого повідомлення для anti-flood
+        spamFilterMode = "block",  -- block або log: log тільки записує в debug без блокування
+        spamLogLimit = 20,          -- Останні N подій у runtime debug-log
+        spamWhitelist = {
+            guild = true,           -- Не фільтрувати гільдійський/офіцерський чат
+            friends = true,         -- Не фільтрувати Battle.net/звичайних друзів, коли їх можна безпечно визначити
+            party = true,           -- Не фільтрувати party чат
+            raid = true,            -- Не фільтрувати raid/instance чат
+        },
+        spamChannelRules = {
+            CHANNEL = true,         -- Загальний fallback для CHAT_MSG_CHANNEL
+            TRADE = true,
+            SERVICES = true,
+            GENERAL = true,
+            GUILD = false,
+            OFFICER = false,
+            PARTY = false,
+            RAID = false,
+            INSTANCE = false,
+            SAY = true,
+            YELL = true,
+            COMMUNITY = true,
+            LOOT = false,
+        },
         
-        -- System Cleaner (Нові налаштування)
+        -- System Cleaner
         hideSystemSpam = true,      -- Приховувати вхід/вихід з каналів
 
         -- Базовий список слів для блокування
         spamKeywords = { 
             "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES", "VIP"
         },
+
+        -- === MENTION MANAGER ===
+        enableMentionManager = true,
+        mentionRules = {
+            {
+                enabled = true,
+                text = UnitName("player") or "",
+                color = "ffd700",
+                sound = "Chatify Default",
+                channels = "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL",
+                ignoreCase = true,
+                wholeWord = true,
+                cooldown = 2,
+            },
+            {
+                enabled = false,
+                text = "RL",
+                color = "ff4040",
+                sound = "None",
+                channels = "GUILD,RAID,INSTANCE",
+                ignoreCase = true,
+                wholeWord = true,
+                cooldown = 3,
+            },
+        },
+
+        -- === SAFE CHAT TABS ===
+        chatTabsTemplate = "RAID", -- PM, GUILD або RAID
 
         -- === FORMATTING ===
         shortChannels = true,       -- [Party] -> [P]
@@ -533,6 +585,28 @@ function ns.EnforceRetailSafeMode(db)
     -- Do NOT rewrite user preferences here, otherwise the same SavedVariables
     -- stay crippled when the addon is loaded on older Retail clients.
     return true
+end
+
+function ns.GetRetailSafeModeStatus(db)
+    local active = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+    local status = {
+        active = active and true or false,
+        history = "available",
+        virtualChat = "available",
+        whisperAutoReply = "available",
+        nativeCopy = "recommended",
+    }
+
+    if active then
+        status.history = "limited to safe captured events"
+        status.virtualChat = "disabled on Retail for taint safety"
+        status.whisperAutoReply = "disabled on Retail protected whisper payloads"
+        status.nativeCopy = "recommended"
+    elseif db and db.copyNativeSelection == false then
+        status.nativeCopy = "optional"
+    end
+
+    return status
 end
 
 

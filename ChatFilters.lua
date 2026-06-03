@@ -8,7 +8,9 @@ local tinsert = table.insert
 local string_find = string.find
 local string_gsub = string.gsub
 local string_upper = string.upper
+local strlower = string.lower
 local table_concat = table.concat
+local unpackValues = unpack or table.unpack
 local UnitName = UnitName
 
 local PLAYER_NAME = UnitName("player")
@@ -338,6 +340,296 @@ function ns.IsSpamMessage(messageText)
     return ns.GetSpamMatch(messageText) ~= nil
 end
 
+
+local function GetSafeString(value)
+    if type(ns.TryMakeSafeText) == "function" then
+        return ns.TryMakeSafeText(value)
+    end
+    if type(value) == "number" then
+        return tostring(value)
+    end
+    if type(value) == "string" then
+        return value
+    end
+    return nil
+end
+
+local function Upper(value)
+    local safe = GetSafeString(value)
+    if type(safe) ~= "string" then
+        return ""
+    end
+    return string_upper(safe)
+end
+
+local function ContainsAny(value, ...)
+    local upper = Upper(value)
+    if upper == "" then
+        return false
+    end
+
+    for i = 1, select("#", ...) do
+        local needle = select(i, ...)
+        if type(needle) == "string" and needle ~= "" and string_find(upper, needle, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function GetEventCategory(eventName, ...)
+    if eventName == "CHAT_MSG_GUILD" then return "GUILD", "GUILD" end
+    if eventName == "CHAT_MSG_OFFICER" then return "GUILD", "OFFICER" end
+    if eventName == "CHAT_MSG_PARTY" or eventName == "CHAT_MSG_PARTY_LEADER" then return "PARTY", "PARTY" end
+    if eventName == "CHAT_MSG_RAID" or eventName == "CHAT_MSG_RAID_LEADER" or eventName == "CHAT_MSG_RAID_WARNING" then return "RAID", "RAID" end
+    if eventName == "CHAT_MSG_INSTANCE_CHAT" or eventName == "CHAT_MSG_INSTANCE_CHAT_LEADER" then return "RAID", "INSTANCE" end
+    if eventName == "CHAT_MSG_WHISPER" or eventName == "CHAT_MSG_WHISPER_INFORM" or eventName == "CHAT_MSG_BN_WHISPER" or eventName == "CHAT_MSG_BN_WHISPER_INFORM" or eventName == "CHAT_MSG_BN_CONVERSATION" then return "WHISPER", "WHISPER" end
+    if eventName == "CHAT_MSG_COMMUNITIES_CHANNEL" then return "COMMUNITY", "COMMUNITY" end
+    if eventName == "CHAT_MSG_SAY" then return "SAY", "SAY" end
+    if eventName == "CHAT_MSG_YELL" then return "YELL", "YELL" end
+    if eventName == "CHAT_MSG_LOOT" then return "LOOT", "LOOT" end
+    if eventName == "CHAT_MSG_CHANNEL" then
+        for i = 1, select("#", ...) do
+            local value = select(i, ...)
+            if ContainsAny(value, "SERVICES") then return "CHANNEL", "SERVICES" end
+            if ContainsAny(value, "TRADE") then return "CHANNEL", "TRADE" end
+            if ContainsAny(value, "GENERAL") then return "CHANNEL", "GENERAL" end
+            if ContainsAny(value, "LOOKINGFORGROUP", "LOOKING FOR GROUP", "LFG") then return "CHANNEL", "LFG" end
+        end
+        return "CHANNEL", "CHANNEL"
+    end
+
+    return "OTHER", "OTHER"
+end
+
+ns.GetChatifyEventCategory = GetEventCategory
+
+local function IsFriendAuthor(author)
+    local safeAuthor = GetSafeString(author)
+    if type(safeAuthor) ~= "string" or safeAuthor == "" then
+        return false
+    end
+
+    local shortName = safeAuthor
+    if type(Ambiguate) == "function" then
+        local ok, result = pcall(Ambiguate, safeAuthor, "none")
+        if ok and type(result) == "string" and result ~= "" then
+            shortName = result
+        end
+    end
+    shortName = shortName:match("([^%-]+)") or shortName
+
+    if C_FriendList and type(C_FriendList.GetFriendInfoByName) == "function" then
+        local ok, info = pcall(C_FriendList.GetFriendInfoByName, shortName)
+        if ok and type(info) == "table" and info.name then
+            return true
+        end
+    end
+
+    if C_FriendList and type(C_FriendList.GetFriendInfo) == "function" then
+        local ok, info = pcall(C_FriendList.GetFriendInfo, shortName)
+        if ok and type(info) == "table" and info.name then
+            return true
+        end
+    end
+
+    if type(GetFriendInfo) == "function" then
+        local ok, name = pcall(GetFriendInfo, shortName)
+        if ok and type(name) == "string" and name ~= "" then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function GetSpamWhitelist(db)
+    db.spamWhitelist = db.spamWhitelist or {}
+    return db.spamWhitelist
+end
+
+local function IsSpamWhitelisted(db, category, author)
+    local whitelist = GetSpamWhitelist(db)
+    if category == "GUILD" and whitelist.guild then return true end
+    if category == "PARTY" and whitelist.party then return true end
+    if category == "RAID" and whitelist.raid then return true end
+    if whitelist.friends and IsFriendAuthor(author) then return true end
+    return false
+end
+
+local function GetSpamChannelRules(db)
+    db.spamChannelRules = db.spamChannelRules or {}
+    return db.spamChannelRules
+end
+
+local function IsSpamChannelEnabled(db, category, channelKey)
+    local rules = GetSpamChannelRules(db)
+    if rules[channelKey] ~= nil then
+        return rules[channelKey] and true or false
+    end
+    if rules[category] ~= nil then
+        return rules[category] and true or false
+    end
+    if category == "CHANNEL" then
+        return rules.CHANNEL ~= false
+    end
+    if category == "GUILD" or category == "PARTY" or category == "RAID" or category == "LOOT" or category == "WHISPER" then
+        return false
+    end
+    return true
+end
+
+local SpamRuntime = ns.SpamRuntime or { blocked = 0, logged = 0, log = {} }
+ns.SpamRuntime = SpamRuntime
+local RepeatCache = {}
+
+local function PruneRepeatCache(now, maxAge)
+    for key, entry in pairs(RepeatCache) do
+        if type(entry) ~= "table" or not entry.time or (now - entry.time) > maxAge then
+            RepeatCache[key] = nil
+        end
+    end
+end
+
+local function Shorten(value, limit)
+    value = GetSafeString(value) or ""
+    limit = tonumber(limit) or 160
+    if #value > limit then
+        return value:sub(1, limit - 3) .. "..."
+    end
+    return value
+end
+
+local function AddSpamDebugLog(action, eventName, author, reason, messageText, channelKey)
+    local limit = 20
+    local db = DB()
+    if db and tonumber(db.spamLogLimit) then
+        limit = math.max(1, math.min(50, tonumber(db.spamLogLimit)))
+    end
+
+    local entry = {
+        time = date and date("%H:%M:%S") or tostring(math.floor(GetTime and GetTime() or 0)),
+        action = action or "block",
+        event = eventName or "?",
+        channel = channelKey or "?",
+        author = Shorten(author, 64),
+        reason = Shorten(reason, 80),
+        text = Shorten(messageText, 180),
+    }
+
+    table.insert(SpamRuntime.log, 1, entry)
+    while #SpamRuntime.log > limit do
+        table.remove(SpamRuntime.log)
+    end
+
+    if action == "log" then
+        SpamRuntime.logged = (SpamRuntime.logged or 0) + 1
+    else
+        SpamRuntime.blocked = (SpamRuntime.blocked or 0) + 1
+    end
+end
+
+function ns.GetSpamFilterStats()
+    return SpamRuntime
+end
+
+function ns.ResetSpamFilterStats()
+    SpamRuntime.blocked = 0
+    SpamRuntime.logged = 0
+    SpamRuntime.log = {}
+    RepeatCache = {}
+end
+
+function ns.GetSpamDebugText()
+    local stats = ns.GetSpamFilterStats and ns.GetSpamFilterStats() or SpamRuntime
+    local lines = {}
+    lines[#lines + 1] = string.format("Blocked: %d   Logged: %d", tonumber(stats.blocked) or 0, tonumber(stats.logged) or 0)
+    if not stats.log or #stats.log == 0 then
+        lines[#lines + 1] = "|cff888888No spam events logged this session.|r"
+        return table_concat(lines, "\n")
+    end
+
+    for i = 1, math.min(#stats.log, 20) do
+        local entry = stats.log[i]
+        lines[#lines + 1] = string.format("%02d. [%s] %s %s/%s: %s — %s", i, entry.time or "?", entry.action or "?", entry.event or "?", entry.channel or "?", entry.reason or "?", entry.text or "")
+    end
+    return table_concat(lines, "\n")
+end
+
+local function GetRepeatReason(db, forms, author, eventName, channelKey)
+    if not db.enableThrottle then
+        return nil
+    end
+
+    local compact = forms and forms.compact or ""
+    local minLength = tonumber(db.throttleMinLength) or 20
+    if compact == "" or #compact < minLength then
+        return nil
+    end
+
+    local timeout = tonumber(db.throttleTime) or 60
+    if timeout <= 0 then
+        return nil
+    end
+
+    local now = GetTime and GetTime() or 0
+    PruneRepeatCache(now, timeout * 2)
+
+    local authorKey = NormalizeText(author or "unknown")
+    if authorKey == "" then authorKey = "unknown" end
+    local key = table_concat({ eventName or "?", channelKey or "?", authorKey, compact }, "|")
+    local previous = RepeatCache[key]
+    RepeatCache[key] = { time = now }
+
+    if previous and previous.time and (now - previous.time) <= timeout then
+        return string.format("repeat within %ds", timeout)
+    end
+
+    return nil
+end
+
+function ns.ProcessSpamMessage(eventName, msg, author, ...)
+    local db = DB()
+    if not db then
+        return false
+    end
+
+    if not db.enableSpamFilter and not db.enableThrottle then
+        return false
+    end
+
+    local category, channelKey = GetEventCategory(eventName, ...)
+    if IsSpamWhitelisted(db, category, author) then
+        return false
+    end
+
+    if not IsSpamChannelEnabled(db, category, channelKey) then
+        return false
+    end
+
+    local forms = ns.NormalizeSpamText(msg)
+    local reason = nil
+
+    if db.enableSpamFilter then
+        local matched = ns.GetSpamMatch(forms)
+        if matched then
+            reason = "keyword: " .. tostring(matched)
+        end
+    end
+
+    if not reason then
+        reason = GetRepeatReason(db, forms, author, eventName, channelKey)
+    end
+
+    if not reason then
+        return false
+    end
+
+    local action = db.spamFilterMode == "log" and "log" or "block"
+    AddSpamDebugLog(action, eventName, author, reason, msg, channelKey)
+    return action ~= "log"
+end
+
 local function DecorateLink(url)
     if IsSecretValue(url) then
         return url
@@ -468,6 +760,211 @@ local function HighlightWordList(text, words, color)
     return TransformPlainTextSegments(text, apply)
 end
 
+
+local MentionCooldowns = {}
+
+local function NormalizeColor(value, fallback)
+    value = type(value) == "string" and value:gsub("#", "") or ""
+    if value:match("^%x%x%x%x%x%x$") then
+        return value
+    end
+    if value:match("^%x%x%x%x%x%x%x%x$") then
+        return value:sub(3)
+    end
+    return fallback or "ffd700"
+end
+
+local function ParseChannelSet(value)
+    if type(value) == "table" then
+        return value
+    end
+
+    local set = {}
+    if type(value) ~= "string" or value == "" then
+        set.ALL = true
+        return set
+    end
+
+    for token in value:gmatch("[^,%s]+") do
+        token = string_upper(token)
+        if token ~= "" then
+            set[token] = true
+        end
+    end
+
+    if next(set) == nil then
+        set.ALL = true
+    end
+    return set
+end
+
+local function MentionRuleAppliesToEvent(rule, eventName, ...)
+    local channels = ParseChannelSet(rule.channels)
+    if channels.ALL then
+        return true
+    end
+
+    local category, channelKey = GetEventCategory(eventName, ...)
+    return channels[category] or channels[channelKey] or false
+end
+
+local function GetMentionRules(db)
+    if not db or not db.enableMentionManager or type(db.mentionRules) ~= "table" then
+        return nil
+    end
+    return db.mentionRules
+end
+
+local function RuleText(rule)
+    local text = rule and (rule.text or rule.word or rule.keyword)
+    if type(text) ~= "string" then
+        return nil
+    end
+    text = Trim(text)
+    if text == "" then
+        return nil
+    end
+    return text
+end
+
+local function SegmentContainsRule(segment, rule)
+    local text = RuleText(rule)
+    if not text or type(segment) ~= "string" or segment == "" then
+        return false
+    end
+
+    local haystack = segment
+    local needle = text
+    if rule.ignoreCase ~= false then
+        haystack = strlower(haystack)
+        needle = strlower(needle)
+    end
+
+    local escaped = EscapePattern(needle)
+    if rule.wholeWord and needle:match("^[%w_]+$") then
+        return string_find(haystack, "%f[%w]" .. escaped .. "%f[%W]") ~= nil
+    end
+
+    return string_find(haystack, escaped) ~= nil
+end
+
+local function HighlightMentionRuleInSegment(segment, rule)
+    local text = RuleText(rule)
+    if not text or type(segment) ~= "string" or segment == "" then
+        return segment
+    end
+
+    local color = NormalizeColor(rule.color, "ffd700")
+    local escaped = EscapePattern(text)
+    local pattern = "(" .. escaped .. ")"
+
+    -- Lua patterns in WoW are not Unicode-aware. Whole-word matching is kept for
+    -- ASCII identifiers such as RL/Sebas; Cyrillic phrases fall back to safe phrase matching.
+    if rule.wholeWord and text:match("^[%w_]+$") then
+        pattern = "(%f[%w]" .. escaped .. "%f[%W])"
+    end
+
+    local ok, output = pcall(function()
+        if rule.ignoreCase ~= false then
+            local lowerSegment = strlower(segment)
+            local lowerNeedle = strlower(text)
+            local lowerEscaped = EscapePattern(lowerNeedle)
+            local lowerPattern = "(" .. lowerEscaped .. ")"
+            if rule.wholeWord and lowerNeedle:match("^[%w_]+$") then
+                lowerPattern = "(%f[%w]" .. lowerEscaped .. "%f[%W])"
+            end
+
+            local result = {}
+            local index = 1
+            while index <= #segment do
+                local s, e = string_find(lowerSegment, lowerPattern, index)
+                if not s then
+                    result[#result + 1] = segment:sub(index)
+                    break
+                end
+                if s > index then
+                    result[#result + 1] = segment:sub(index, s - 1)
+                end
+                result[#result + 1] = "|cff" .. color .. segment:sub(s, e) .. "|r"
+                index = e + 1
+            end
+            return table_concat(result)
+        end
+
+        return segment:gsub(pattern, "|cff" .. color .. "%1|r")
+    end)
+
+    if ok and type(output) == "string" then
+        return output
+    end
+    return segment
+end
+
+function ns.GetMentionRuleMatch(messageText, eventName, ...)
+    local db = DB()
+    local rules = GetMentionRules(db)
+    if not rules or type(messageText) ~= "string" or IsSecretValue(messageText) then
+        return nil
+    end
+
+    for i = 1, #rules do
+        local rule = rules[i]
+        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule) and MentionRuleAppliesToEvent(rule, eventName, ...) then
+            local matched = false
+            TransformPlainTextSegments(messageText, function(segment)
+                if not matched and SegmentContainsRule(segment, rule) then
+                    matched = true
+                end
+                return segment
+            end)
+            if matched then
+                return rule, i
+            end
+        end
+    end
+    return nil
+end
+
+function ns.CanPlayMentionRuleSound(rule, index)
+    if not rule then
+        return false
+    end
+    local sound = rule.sound
+    if type(sound) ~= "string" or sound == "" or sound == "None" then
+        return false
+    end
+
+    local cooldown = tonumber(rule.cooldown) or 2
+    if cooldown < 0 then cooldown = 0 end
+    local now = GetTime and GetTime() or 0
+    local key = tostring(index or RuleText(rule) or "mention")
+    local last = MentionCooldowns[key] or 0
+    if cooldown > 0 and (now - last) < cooldown then
+        return false
+    end
+    MentionCooldowns[key] = now
+    return true
+end
+
+function ns.ApplyMentionRules(text, eventName, ...)
+    local db = DB()
+    local rules = GetMentionRules(db)
+    if not rules or type(text) ~= "string" or IsSecretValue(text) then
+        return text
+    end
+
+    local output = text
+    for i = 1, #rules do
+        local rule = rules[i]
+        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule) and MentionRuleAppliesToEvent(rule, eventName, ...) then
+            output = TransformPlainTextSegments(output, function(segment)
+                return HighlightMentionRuleInSegment(segment, rule)
+            end)
+        end
+    end
+    return output
+end
+
 function ns.FormatLinksOnly(msg)
     if type(msg) ~= "string" then
         return msg
@@ -489,12 +986,14 @@ function ns.FormatLinksOnly(msg)
     return msg
 end
 
-function ns.FormatMessage(msg)
+function ns.FormatMessage(msg, eventName, author, ...)
     local db = DB()
     if type(msg) ~= "string" or not db then
         return msg
     end
 
+    local argCount = select("#", ...)
+    local args = { ... }
 
     local safeMsg = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(msg) or msg
     if type(safeMsg) ~= "string" then
@@ -504,13 +1003,15 @@ function ns.FormatMessage(msg)
     local ok, result = pcall(function()
         local output = safeMsg
 
-        if db.highlightKeywords then
+        if type(ns.ApplyMentionRules) == "function" then
+            output = ns.ApplyMentionRules(output, eventName, unpackValues(args, 1, argCount))
+        elseif db.highlightKeywords then
             output = HighlightWordList(output, db.highlightKeywords, db.myHighlightColor or "ff0000")
         end
 
         output = DecorateLinksInText(output)
 
-        if PLAYER_NAME and PLAYER_NAME ~= "" then
+        if (not db.enableMentionManager) and PLAYER_NAME and PLAYER_NAME ~= "" then
             output = HighlightWordList(output, { PLAYER_NAME }, "ffd700")
         end
 
@@ -561,11 +1062,11 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         end
     end
 
-    if db.enableSpamFilter and ns.IsSpamMessage(msg) then
+    if type(ns.ProcessSpamMessage) == "function" and ns.ProcessSpamMessage(event, msg, author, ...) then
         return true
     end
 
-    return false, ns.FormatMessage(msg), author, ...
+    return false, ns.FormatMessage(msg, event, author, ...), author, ...
 end
 
 local function RetailRestrictedProcessor(self, event, msg, author, ...)
@@ -600,11 +1101,11 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         end
     end
 
-    if db.enableSpamFilter and ns.IsSpamMessage(msg) then
+    if type(ns.ProcessSpamMessage) == "function" and ns.ProcessSpamMessage(event, msg, author, ...) then
         return true
     end
 
-    return false, ns.FormatMessage(msg), author, ...
+    return false, ns.FormatMessage(msg, event, author, ...), author, ...
 end
 
 function Filters:HookCommunities()
@@ -627,7 +1128,7 @@ function Filters:HookCommunities()
             end
 
             local formatter = ns.FormatMessage
-            local ok, formatted = pcall(formatter, sourceText)
+            local ok, formatted = pcall(formatter, sourceText, "CHAT_MSG_COMMUNITIES_CHANNEL")
             local finalText = ok and formatted or sourceText
             if finalText then
                 frame.Message:SetText(finalText)

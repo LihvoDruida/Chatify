@@ -138,6 +138,113 @@ local function SetLanguageOption(value)
     end
 end
 
+
+
+local selectedMentionRuleIndex = 1
+
+local function EnsureProfileTables(db)
+    if not db then return end
+    db.spamWhitelist = db.spamWhitelist or {}
+    db.spamChannelRules = db.spamChannelRules or {}
+    db.mentionRules = db.mentionRules or {}
+    db.sounds = db.sounds or { events = {} }
+    db.sounds.events = db.sounds.events or {}
+end
+
+local function GetRetailSafeDescription()
+    local db = Chatify and Chatify.db and Chatify.db.profile
+    local status = type(ns.GetRetailSafeModeStatus) == "function" and ns.GetRetailSafeModeStatus(db) or { active = false }
+    local mode = status.active and "|cff33ff99active|r" or "|cff888888inactive|r"
+    return table.concat({
+        "|cffffd200Retail Safe Mode:|r " .. mode,
+        "History: " .. (status.history or "available"),
+        "Virtual Chat: " .. (status.virtualChat or "available"),
+        "Whisper Auto Reply: " .. (status.whisperAutoReply or "available"),
+        "Native Copy: " .. (status.nativeCopy or "optional"),
+    }, "\n")
+end
+
+local function GetSpamLogDescription()
+    if type(ns.GetSpamDebugText) == "function" then
+        return ns.GetSpamDebugText()
+    end
+    return "|cff888888Spam debug log is not available yet.|r"
+end
+
+local function AddMentionRule(db, text)
+    EnsureProfileTables(db)
+    text = TrimInput(text)
+    if text == "" then return end
+    table.insert(db.mentionRules, {
+        enabled = true,
+        text = text,
+        color = "ffd700",
+        sound = "Chatify Default",
+        channels = "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL",
+        ignoreCase = true,
+        wholeWord = true,
+        cooldown = 2,
+    })
+    selectedMentionRuleIndex = #db.mentionRules
+end
+
+local function GetMentionRuleValues(db)
+    EnsureProfileTables(db)
+    local values = {}
+    for index, rule in ipairs(db.mentionRules) do
+        local text = type(rule) == "table" and rule.text or nil
+        if type(text) ~= "string" or text == "" then
+            text = "Rule " .. index
+        end
+        values[index] = string.format("%d. %s%s", index, text, rule.enabled == false and " |cff888888(disabled)|r" or "")
+    end
+    if #values == 0 then
+        values[1] = "No rules"
+    end
+    return values
+end
+
+local function GetSelectedMentionRule(db)
+    EnsureProfileTables(db)
+    if #db.mentionRules == 0 then
+        return nil, nil
+    end
+    if selectedMentionRuleIndex < 1 or selectedMentionRuleIndex > #db.mentionRules then
+        selectedMentionRuleIndex = 1
+    end
+    return db.mentionRules[selectedMentionRuleIndex], selectedMentionRuleIndex
+end
+
+local function GetTabTemplateDefinitions()
+    return {
+        PM = { label = "PM only", tabs = { { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } } } },
+        GUILD = { label = "Guild", tabs = {
+            { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } },
+            { name = T("Guild"), groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } },
+        } },
+        RAID = { label = "Raid / Guild / PM", tabs = {
+            { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } },
+            { name = T("Guild"), groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } },
+            { name = T("Raid"), groups = { "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER" } },
+        } },
+    }
+end
+
+local function GetChatTabsPreview()
+    local db = Chatify and Chatify.db and Chatify.db.profile
+    local templateKey = db and db.chatTabsTemplate or "RAID"
+    local definitions = GetTabTemplateDefinitions()
+    local template = definitions[templateKey] or definitions.RAID
+    local lines = { "|cffffd200Preview:|r " .. (template.label or templateKey) }
+    for _, tab in ipairs(template.tabs) do
+        local exists = type(ns.FindChatFrameByDisplayName) == "function" and ns.FindChatFrameByDisplayName(tab.name)
+        local state = exists and "|cff33ff99update existing|r" or "|cffffcc00create|r"
+        lines[#lines + 1] = string.format("- %s: %s", tab.name, state)
+    end
+    lines[#lines + 1] = "|cff999999Setup never creates duplicate tabs with the same visible name.|r"
+    return table.concat(lines, "\n")
+end
+
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
@@ -193,6 +300,12 @@ function Chatify:GetOptions()
                         order = 0.8,
                         type = "description",
                         name = "\n",
+                    },
+                    retailSafeStatus = {
+                        order = 0.9,
+                        type = "description",
+                        name = GetRetailSafeDescription,
+                        fontSize = "medium",
                     },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
@@ -543,14 +656,44 @@ function Chatify:GetOptions()
                                 get = function(info) return self.db.profile.enableSpamFilter end,
                             },
                             
-                            -- NEW: Anti-Flood & System Cleaners
+                            spamFilterMode = {
+                                order = 1.5,
+                                name = "Spam Filter Mode",
+                                desc = "Block removes matched messages. Log Only keeps chat visible but records debug entries for tuning rules.",
+                                type = "select",
+                                values = { block = "Block", log = "Log Only" },
+                                set = function(info, val) self.db.profile.spamFilterMode = val end,
+                                get = function(info) return self.db.profile.spamFilterMode or "block" end,
+                            },
+
+                            -- Anti-Flood & System Cleaners
                             enableThrottle = {
                                 order = 2,
                                 name = "Block Repeated Messages (Anti-Flood)",
-                                desc = "Prevents people from spamming the exact same message multiple times in a row.",
+                                desc = "Prevents the same author from repeating the same normalized message within the selected cooldown.",
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.enableThrottle = val end,
                                 get = function(info) return self.db.profile.enableThrottle end,
+                            },
+                            throttleTime = {
+                                order = 2.1,
+                                name = "Repeat Cooldown",
+                                desc = "Seconds before the same normalized message can appear again from the same sender/channel.",
+                                type = "range",
+                                min = 5, max = 300, step = 5,
+                                disabled = function() return not self.db.profile.enableThrottle end,
+                                set = function(info, val) self.db.profile.throttleTime = val end,
+                                get = function(info) return tonumber(self.db.profile.throttleTime) or 60 end,
+                            },
+                            throttleMinLength = {
+                                order = 2.2,
+                                name = "Minimum Repeat Length",
+                                desc = "Short common messages are ignored by anti-flood to avoid false positives.",
+                                type = "range",
+                                min = 8, max = 80, step = 1,
+                                disabled = function() return not self.db.profile.enableThrottle end,
+                                set = function(info, val) self.db.profile.throttleMinLength = val end,
+                                get = function(info) return tonumber(self.db.profile.throttleMinLength) or 20 end,
                             },
                             hideSystemSpam = {
                                 order = 3,
@@ -561,7 +704,49 @@ function Chatify:GetOptions()
                                 get = function(info) return self.db.profile.hideSystemSpam end,
                             },
 
-                            headerKeywords = { order = 4, type = "header", name = "Blocklist Management" },
+                            headerWhitelist = { order = 3.2, type = "header", name = "Whitelist" },
+                            whitelistGuild = {
+                                order = 3.3, name = "Guild / Officer", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.guild = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.guild ~= false end,
+                            },
+                            whitelistFriends = {
+                                order = 3.4, name = "Friends", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.friends = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.friends ~= false end,
+                            },
+                            whitelistParty = {
+                                order = 3.5, name = "Party", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.party = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.party ~= false end,
+                            },
+                            whitelistRaid = {
+                                order = 3.6, name = "Raid / Instance", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.raid = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.raid ~= false end,
+                            },
+
+                            headerChannels = { order = 3.8, type = "header", name = "Channel Rules" },
+                            scanTrade = { order = 3.9, name = "Trade", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.TRADE = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.TRADE ~= false end },
+                            scanServices = { order = 4.0, name = "Services", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SERVICES = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SERVICES ~= false end },
+                            scanGeneral = { order = 4.1, name = "General", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GENERAL = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GENERAL ~= false end },
+                            scanGuild = { order = 4.15, name = "Guild / Officer", desc = "Only used when the guild whitelist is disabled.", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GUILD = val; self.db.profile.spamChannelRules.OFFICER = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GUILD == true or self.db.profile.spamChannelRules.OFFICER == true end },
+                            scanSayYell = { order = 4.2, name = "Say / Yell", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SAY = val; self.db.profile.spamChannelRules.YELL = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SAY ~= false or self.db.profile.spamChannelRules.YELL ~= false end },
+                            scanCommunity = { order = 4.3, name = "Communities", type = "toggle",
+                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.COMMUNITY = val end,
+                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.COMMUNITY ~= false end },
+
+                            headerKeywords = { order = 5, type = "header", name = "Blocklist Management" },
 
                             addKeyword = {
                                 order = 5,
@@ -620,6 +805,20 @@ function Chatify:GetOptions()
                                     if #keywords == 0 then return "\n|cff888888" .. T("(Blocklist is empty)") .. "|r" end
                                     return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ") 
                                 end,
+                            },
+                            headerSpamDebug = { order = 8, type = "header", name = "Runtime Debug" },
+                            spamDebugLog = {
+                                order = 9,
+                                type = "description",
+                                name = GetSpamLogDescription,
+                                fontSize = "medium",
+                            },
+                            resetSpamDebug = {
+                                order = 10,
+                                type = "execute",
+                                name = "Reset Spam Debug Counters",
+                                func = function() if ns.ResetSpamFilterStats then ns.ResetSpamFilterStats() end end,
+                                width = "full",
                             }
                         }
                     },
@@ -718,7 +917,132 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- TAB 4: AUTO REPLY
+            -- TAB 4: MENTION MANAGER
+            tabMentions = {
+                name = "Mention Manager",
+                type = "group",
+                order = 35,
+                args = {
+                    headerMentions = {
+                        order = 1,
+                        type = "description",
+                        name = "Create per-word or per-phrase mention rules with color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.\n|cff999999Runs only on safe, accessible chat payloads.|r",
+                        fontSize = "medium",
+                    },
+                    enableMentionManager = {
+                        order = 2,
+                        name = "Enable Mention Manager",
+                        type = "toggle",
+                        width = "full",
+                        set = function(info, val) self.db.profile.enableMentionManager = val end,
+                        get = function(info) return self.db.profile.enableMentionManager ~= false end,
+                    },
+                    addMentionRule = {
+                        order = 3,
+                        name = "Add Word / Phrase",
+                        desc = "Example: Sebas, RL, Ключ",
+                        type = "input",
+                        width = "full",
+                        set = function(info, val) AddMentionRule(self.db.profile, val) end,
+                        get = function(info) return "" end,
+                    },
+                    selectedMentionRule = {
+                        order = 4,
+                        name = "Selected Rule",
+                        type = "select",
+                        width = "double",
+                        values = function() return GetMentionRuleValues(self.db.profile) end,
+                        set = function(info, val) selectedMentionRuleIndex = tonumber(val) or 1 end,
+                        get = function(info)
+                            GetSelectedMentionRule(self.db.profile)
+                            return selectedMentionRuleIndex
+                        end,
+                    },
+                    removeMentionRule = {
+                        order = 5,
+                        name = "Remove Selected Rule",
+                        type = "execute",
+                        width = "full",
+                        confirm = true,
+                        confirmText = "Remove selected mention rule?",
+                        func = function()
+                            EnsureProfileTables(self.db.profile)
+                            if selectedMentionRuleIndex >= 1 and selectedMentionRuleIndex <= #self.db.profile.mentionRules then
+                                table.remove(self.db.profile.mentionRules, selectedMentionRuleIndex)
+                                if selectedMentionRuleIndex > #self.db.profile.mentionRules then selectedMentionRuleIndex = #self.db.profile.mentionRules end
+                                if selectedMentionRuleIndex < 1 then selectedMentionRuleIndex = 1 end
+                            end
+                        end,
+                    },
+                    headerEditMention = { order = 10, type = "header", name = "Edit Selected Rule" },
+                    mentionEnabled = {
+                        order = 11,
+                        name = "Enabled",
+                        type = "toggle",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.enabled = val end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.enabled ~= false or false end,
+                    },
+                    mentionText = {
+                        order = 12,
+                        name = "Word / Phrase",
+                        type = "input",
+                        width = "full",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.text or "" end,
+                    },
+                    mentionColor = {
+                        order = 13,
+                        name = "Color Hex",
+                        desc = "Use 6-digit RGB hex without #. Example: ffd700, ff4040, 68ccef.",
+                        type = "input",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.color = TrimInput(val):gsub("#", "") end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.color or "ffd700" end,
+                    },
+                    mentionSound = {
+                        order = 14,
+                        type = "select",
+                        dialogControl = GetLSMSoundControl(),
+                        name = "Sound",
+                        values = GetLSMSoundValues(),
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.sound = val end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.sound or "None" end,
+                    },
+                    mentionChannels = {
+                        order = 15,
+                        name = "Channels",
+                        desc = "Comma-separated. Supported: GUILD, PARTY, RAID, INSTANCE, WHISPER, CHANNEL, TRADE, SERVICES, GENERAL, COMMUNITY, SAY, YELL, ALL.",
+                        type = "input",
+                        width = "full",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.channels = TrimInput(val) end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.channels or "ALL" end,
+                    },
+                    mentionIgnoreCase = {
+                        order = 16,
+                        name = "Ignore Case",
+                        type = "toggle",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.ignoreCase = val end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.ignoreCase ~= false or false end,
+                    },
+                    mentionWholeWord = {
+                        order = 17,
+                        name = "Whole Word Only",
+                        desc = "Works best for ASCII identifiers such as RL/Sebas. Non-ASCII phrases safely fall back to phrase matching.",
+                        type = "toggle",
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.wholeWord = val end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.wholeWord ~= false or false end,
+                    },
+                    mentionCooldown = {
+                        order = 18,
+                        name = "Sound Cooldown",
+                        type = "range",
+                        min = 0, max = 60, step = 1,
+                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.cooldown = val end end,
+                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and tonumber(rule.cooldown) or 2 end,
+                    },
+                },
+            },
+
+            -- TAB 5: AUTO REPLY
             tabAutoReply = {
                 name = "Auto Reply",
                 type = "group",
@@ -727,7 +1051,7 @@ function Chatify:GetOptions()
                     headerAutoReply = {
                         order = 1,
                         type = "description",
-                        name = "Automatically reply to whispers when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail 12.x: uses chat events and timers only, without tainting Blizzard chat frames.|r",
+                        name = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on protected payload builds; guild mention replies can still work when the message is accessible.|r",
                         fontSize = "medium",
                     },
                     enableAutoReply = {
@@ -860,17 +1184,41 @@ function Chatify:GetOptions()
                     descSetup = {
                         order = 2,
                         type = "description",
-                        name = "Automatically create separate chat tabs for Whispers, Guild, and Party chats.\n|cffffcc00Warning: Modifies chat window layout.|r",
+                        name = "Safely create or update chat tabs without duplicates. The selected template controls which tabs are created.\n|cffffcc00Warning: Modifies chat window layout, but does not run in combat.|r",
+                        fontSize = "medium",
+                    },
+                    chatTabsTemplate = {
+                        order = 3,
+                        name = "Template",
+                        type = "select",
+                        values = { PM = "PM", GUILD = "Guild", RAID = "Raid / Guild / PM" },
+                        set = function(info, val) self.db.profile.chatTabsTemplate = val end,
+                        get = function(info) return self.db.profile.chatTabsTemplate or "RAID" end,
+                    },
+                    chatTabsPreview = {
+                        order = 4,
+                        type = "description",
+                        name = GetChatTabsPreview,
                         fontSize = "medium",
                     },
                     btnSetup = {
-                        order = 3,
-                        name = "Run Auto-Setup",
+                        order = 5,
+                        name = "Apply Safe Tab Setup",
                         type = "execute",
                         func = "SetupDefaultTabs", 
                         width = "full",
                         confirm = true,
-                        confirmText = "Create new chat tabs?",
+                        confirmText = "Create or update chat tabs for the selected template?",
+                    },
+                    btnRestoreDefaultTabs = {
+                        order = 6,
+                        name = "Restore Main Chat Groups",
+                        desc = "Restores common message groups on the main General chat frame. It does not delete custom windows.",
+                        type = "execute",
+                        func = "RestoreDefaultChatTabs",
+                        width = "full",
+                        confirm = true,
+                        confirmText = "Restore common message groups on the main chat frame?",
                     },
 
                     headerMaintenance = { order = 10, type = "header", name = "Maintenance" },
@@ -921,6 +1269,7 @@ function Chatify:OnInitialize()
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
 
     ns.db = self.db.profile 
+    EnsureProfileTables(ns.db)
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
     end
@@ -993,6 +1342,7 @@ end
 
 function Chatify:RefreshConfig()
     ns.db = self.db.profile
+    EnsureProfileTables(ns.db)
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
     end
@@ -1027,36 +1377,131 @@ function Chatify:OpenConfig()
 end
 
 -- =========================================================
--- 6. AUTO TABS FUNCTION
+-- 6. SAFE CHAT TABS
 -- =========================================================
+local function GetFrameDisplayName(frameID, frame)
+    if type(frameID) == "number" and type(FCF_GetChatWindowInfo) == "function" then
+        local ok, name = pcall(FCF_GetChatWindowInfo, frameID)
+        if ok and type(name) == "string" and name ~= "" then
+            return name
+        end
+    end
+
+    if frame and type(frame.GetName) == "function" then
+        local okName, frameName = pcall(frame.GetName, frame)
+        if okName and frameName and _G[frameName .. "Tab"] and _G[frameName .. "Tab"].GetText then
+            local okText, text = pcall(_G[frameName .. "Tab"].GetText, _G[frameName .. "Tab"])
+            if okText and type(text) == "string" and text ~= "" then
+                return text
+            end
+        end
+    end
+
+    if frame and type(frame.name) == "string" and frame.name ~= "" then
+        return frame.name
+    end
+    return nil
+end
+
+function ns.FindChatFrameByDisplayName(displayName)
+    if type(displayName) ~= "string" or displayName == "" then
+        return nil, nil
+    end
+
+    local maxWindows = type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or (NUM_CHAT_WINDOWS or 10)
+    for i = 1, maxWindows do
+        local frame = _G["ChatFrame" .. i]
+        if frame then
+            local name = GetFrameDisplayName(i, frame)
+            if name == displayName then
+                return frame, i
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function SafeRemoveAllMessageGroups(frame)
+    if not frame then return end
+    if type(frame.RemoveAllMessageGroups) == "function" then pcall(frame.RemoveAllMessageGroups, frame); return end
+    if type(ChatFrame_RemoveAllMessageGroups) == "function" then pcall(ChatFrame_RemoveAllMessageGroups, frame) end
+end
+
+local function SafeRemoveAllChannels(frame)
+    if not frame then return end
+    if type(frame.RemoveAllChannels) == "function" then pcall(frame.RemoveAllChannels, frame); return end
+    if type(ChatFrame_RemoveAllChannels) == "function" then pcall(ChatFrame_RemoveAllChannels, frame) end
+end
+
+local function SafeAddMessageGroup(frame, group)
+    if not frame or type(group) ~= "string" or group == "" then return end
+    if type(frame.AddMessageGroup) == "function" then pcall(frame.AddMessageGroup, frame, group); return end
+    if type(ChatFrame_AddMessageGroup) == "function" then pcall(ChatFrame_AddMessageGroup, frame, group) end
+end
+
+local function ConfigureTabFrame(frame, groups)
+    if not frame then return false end
+    SafeRemoveAllMessageGroups(frame)
+    SafeRemoveAllChannels(frame)
+    for _, group in ipairs(groups or {}) do
+        SafeAddMessageGroup(frame, group)
+    end
+    return true
+end
+
 function Chatify:SetupDefaultTabs()
-    if type(InCombatLockdown) == "function" and InCombatLockdown() then return end
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        self:Print(T("Cannot modify chat tabs during combat."))
+        return
+    end
     if type(FCF_OpenNewWindow) ~= "function" then
         self:Print(T("Chat window creation is not available on this client."))
         return
     end
-    
-    local tabs = {
-        { name = T("Whisper"), groups = { "WHISPER", "BN_WHISPER" } },
-        { name = T("Guild"), groups = { "GUILD", "OFFICER", "GUILD_ACHIEVEMENT" } },
-        { name = T("Party"), groups = { "PARTY", "PARTY_LEADER", "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER" } }
-    }
 
-    local count = 0
-    for _, tabInfo in ipairs(tabs) do
-        local okOpen, frame = pcall(FCF_OpenNewWindow, tabInfo.name)
-        if okOpen and frame then
-            count = count + 1
-            local removeGroups = frame.RemoveAllMessageGroups or ChatFrame_RemoveAllMessageGroups
-            local removeChannels = frame.RemoveAllChannels or ChatFrame_RemoveAllChannels
-            local addGroup = frame.AddMessageGroup or ChatFrame_AddMessageGroup
-            if type(removeGroups) == "function" then pcall(removeGroups, frame) end
-            if type(removeChannels) == "function" then pcall(removeChannels, frame) end
-            for _, group in ipairs(tabInfo.groups) do
-                if type(addGroup) == "function" then pcall(addGroup, frame, group) end
+    local db = self.db and self.db.profile or {}
+    local definitions = GetTabTemplateDefinitions()
+    local template = definitions[db.chatTabsTemplate or "RAID"] or definitions.RAID
+    local created, updated, failed = 0, 0, 0
+
+    for _, tabInfo in ipairs(template.tabs) do
+        local frame = ns.FindChatFrameByDisplayName and ns.FindChatFrameByDisplayName(tabInfo.name)
+        local existed = frame and true or false
+        if not frame then
+            local okOpen, newFrame = pcall(FCF_OpenNewWindow, tabInfo.name)
+            if okOpen then
+                frame = newFrame
             end
+        end
+
+        if frame and ConfigureTabFrame(frame, tabInfo.groups) then
             if type(FCF_SelectDockFrame) == "function" then pcall(FCF_SelectDockFrame, frame) end
+            if existed then updated = updated + 1 else created = created + 1 end
+        else
+            failed = failed + 1
         end
     end
-    self:Print(string.format(T("Tabs created: %d"), count))
+
+    self:Print(string.format("Chat tabs: %d created, %d updated, %d failed.", created, updated, failed))
+end
+
+function Chatify:RestoreDefaultChatTabs()
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        self:Print(T("Cannot modify chat tabs during combat."))
+        return
+    end
+
+    local frame = _G.ChatFrame1 or DEFAULT_CHAT_FRAME
+    if not frame then
+        self:Print(T("Main chat frame is not available."))
+        return
+    end
+
+    local groups = {
+        "SAY", "YELL", "GUILD", "OFFICER", "PARTY", "PARTY_LEADER",
+        "RAID", "RAID_LEADER", "RAID_WARNING", "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER",
+        "WHISPER", "BN_WHISPER", "SYSTEM", "AFK", "DND", "LOOT",
+    }
+    ConfigureTabFrame(frame, groups)
+    self:Print(T("Main chat groups restored. Custom windows were not deleted."))
 end
