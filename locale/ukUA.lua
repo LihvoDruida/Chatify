@@ -192,6 +192,7 @@ Locale:RegisterLocale("ukUA", {
     ["Print a short Chatify message when Shift + Left Click toggles direct chat selection."] = "Показує коротке повідомлення Chatify, коли Shift + лівий клік перемикає пряме виділення чату.",
     ["\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r"] = "\n|cffffd200Як працює:|r лівий клік відкриває звичайне вікно копіювання. Shift + лівий клік перемикає пряме виділення тільки всередині вікна чату. Виділіть текст і натисніть Ctrl+C. Повторний Shift + лівий клік вимикає режим.\n|cff999999Прямий запис у системний буфер обміну заблокований клієнтом WoW, тому для виділеного тексту все одно потрібен Ctrl+C.|r",
     ["No readable chat lines were available for the copy window."] = "Немає доступних для читання рядків чату для вікна копіювання.",
+    ["This chat tab has no messages to copy."] = "У цій вкладці чату немає повідомлень для копіювання.",
     ["Chatify Copy — link"] = "Копіювання Chatify — посилання",
     ["Chat window creation is not available on this client."] = "Створення вікон чату недоступне на цьому клієнті.",
     ["Chatify"] = "Chatify",

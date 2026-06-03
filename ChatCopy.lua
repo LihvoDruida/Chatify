@@ -697,6 +697,19 @@ local function IsChatFrameVisibleForCopy(frame)
     return false
 end
 
+local function GetChatFrameMessageCount(chatFrame)
+    if not chatFrame or type(chatFrame.GetNumMessages) ~= "function" then
+        return nil
+    end
+
+    local ok, value = pcall(chatFrame.GetNumMessages, chatFrame)
+    if ok and type(value) == "number" then
+        return math.max(0, value)
+    end
+
+    return nil
+end
+
 local function GetCopyFrameKey(frame, index)
     local frameID = GetChatFrameID(frame, index)
     if frameID and frameID > 0 then
@@ -977,6 +990,81 @@ local function SetCopyTabNavState(button, enabled)
     end
 end
 
+local function MeasureCopyTabWidth(label)
+    local text = StripChatMarkup(label) or tostring(label or "")
+    return math.max(76, math.min(152, (#text * 7) + 28))
+end
+
+local function FindCopyTabIndex(tabs, frame)
+    if type(tabs) ~= "table" or not frame then
+        return nil
+    end
+
+    for i = 1, #tabs do
+        if tabs[i].frame == frame then
+            return i
+        end
+    end
+
+    return nil
+end
+
+local function DoesCopyTabFitFromOffset(tabs, offset, targetIndex, maxWidth)
+    if type(tabs) ~= "table" or not targetIndex then
+        return false
+    end
+
+    offset = math.max(1, tonumber(offset) or 1)
+    maxWidth = math.max(160, tonumber(maxWidth) or 500)
+    local usedWidth = 0
+
+    for sourceIndex = offset, #tabs do
+        local width = MeasureCopyTabWidth(tabs[sourceIndex].label)
+        local gap = sourceIndex > offset and 4 or 0
+        if sourceIndex > offset and (usedWidth + gap + width) > maxWidth then
+            return false
+        end
+
+        usedWidth = usedWidth + gap + width
+        if sourceIndex == targetIndex then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ResolveCopyTabOffset(tabs, currentFrame, maxWidth, keepOffset)
+    local count = type(tabs) == "table" and #tabs or 0
+    if count == 0 then
+        return 1
+    end
+
+    local currentOffset = math.max(1, math.min(tonumber(copyTabOffset) or 1, count))
+    if keepOffset then
+        return currentOffset
+    end
+
+    local activeIndex = FindCopyTabIndex(tabs, currentFrame)
+    if not activeIndex then
+        return currentOffset
+    end
+
+    -- Do not jump the tab strip just because the user clicked another visible
+    -- tab. Keeping General/previous tabs on screen is a better UX and avoids the
+    -- confusing "General disappeared" effect. Only move when the active tab is
+    -- genuinely outside the current visible slice.
+    if DoesCopyTabFitFromOffset(tabs, currentOffset, activeIndex, maxWidth) then
+        return currentOffset
+    end
+
+    if DoesCopyTabFitFromOffset(tabs, 1, activeIndex, maxWidth) then
+        return 1
+    end
+
+    return math.max(1, activeIndex - 2)
+end
+
 local function RefreshCopyTabs(keepOffset)
     if not copyTabs then
         return
@@ -990,16 +1078,6 @@ local function RefreshCopyTabs(keepOffset)
         copyTabButtons[i].chatFrame = nil
     end
 
-    if not keepOffset then
-        copyTabOffset = 1
-        for i = 1, #tabs do
-            if tabs[i].frame == copyCurrentFrame then
-                copyTabOffset = i
-                break
-            end
-        end
-    end
-
     if #tabs == 0 then
         copyTabOffset = 1
         SetCopyTabNavState(copyTabPrevButton, false)
@@ -1007,15 +1085,16 @@ local function RefreshCopyTabs(keepOffset)
         return
     end
 
+    local maxWidth = 500
+    if copyTabs.GetWidth then
+        maxWidth = math.max(220, math.floor(copyTabs:GetWidth() or 500))
+    end
+
+    copyTabOffset = ResolveCopyTabOffset(tabs, copyCurrentFrame, maxWidth, keepOffset)
     if copyTabOffset < 1 then
         copyTabOffset = 1
     elseif copyTabOffset > #tabs then
         copyTabOffset = #tabs
-    end
-
-    local maxWidth = 500
-    if copyTabs.GetWidth then
-        maxWidth = math.max(220, math.floor(copyTabs:GetWidth() or 500))
     end
 
     local usedWidth = 0
@@ -1057,7 +1136,10 @@ local function RefreshCopyTabs(keepOffset)
 
         tab.chatFrame = info.frame
         tab.text:SetText(info.label)
-        local width = math.max(76, math.min(152, (tab.text:GetStringWidth() or 70) + 24))
+        local width = MeasureCopyTabWidth(info.label)
+        if tab.text and type(tab.text.GetStringWidth) == "function" then
+            width = math.max(76, math.min(152, (tab.text:GetStringWidth() or width) + 24))
+        end
         local gap = lastButton and 4 or 0
         if visibleIndex > 1 and (usedWidth + gap + width) > maxWidth then
             tab:Hide()
@@ -1315,6 +1397,8 @@ local function CreateCopyWindow()
 end
 
 local BuildTextFromEntries
+local IsBlankCopyEntries
+local BuildBlankCopyEntries
 
 local function SetCopyEditText(text)
     copyTextValue = text or ""
@@ -1357,6 +1441,10 @@ BuildTextFromEntries = function(entries, maxChars)
     local lines = {}
     local chars = 0
     maxChars = tonumber(maxChars) or COPY_WINDOW_MAX_CHARS
+
+    if IsBlankCopyEntries(entries) then
+        return ""
+    end
 
     if type(entries) ~= "table" then
         return L("Chat buffer is empty. Send or receive a new message, then open this window again.")
@@ -1405,6 +1493,10 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines)
     end
 
     RenderCopyPreview(entries)
+
+    if IsBlankCopyEntries(entries) and copyHint then
+        copyHint:SetText(entries.__chatifyHint or L("This chat tab has no messages to copy."))
+    end
 
     if copyEditBox then
         copyEditBox:ClearFocus()
@@ -1551,6 +1643,40 @@ local function HasAnyCopyEntries(entries)
     return type(entries) == "table" and #entries > 0
 end
 
+IsBlankCopyEntries = function(entries)
+    return type(entries) == "table" and entries.__chatifyBlank == true
+end
+
+BuildBlankCopyEntries = function(hint)
+    return {
+        __chatifyBlank = true,
+        __chatifyHint = hint or L("This chat tab has no messages to copy."),
+    }
+end
+
+local function IsMainCopyFrame(chatFrame)
+    if not chatFrame then
+        return false
+    end
+
+    return chatFrame == DEFAULT_CHAT_FRAME or chatFrame == _G.ChatFrame1 or GetChatFrameID(chatFrame) == 1
+end
+
+local function CanUseGlobalCopyFallback(chatFrame, messageCount, entries)
+    -- Global event cache is useful only for the main chat when the client does
+    -- not expose history. For secondary tabs it creates false content in empty
+    -- windows, e.g. an empty Whisper tab showing General/Party system lines.
+    if not IsMainCopyFrame(chatFrame) then
+        return false
+    end
+
+    if type(messageCount) == "number" and messageCount == 0 then
+        return false
+    end
+
+    return not HasAnyCopyEntries(entries) or HasReadableEntries(entries) == false
+end
+
 local function ReadMessageHistory(chatFrame, maxLines)
     if not chatFrame then
         return nil
@@ -1559,13 +1685,7 @@ local function ReadMessageHistory(chatFrame, maxLines)
     local entries = {}
     maxLines = tonumber(maxLines) or COPY_WINDOW_MAX_LINES
 
-    local count = 0
-    if type(chatFrame.GetNumMessages) == "function" then
-        local okCount, value = pcall(chatFrame.GetNumMessages, chatFrame)
-        if okCount and type(value) == "number" and value > 0 then
-            count = value
-        end
-    end
+    local count = GetChatFrameMessageCount(chatFrame) or 0
 
     -- Prat's copy window uses GetMessageInfo first. Keep that path, but
     -- collect only the first return value and never treat normal Retail text
@@ -2063,8 +2183,11 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
         end
     end
 
-    -- Match Prat's behavior: copy the selected chat frame first.
-    -- The global event cache is only a fallback for clients/frames that do not expose history.
+    -- Match Prat's behavior: copy the selected chat frame first. The global
+    -- event cache is intentionally restricted to the main chat frame only; using
+    -- it for empty secondary tabs makes Whisper/Guild/Party show unrelated
+    -- General/system lines that are not present in the original tab.
+    local messageCount = GetChatFrameMessageCount(chatFrame)
     local entries = ReadMessageHistory(chatFrame, maxLines)
     if not HasReadableEntries(entries) then
         local visibleEntries = ReadVisibleChatLines(chatFrame)
@@ -2073,7 +2196,7 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
         end
     end
 
-    if not HasReadableEntries(entries) then
+    if not HasReadableEntries(entries) and CanUseGlobalCopyFallback(chatFrame, messageCount, entries) then
         local cachedEntries = BuildCachedChatEntries(maxLines, COPY_WINDOW_MAX_CHARS)
         if HasReadableEntries(cachedEntries) or (not HasAnyCopyEntries(entries) and HasAnyCopyEntries(cachedEntries)) then
             entries = cachedEntries
@@ -2081,7 +2204,11 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
     end
 
     if not HasAnyCopyEntries(entries) then
-        entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
+        if IsMainCopyFrame(chatFrame) then
+            entries = { BuildEntry(L("Chat buffer is empty. Send or receive a new message, then open this window again.")) }
+        else
+            entries = BuildBlankCopyEntries(L("This chat tab has no messages to copy."))
+        end
     elseif not HasReadableEntries(entries) and type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
         entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Shift+Left Click on the copy button for direct chat selection."))
     end

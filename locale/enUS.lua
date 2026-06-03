@@ -192,6 +192,7 @@ Locale:RegisterLocale("enUS", {
     ["Print a short Chatify message when Shift + Left Click toggles direct chat selection."] = "Print a short Chatify message when Shift + Left Click toggles direct chat selection.",
     ["\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r"] = "\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r",
     ["No readable chat lines were available for the copy window."] = "No readable chat lines were available for the copy window.",
+    ["This chat tab has no messages to copy."] = "This chat tab has no messages to copy.",
     ["Chatify Copy — link"] = "Chatify Copy — link",
     ["Chat window creation is not available on this client."] = "Chat window creation is not available on this client.",
     ["Chatify"] = "Chatify",
