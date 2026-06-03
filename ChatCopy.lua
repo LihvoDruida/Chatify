@@ -551,6 +551,126 @@ local function GetChatFrameDisplayName(frame, index)
     return name
 end
 
+
+local function NormalizeCopyFrameNameForMatch(value)
+    local safe = StripChatMarkup(value)
+    if not IsNonEmptyString(safe) then
+        return nil
+    end
+
+    local ok, normalized = pcall(function()
+        local text = safe:gsub("^%s+", ""):gsub("%s+$", "")
+        text = text:gsub("%s+", " ")
+        return string.lower(text)
+    end)
+
+    if ok and IsNonEmptyString(normalized) then
+        return normalized
+    end
+
+    return safe
+end
+
+local function CopyFrameNameMatchesGlobal(name, ...)
+    local normalized = NormalizeCopyFrameNameForMatch(name)
+    if not normalized then
+        return false
+    end
+
+    for i = 1, select("#", ...) do
+        local globalName = select(i, ...)
+        local value = type(globalName) == "string" and _G[globalName] or nil
+        local globalNormalized = NormalizeCopyFrameNameForMatch(value)
+        if globalNormalized and normalized == globalNormalized then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function IsExcludedCopyFrameName(name)
+    local normalized = NormalizeCopyFrameNameForMatch(name)
+    if not normalized then
+        return false
+    end
+
+    if CopyFrameNameMatchesGlobal(name, "COMBAT_LOG", "COMBATLOG", "COMBAT_LOG_TAB", "COMBAT_TEXT_LABEL") then
+        return true
+    end
+
+    if CopyFrameNameMatchesGlobal(name, "VOICE", "VOICE_CHAT", "VOICE_CHAT_CHANNEL", "VOICE_CHAT_CHANNELS") then
+        return true
+    end
+
+    if normalized == "combat log" or normalized == "combatlog" then
+        return true
+    end
+    if normalized:find("combat", 1, true) and normalized:find("log", 1, true) then
+        return true
+    end
+    if normalized == "журнал боя" or normalized == "журнал бою" or normalized == "бойовий журнал" then
+        return true
+    end
+    if normalized == "voice" or normalized == "voice chat" or normalized == "голос" or normalized == "голосовий чат" or normalized == "голосовой чат" then
+        return true
+    end
+
+    return false
+end
+
+local function ChatFrameHasCopyBlockedMessages(frameID)
+    if not frameID or type(_G.GetChatWindowMessages) ~= "function" then
+        return false
+    end
+
+    local ok, messages = pcall(function()
+        return { _G.GetChatWindowMessages(frameID) }
+    end)
+    if not ok or type(messages) ~= "table" then
+        return false
+    end
+
+    for i = 1, #messages do
+        local msgType = type(messages[i]) == "string" and messages[i] or ""
+        -- Do not block generic COMBAT_* message groups here: normal General
+        -- chat can contain XP/honor/faction combat notifications. Combat Log is
+        -- handled by ChatFrame2 / FCF_IsWindowIDCombatLog / tab name checks.
+        if msgType == "VOICE" or msgType == "VOICE_TEXT" or msgType == "VOICE_CHAT" or msgType:find("^VOICE_") then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function IsCopyBlockedChatFrame(frame, index)
+    local frameID = GetChatFrameID(frame, index)
+
+    -- Blizzard reserves ChatFrame2 for the Combat Log on default layouts. Never
+    -- expose it in ChatCopy even if it is docked, hidden, renamed, or manually selected.
+    if frameID == 2 then
+        return true
+    end
+
+    if frameID and type(_G.FCF_IsWindowIDCombatLog) == "function" then
+        local ok, isCombatLog = pcall(_G.FCF_IsWindowIDCombatLog, frameID)
+        if ok and isCombatLog then
+            return true
+        end
+    end
+
+    if frameID and ChatFrameHasCopyBlockedMessages(frameID) then
+        return true
+    end
+
+    if IsExcludedCopyFrameName(GetChatFrameDisplayName(frame, frameID or index)) then
+        return true
+    end
+
+    return false
+end
+
 local function IsChatFrameVisibleForCopy(frame)
     if not frame then
         return false
@@ -655,14 +775,18 @@ end
 local function GetCopyTabMode()
     local db = GetCopyDB and GetCopyDB()
     local mode = db and db.copyTabMode
-    if mode == "VISIBLE" or mode == "PINNED" or mode == "SELECTED" then
+    if mode == "ALL" or mode == "VISIBLE" or mode == "PINNED" or mode == "SELECTED" then
         return mode
     end
-    return "ALL"
+    return "VISIBLE"
 end
 
 local function IsCopyFrameAllowedForTabs(info, preferred)
     if type(info) ~= "table" or not info.frame then
+        return false
+    end
+
+    if IsCopyBlockedChatFrame(info.frame, info.index) then
         return false
     end
 
@@ -678,6 +802,13 @@ local function IsCopyFrameAllowedForTabs(info, preferred)
     local overrides = db and db.copyTabFrames
     if type(overrides) == "table" and overrides[info.key] ~= nil then
         return overrides[info.key] == true
+    end
+
+    -- Hidden chat windows are noisy and often include internal/system tabs.
+    -- Keep them disabled by default; users can explicitly enable a normal hidden
+    -- tab through the checklist. Combat Log and Voice remain blocked above.
+    if not info.visible then
+        return false
     end
 
     return mode ~= "PINNED"
@@ -724,7 +855,9 @@ function ns.GetCopyChatFrameOptionValues()
     BuildUniqueCopyLabels(candidates)
     for i = 1, #candidates do
         local info = candidates[i]
-        values[info.key] = info.optionLabel or info.label or info.key
+        if not IsCopyBlockedChatFrame(info.frame, info.index) then
+            values[info.key] = info.optionLabel or info.label or info.key
+        end
     end
 
     if next(values) == nil then
@@ -734,8 +867,37 @@ function ns.GetCopyChatFrameOptionValues()
     return values
 end
 
+local function GetCopyFrameCandidateByKey(key)
+    if not IsNonEmptyString(key) then
+        return nil
+    end
+
+    local candidates = CollectCopyFrameCandidates(GetPreferredChatFrame and GetPreferredChatFrame(nil))
+    for i = 1, #candidates do
+        local info = candidates[i]
+        if info.key == key then
+            return info
+        end
+    end
+
+    return nil
+end
+
+local function IsCopyFrameKeyBlocked(key)
+    local info = GetCopyFrameCandidateByKey(key)
+    if not info then
+        return true
+    end
+    return IsCopyBlockedChatFrame(info.frame, info.index)
+end
+
+local function IsCopyFrameKeyVisible(key)
+    local info = GetCopyFrameCandidateByKey(key)
+    return info and info.visible == true or false
+end
+
 function ns.GetCopyChatFrameIncluded(key)
-    if key == "__none" then
+    if key == "__none" or IsCopyFrameKeyBlocked(key) then
         return false
     end
 
@@ -745,11 +907,15 @@ function ns.GetCopyChatFrameIncluded(key)
         return overrides[key] == true
     end
 
+    if not IsCopyFrameKeyVisible(key) then
+        return false
+    end
+
     return GetCopyTabMode() ~= "PINNED"
 end
 
 function ns.SetCopyChatFrameIncluded(key, enabled)
-    if key == "__none" then
+    if key == "__none" or IsCopyFrameKeyBlocked(key) then
         return
     end
 
@@ -1506,6 +1672,10 @@ local function AddNativeCandidate(list, seen, frame)
         return false
     end
 
+    if IsCopyBlockedChatFrame(frame, GetChatFrameID(frame)) then
+        return false
+    end
+
     seen[frame] = true
     list[#list + 1] = frame
     return true
@@ -1865,8 +2035,33 @@ function ns.ExitNativeChatCopyMode(silent)
     end
 end
 
+local function GetFirstAllowedCopyFrame(preferred)
+    local candidates = CollectCopyFrameCandidates(preferred)
+    BuildUniqueCopyLabels(candidates)
+    for i = 1, #candidates do
+        local info = candidates[i]
+        if info.frame and not IsCopyBlockedChatFrame(info.frame, info.index) and info.visible then
+            return info.frame
+        end
+    end
+    for i = 1, #candidates do
+        local info = candidates[i]
+        if info.frame and not IsCopyBlockedChatFrame(info.frame, info.index) then
+            return info.frame
+        end
+    end
+    return nil
+end
+
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
     chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+    if IsCopyBlockedChatFrame(chatFrame, GetChatFrameID(chatFrame)) then
+        chatFrame = GetFirstAllowedCopyFrame(chatFrame)
+        if not chatFrame then
+            ShowCopyWindow({ BuildEntry(L("This chat window is excluded from ChatCopy.")) }, L("Chatify Copy"), nil, maxLines)
+            return
+        end
+    end
 
     -- Match Prat's behavior: copy the selected chat frame first.
     -- The global event cache is only a fallback for clients/frames that do not expose history.

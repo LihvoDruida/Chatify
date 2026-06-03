@@ -84,10 +84,12 @@ ChatCopy opens a styled copy popup for the selected Blizzard chat frame and keep
 
 Configuration options are available in **Chatify → General & Visual → Copy Chat**:
 
-- **All existing chat tabs** — show every detected Blizzard chat window, including inactive docked tabs.
+- **All usable chat tabs** — show all normal chat windows that are not hidden by default.
 - **Visible or docked tabs only** — keep the copy popup focused on currently visible/docked chat windows.
 - **Manual selection only** — show only windows enabled in the per-tab checklist.
 - **Selected chat only** — keep the copy popup limited to the currently selected chat frame.
+
+Combat Log and Voice are hard-blocked from ChatCopy: they are not shown in the tab strip, cannot be enabled in the checklist, and are skipped by direct selection compatibility mode. Hidden chat windows are unchecked by default; a normal hidden custom tab can still be enabled manually if needed.
 
 The per-tab checklist is keyed by Blizzard chat frame ID, not by display text. This means renamed tabs and duplicate names remain stable; duplicates get numbered labels in the popup.
 

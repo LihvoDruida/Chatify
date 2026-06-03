@@ -204,7 +204,7 @@ ns.defaults = {
         copyNativeUseVisibleFrames = false, -- Optional compatibility mode for custom chat layouts
         copyNativeTimeout = 30, -- Auto-disable native selection after N seconds; 0 = until copied/toggled/reload
         copyNativeAnnounce = true, -- Print a short hint when native selection mode is enabled
-        copyTabMode = "ALL", -- ALL, VISIBLE, PINNED, SELECTED
+        copyTabMode = "VISIBLE", -- ALL, VISIBLE, PINNED, SELECTED
         copyTabFrames = {}, -- per chat-frame include/exclude overrides for ChatCopy 2.0 tabs
         language = "client", -- Мова аддона: client, enUS, ukUA
 

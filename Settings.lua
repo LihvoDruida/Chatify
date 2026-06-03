@@ -153,7 +153,7 @@ local function EnsureProfileTables(db)
     db.mentionRules = db.mentionRules or {}
     db.sounds = db.sounds or { events = {} }
     db.sounds.events = db.sounds.events or {}
-    db.copyTabMode = db.copyTabMode or "ALL"
+    db.copyTabMode = db.copyTabMode or "VISIBLE"
     db.copyTabFrames = db.copyTabFrames or {}
     if type(ns.NormalizeMentionSettings) == "function" then
         ns.NormalizeMentionSettings(db)
@@ -944,29 +944,29 @@ function Chatify:GetOptions()
                             copyTabMode = {
                                 order = 11,
                                 name = T("Tabs shown in copy window"),
-                                desc = T("Controls which Blizzard chat windows appear as tabs in the ChatCopy 2.0 popup."),
+                                desc = T("Controls which Blizzard chat windows appear as tabs in the ChatCopy 2.0 popup. Combat Log and Voice are always excluded. Hidden windows are disabled by default."),
                                 type = "select",
                                 width = "full",
                                 values = {
-                                    ALL = T("All existing chat tabs"),
+                                    ALL = T("All usable chat tabs"),
                                     VISIBLE = T("Visible or docked tabs only"),
                                     PINNED = T("Manual selection only"),
                                     SELECTED = T("Selected chat only"),
                                 },
                                 set = function(info, val)
                                     EnsureProfileTables(self.db.profile)
-                                    self.db.profile.copyTabMode = val or "ALL"
+                                    self.db.profile.copyTabMode = val or "VISIBLE"
                                     if type(ns.RefreshCopyChatTabs) == "function" then ns.RefreshCopyChatTabs() end
                                 end,
                                 get = function(info)
                                     EnsureProfileTables(self.db.profile)
-                                    return self.db.profile.copyTabMode or "ALL"
+                                    return self.db.profile.copyTabMode or "VISIBLE"
                                 end,
                             },
                             copyTabFrames = {
                                 order = 12,
                                 name = T("Chat tabs available for copy"),
-                                desc = T("Enable or disable individual chat windows in the ChatCopy tab strip. Names are read from the current Blizzard chat windows, so renamed tabs are supported."),
+                                desc = T("Enable or disable individual chat windows in the ChatCopy tab strip. Names are read from the current Blizzard chat windows, so renamed tabs are supported. Combat Log and Voice are intentionally not listed."),
                                 type = "multiselect",
                                 width = "full",
                                 values = function()
