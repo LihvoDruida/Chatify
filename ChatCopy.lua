@@ -360,7 +360,11 @@ local copyContent
 local copyHint
 local copyButton
 local copyTabs
+local copyTabPrevButton
+local copyTabNextButton
 local copyTabButtons = {}
+local copyTabOffset = 1
+local copyAvailableTabs = {}
 local copyCurrentFrame
 local copyCurrentMaxLines = COPY_WINDOW_MAX_LINES
 local copyTextValue = ""
@@ -371,6 +375,7 @@ local nativeCopyActiveSessionId
 local nativeCopyGuardFrame
 local nativeCopyLastBlockedWarning = 0
 local GetPreferredChatFrame
+local GetCopyDB
 
 local function IsInCombatLockdown()
     return type(InCombatLockdown) == "function" and InCombatLockdown()
@@ -464,6 +469,34 @@ local function CreateMoveHandle(parent, name, anchorFunc)
 end
 
 
+GetCopyDB = function()
+    return Chatify and Chatify.db and Chatify.db.profile or nil
+end
+
+local function GetMaxCopyChatWindows()
+    local total = tonumber(_G.NUM_CHAT_WINDOWS) or 10
+    if type(ns.GetMaxChatWindows) == "function" then
+        local ok, value = pcall(ns.GetMaxChatWindows)
+        if ok and type(value) == "number" and value > 0 then
+            total = value
+        end
+    end
+
+    return math.max(1, math.min(tonumber(total) or 10, 20))
+end
+
+local function GetChatFrameID(frame, fallbackIndex)
+    local index = tonumber(fallbackIndex)
+    if not index and frame and type(frame.GetID) == "function" then
+        local ok, value = pcall(frame.GetID, frame)
+        if ok and tonumber(value) then
+            index = tonumber(value)
+        end
+    end
+
+    return index
+end
+
 local function GetChatFrameDisplayName(frame, index)
     local fallback = string.format(L("Chat %d"), tonumber(index) or 1)
     if not frame then
@@ -471,27 +504,43 @@ local function GetChatFrameDisplayName(frame, index)
     end
 
     local name
+    local frameName
     if type(frame.GetName) == "function" then
         local ok, value = pcall(frame.GetName, frame)
+        if ok and IsNonEmptyString(value) then
+            frameName = value
+        end
+    end
+
+    local frameID = GetChatFrameID(frame, index)
+    if type(_G.FCF_GetChatWindowInfo) == "function" and frameID then
+        local ok, value = pcall(_G.FCF_GetChatWindowInfo, frameID)
         if ok and IsNonEmptyString(value) then
             name = value
         end
     end
 
-    if frame.name and IsNonEmptyString(frame.name) then
-        name = frame.name
-    elseif frame.nameText and type(frame.nameText.GetText) == "function" then
+    local tab = frameName and _G[frameName .. "Tab"]
+    if not IsNonEmptyString(name) and tab and type(tab.GetText) == "function" then
+        local ok, value = pcall(tab.GetText, tab)
+        if ok and IsNonEmptyString(value) then
+            name = value
+        end
+    end
+
+    if not IsNonEmptyString(name) and frame.nameText and type(frame.nameText.GetText) == "function" then
         local ok, value = pcall(frame.nameText.GetText, frame.nameText)
         if ok and IsNonEmptyString(value) then
             name = value
         end
     end
 
-    if type(_G.FCF_GetChatWindowInfo) == "function" and tonumber(index) then
-        local ok, value = pcall(_G.FCF_GetChatWindowInfo, index)
-        if ok and IsNonEmptyString(value) then
-            name = value
-        end
+    if not IsNonEmptyString(name) and frame.name and IsNonEmptyString(frame.name) then
+        name = frame.name
+    end
+
+    if not IsNonEmptyString(name) then
+        name = frameName
     end
 
     name = StripChatMarkup(name) or fallback
@@ -502,38 +551,229 @@ local function GetChatFrameDisplayName(frame, index)
     return name
 end
 
-local function BuildCopyFrameList(preferred)
-    local list, seen, nameCounts = {}, {}, {}
-    local total = tonumber(_G.NUM_CHAT_WINDOWS) or 10
-    if type(ns.GetMaxChatWindows) == "function" then
-        local ok, value = pcall(ns.GetMaxChatWindows)
-        if ok and type(value) == "number" and value > 0 then
-            total = value
+local function IsChatFrameVisibleForCopy(frame)
+    if not frame then
+        return false
+    end
+
+    if type(frame.IsShown) == "function" then
+        local ok, shown = pcall(frame.IsShown, frame)
+        if ok and shown then
+            return true
         end
     end
-    total = math.max(1, math.min(total, 20))
 
-    local function add(frame, index)
-        if not frame or seen[frame] then
-            return
+    if type(frame.GetName) == "function" then
+        local okName, frameName = pcall(frame.GetName, frame)
+        local tab = okName and frameName and _G[frameName .. "Tab"]
+        if tab and type(tab.IsShown) == "function" then
+            local okTab, shown = pcall(tab.IsShown, tab)
+            if okTab and shown then
+                return true
+            end
         end
-        if type(frame.IsShown) == "function" and not frame:IsShown() then
-            return
+    end
+
+    return false
+end
+
+local function GetCopyFrameKey(frame, index)
+    local frameID = GetChatFrameID(frame, index)
+    if frameID and frameID > 0 then
+        return "frame:" .. frameID
+    end
+
+    if frame and type(frame.GetName) == "function" then
+        local ok, name = pcall(frame.GetName, frame)
+        if ok and IsNonEmptyString(name) then
+            return "name:" .. name
         end
-        seen[frame] = true
-        local baseName = GetChatFrameDisplayName(frame, index)
+    end
+
+    return "frame:" .. tostring(frame or index or "unknown")
+end
+
+local function AddCopyFrameCandidate(list, seen, frame, index)
+    if not frame or seen[frame] then
+        return
+    end
+
+    if type(frame.GetNumMessages) ~= "function" and type(frame.GetRegions) ~= "function" then
+        return
+    end
+
+    seen[frame] = true
+    local frameID = GetChatFrameID(frame, index)
+    list[#list + 1] = {
+        frame = frame,
+        index = frameID or index,
+        key = GetCopyFrameKey(frame, frameID or index),
+        visible = IsChatFrameVisibleForCopy(frame),
+    }
+end
+
+local function CollectCopyFrameCandidates(preferred)
+    local list, seen = {}, {}
+    AddCopyFrameCandidate(list, seen, preferred, GetChatFrameID(preferred))
+    AddCopyFrameCandidate(list, seen, GetPreferredChatFrame and GetPreferredChatFrame(preferred), nil)
+    AddCopyFrameCandidate(list, seen, SELECTED_CHAT_FRAME, nil)
+    AddCopyFrameCandidate(list, seen, DEFAULT_CHAT_FRAME, nil)
+
+    local dock = _G.GeneralDockManager
+    if type(dock) == "table" then
+        AddCopyFrameCandidate(list, seen, dock.primary, nil)
+        AddCopyFrameCandidate(list, seen, dock.selected, nil)
+        if type(dock.DOCKED_CHAT_FRAMES) == "table" then
+            for _, frame in pairs(dock.DOCKED_CHAT_FRAMES) do
+                AddCopyFrameCandidate(list, seen, frame, nil)
+            end
+        end
+        if type(dock.DOCKED_CHAT_FRAME_ORDER) == "table" then
+            for _, frame in ipairs(dock.DOCKED_CHAT_FRAME_ORDER) do
+                AddCopyFrameCandidate(list, seen, frame, nil)
+            end
+        end
+    end
+
+    local total = GetMaxCopyChatWindows()
+    for i = 1, total do
+        AddCopyFrameCandidate(list, seen, _G["ChatFrame" .. i], i)
+    end
+
+    table.sort(list, function(a, b)
+        local ai = tonumber(a.index) or 999
+        local bi = tonumber(b.index) or 999
+        if ai == bi then
+            return tostring(a.key) < tostring(b.key)
+        end
+        return ai < bi
+    end)
+
+    return list
+end
+
+local function GetCopyTabMode()
+    local db = GetCopyDB and GetCopyDB()
+    local mode = db and db.copyTabMode
+    if mode == "VISIBLE" or mode == "PINNED" or mode == "SELECTED" then
+        return mode
+    end
+    return "ALL"
+end
+
+local function IsCopyFrameAllowedForTabs(info, preferred)
+    if type(info) ~= "table" or not info.frame then
+        return false
+    end
+
+    local mode = GetCopyTabMode()
+    if mode == "SELECTED" and info.frame ~= preferred then
+        return false
+    end
+    if mode == "VISIBLE" and not info.visible then
+        return false
+    end
+
+    local db = GetCopyDB and GetCopyDB()
+    local overrides = db and db.copyTabFrames
+    if type(overrides) == "table" and overrides[info.key] ~= nil then
+        return overrides[info.key] == true
+    end
+
+    return mode ~= "PINNED"
+end
+
+local function BuildUniqueCopyLabels(list)
+    local nameCounts = {}
+    for i = 1, #list do
+        local info = list[i]
+        local baseName = GetChatFrameDisplayName(info.frame, info.index)
         local count = (nameCounts[baseName] or 0) + 1
         nameCounts[baseName] = count
-        local label = count > 1 and string.format("%s #%d", baseName, count) or baseName
-        list[#list + 1] = { frame = frame, index = index, label = label }
+        info.label = count > 1 and string.format("%s #%d", baseName, count) or baseName
+        if not info.visible then
+            info.optionLabel = string.format("%s |cff888888(%s)|r", info.label, L("hidden"))
+        else
+            info.optionLabel = info.label
+        end
+    end
+end
+
+local function BuildCopyFrameList(preferred)
+    preferred = preferred or (GetPreferredChatFrame and GetPreferredChatFrame(nil))
+    local candidates = CollectCopyFrameCandidates(preferred)
+    local list = {}
+
+    BuildUniqueCopyLabels(candidates)
+    for i = 1, #candidates do
+        local info = candidates[i]
+        if IsCopyFrameAllowedForTabs(info, preferred) then
+            list[#list + 1] = info
+        end
     end
 
-    add(preferred, preferred and type(preferred.GetID) == "function" and preferred:GetID() or nil)
-    add(GetPreferredChatFrame(preferred), nil)
-    for i = 1, total do
-        add(_G["ChatFrame" .. i], i)
-    end
+    BuildUniqueCopyLabels(list)
     return list
+end
+
+function ns.GetCopyChatFrameOptionValues()
+    local preferred = GetPreferredChatFrame and GetPreferredChatFrame(nil)
+    local candidates = CollectCopyFrameCandidates(preferred)
+    local values = {}
+
+    BuildUniqueCopyLabels(candidates)
+    for i = 1, #candidates do
+        local info = candidates[i]
+        values[info.key] = info.optionLabel or info.label or info.key
+    end
+
+    if next(values) == nil then
+        values.__none = L("No chat windows detected.")
+    end
+
+    return values
+end
+
+function ns.GetCopyChatFrameIncluded(key)
+    if key == "__none" then
+        return false
+    end
+
+    local db = GetCopyDB and GetCopyDB()
+    local overrides = db and db.copyTabFrames
+    if type(overrides) == "table" and overrides[key] ~= nil then
+        return overrides[key] == true
+    end
+
+    return GetCopyTabMode() ~= "PINNED"
+end
+
+function ns.SetCopyChatFrameIncluded(key, enabled)
+    if key == "__none" then
+        return
+    end
+
+    local db = GetCopyDB and GetCopyDB()
+    if not db then
+        return
+    end
+
+    db.copyTabFrames = db.copyTabFrames or {}
+    db.copyTabFrames[key] = enabled and true or false
+
+    if type(ns.RefreshCopyChatTabs) == "function" then
+        ns.RefreshCopyChatTabs()
+    end
+end
+
+function ns.ResetCopyChatFrameFilter()
+    local db = GetCopyDB and GetCopyDB()
+    if db then
+        db.copyTabFrames = {}
+    end
+    if type(ns.RefreshCopyChatTabs) == "function" then
+        ns.RefreshCopyChatTabs()
+    end
 end
 
 local function StyleCopyTab(button, active)
@@ -559,20 +799,68 @@ local function StyleCopyTab(button, active)
     end
 end
 
-local function RefreshCopyTabs()
+local function SetCopyTabNavState(button, enabled)
+    if not button then
+        return
+    end
+    if type(button.SetEnabled) == "function" then
+        button:SetEnabled(enabled and true or false)
+    end
+    if type(button.SetAlpha) == "function" then
+        button:SetAlpha(enabled and 1 or 0.35)
+    end
+end
+
+local function RefreshCopyTabs(keepOffset)
     if not copyTabs then
         return
     end
 
     local tabs = BuildCopyFrameList(copyCurrentFrame)
+    copyAvailableTabs = tabs
+
     for i = 1, #copyTabButtons do
         copyTabButtons[i]:Hide()
+        copyTabButtons[i].chatFrame = nil
     end
 
-    local last
-    for i = 1, #tabs do
-        local info = tabs[i]
-        local tab = copyTabButtons[i]
+    if not keepOffset then
+        copyTabOffset = 1
+        for i = 1, #tabs do
+            if tabs[i].frame == copyCurrentFrame then
+                copyTabOffset = i
+                break
+            end
+        end
+    end
+
+    if #tabs == 0 then
+        copyTabOffset = 1
+        SetCopyTabNavState(copyTabPrevButton, false)
+        SetCopyTabNavState(copyTabNextButton, false)
+        return
+    end
+
+    if copyTabOffset < 1 then
+        copyTabOffset = 1
+    elseif copyTabOffset > #tabs then
+        copyTabOffset = #tabs
+    end
+
+    local maxWidth = 500
+    if copyTabs.GetWidth then
+        maxWidth = math.max(220, math.floor(copyTabs:GetWidth() or 500))
+    end
+
+    local usedWidth = 0
+    local visibleIndex = 0
+    local lastButton
+    local lastSourceIndex = copyTabOffset - 1
+
+    for sourceIndex = copyTabOffset, #tabs do
+        local info = tabs[sourceIndex]
+        visibleIndex = visibleIndex + 1
+        local tab = copyTabButtons[visibleIndex]
         if not tab then
             tab = CreateFrame("Button", nil, copyTabs, BackdropTemplateMixin and "BackdropTemplate" or nil)
             tab:SetHeight(24)
@@ -598,21 +886,60 @@ local function RefreshCopyTabs()
             tab.text:SetPoint("LEFT", 9, 0)
             tab.text:SetPoint("RIGHT", -9, 0)
             tab.text:SetJustifyH("CENTER")
-            copyTabButtons[i] = tab
+            copyTabButtons[visibleIndex] = tab
         end
+
         tab.chatFrame = info.frame
         tab.text:SetText(info.label)
-        tab:SetWidth(math.max(76, math.min(148, (tab.text:GetStringWidth() or 70) + 24)))
+        local width = math.max(76, math.min(152, (tab.text:GetStringWidth() or 70) + 24))
+        local gap = lastButton and 4 or 0
+        if visibleIndex > 1 and (usedWidth + gap + width) > maxWidth then
+            tab:Hide()
+            break
+        end
+
+        tab:SetWidth(width)
         tab:ClearAllPoints()
-        if last then
-            tab:SetPoint("LEFT", last, "RIGHT", 4, 0)
+        if lastButton then
+            tab:SetPoint("LEFT", lastButton, "RIGHT", 4, 0)
         else
             tab:SetPoint("LEFT", copyTabs, "LEFT", 0, 0)
         end
         tab:Show()
         StyleCopyTab(tab, info.frame == copyCurrentFrame)
-        last = tab
+        usedWidth = usedWidth + gap + width
+        lastButton = tab
+        lastSourceIndex = sourceIndex
     end
+
+    for i = visibleIndex + 1, #copyTabButtons do
+        copyTabButtons[i]:Hide()
+        copyTabButtons[i].chatFrame = nil
+    end
+
+    SetCopyTabNavState(copyTabPrevButton, copyTabOffset > 1)
+    SetCopyTabNavState(copyTabNextButton, lastSourceIndex < #tabs)
+end
+
+function ns.RefreshCopyChatTabs()
+    if copyFrame and (type(copyFrame.IsShown) ~= "function" or copyFrame:IsShown()) then
+        RefreshCopyTabs(true)
+    end
+end
+
+local function ShiftCopyTabOffset(delta)
+    local count = type(copyAvailableTabs) == "table" and #copyAvailableTabs or 0
+    if count <= 1 then
+        return
+    end
+
+    copyTabOffset = copyTabOffset + (tonumber(delta) or 0)
+    if copyTabOffset < 1 then
+        copyTabOffset = 1
+    elseif copyTabOffset > count then
+        copyTabOffset = count
+    end
+    RefreshCopyTabs(true)
 end
 
 local function CreateCopyWindow()
@@ -668,13 +995,26 @@ local function CreateCopyWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
 
+    local prevTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    prevTab:SetSize(24, 22)
+    prevTab:SetPoint("TOPLEFT", 18, -49)
+    prevTab:SetText("<")
+    prevTab:SetScript("OnClick", function() ShiftCopyTabOffset(-1) end)
+
+    local nextTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    nextTab:SetSize(24, 22)
+    nextTab:SetPoint("TOPRIGHT", -42, -49)
+    nextTab:SetText(">")
+    nextTab:SetScript("OnClick", function() ShiftCopyTabOffset(1) end)
+
     local tabs = CreateFrame("Frame", "ChatifyCopyTabs", f)
-    tabs:SetPoint("TOPLEFT", 18, -48)
-    tabs:SetPoint("TOPRIGHT", -42, -48)
+    tabs:SetPoint("LEFT", prevTab, "RIGHT", 5, 0)
+    tabs:SetPoint("RIGHT", nextTab, "LEFT", -5, 0)
+    tabs:SetPoint("TOP", f, "TOP", 0, -48)
     tabs:SetHeight(24)
     tabs:EnableMouseWheel(true)
     tabs:SetScript("OnMouseWheel", function(_, delta)
-        ScrollCopyWindow(delta)
+        ShiftCopyTabOffset(delta and delta > 0 and -1 or 1)
     end)
 
     local previewBg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -804,6 +1144,8 @@ local function CreateCopyWindow()
     copyHint = hint
     copyButton = btn
     copyTabs = tabs
+    copyTabPrevButton = prevTab
+    copyTabNextButton = nextTab
 end
 
 local BuildTextFromEntries
@@ -891,7 +1233,7 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines)
     if copyTitle then
         copyTitle:SetText(title or L("Chatify Copy"))
     end
-    RefreshCopyTabs()
+    RefreshCopyTabs(false)
     if copyHint then
         copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
     end
@@ -1091,10 +1433,6 @@ local function ReadMessageHistory(chatFrame, maxLines)
     end
 
     return entries
-end
-
-local function GetCopyDB()
-    return Chatify and Chatify.db and Chatify.db.profile or nil
 end
 
 local function GetFrameMouseEnabled(frame)
@@ -1553,7 +1891,8 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
         entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Shift+Left Click on the copy button for direct chat selection."))
     end
 
-    ShowCopyWindow(entries, L("Chatify Copy — selected chat"), chatFrame, maxLines)
+    local frameLabel = GetChatFrameDisplayName(chatFrame, GetChatFrameID(chatFrame))
+    ShowCopyWindow(entries, string.format("%s — %s", L("Chatify Copy"), frameLabel), chatFrame, maxLines)
 end
 
 -- =========================================================

@@ -11,7 +11,7 @@
 
 * **🎨 Visual Customization:** Configurable fonts and shadows.
 * **📜 Chat History:** Saves chat messages between sessions and reloads (Multi-frame support).
-* **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and copy-text functionality via timestamps.
+* **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and ChatCopy 2.0 with selectable chat-window tabs.
 * **🛡 Spam Filter 2.0:** Blocks spam keywords and repeated messages with channel rules, whitelists, counters, and a log-only tuning mode.
 * **🔔 Mention Manager:** The single place for name/text highlights and mention sounds, with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
 * **⚙️ Settings GUI:** Built-in configuration menu (no code editing required).
@@ -26,7 +26,7 @@ The addon is split into logical modules for better maintainability:
 * `ChatFilters.lua` — Safe text processing logic (URLs, spam rules, mention highlights).
 * `ChatHistory.lua` — System for saving and restoring chat history.
 * `ChatVisuals.lua` — Visual tweaks (fonts, hiding elements).
-* `ChatCopy.lua` — Logic for the copy-text window.
+* `ChatCopy.lua` — ChatCopy 2.0 popup, safe copy cache, native selection guard, and configurable chat-window tabs.
 
 ## 🚀 Installation (For Developers)
 
@@ -77,6 +77,19 @@ Spam filtering remains compact but now supports channel rules, guild/friend/part
 ## Mention Manager
 
 Mention rules can target words or phrases such as `Sebas`, `RL`, or `Ключ`. Each rule can define highlight color, sound, channels, case sensitivity, whole-word matching, and sound cooldown. Name/text mention sounds are no longer configured in the generic Sounds tab; that tab only controls generic channel notifications.
+
+## ChatCopy 2.0
+
+ChatCopy opens a styled copy popup for the selected Blizzard chat frame and keeps the global safe event cache only as a fallback. The popup now has its own tab strip, so users can switch between General, Party, Guild, Whisper, custom renamed windows, and duplicate window names without closing the copy panel.
+
+Configuration options are available in **Chatify → General & Visual → Copy Chat**:
+
+- **All existing chat tabs** — show every detected Blizzard chat window, including inactive docked tabs.
+- **Visible or docked tabs only** — keep the copy popup focused on currently visible/docked chat windows.
+- **Manual selection only** — show only windows enabled in the per-tab checklist.
+- **Selected chat only** — keep the copy popup limited to the currently selected chat frame.
+
+The per-tab checklist is keyed by Blizzard chat frame ID, not by display text. This means renamed tabs and duplicate names remain stable; duplicates get numbered labels in the popup.
 
 ## Safe Chat Tabs
 
