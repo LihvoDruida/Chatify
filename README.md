@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/Language-Lua-%232C2D72?style=for-the-badge&logo=lua&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-%23A6E22E?style=for-the-badge)
 
-**Chatify** is a lightweight, modular addon for World of Warcraft (Retail) written in Lua. It cleans up the standard chat interface, adds message history, URL copying, spam filtering, and sound alerts.
+**Chatify** is a lightweight, modular addon for World of Warcraft (Retail) written in Lua. It cleans up the standard chat interface, adds message history, URL copying, spam filtering, mention controls, and sound alerts.
 
 ## ✨ Features
 
@@ -13,7 +13,7 @@
 * **📜 Chat History:** Saves chat messages between sessions and reloads (Multi-frame support).
 * **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and copy-text functionality via timestamps.
 * **🛡 Spam Filter 2.0:** Blocks spam keywords and repeated messages with channel rules, whitelists, counters, and a log-only tuning mode.
-* **🔔 Mention Manager:** Per-word or per-phrase highlights with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
+* **🔔 Mention Manager:** The single place for name/text highlights and mention sounds, with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
 * **⚙️ Settings GUI:** Built-in configuration menu (no code editing required).
 
 ## 📂 Project Structure
@@ -76,7 +76,7 @@ Spam filtering remains compact but now supports channel rules, guild/friend/part
 
 ## Mention Manager
 
-Mention rules can target words or phrases such as `Sebas`, `RL`, or `Ключ`. Each rule can define highlight color, sound, channels, case sensitivity, whole-word matching, and sound cooldown.
+Mention rules can target words or phrases such as `Sebas`, `RL`, or `Ключ`. Each rule can define highlight color, sound, channels, case sensitivity, whole-word matching, and sound cooldown. Name/text mention sounds are no longer configured in the generic Sounds tab; that tab only controls generic channel notifications.
 
 ## Safe Chat Tabs
 

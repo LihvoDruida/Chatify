@@ -740,27 +740,6 @@ local function DecorateLinksInText(text)
     return TransformPlainTextSegments(text, DecorateLinksInSegment)
 end
 
-local function HighlightWordList(text, words, color)
-    if type(text) ~= "string" or IsSecretValue(text) or type(words) ~= "table" or #words == 0 then
-        return text
-    end
-
-    local function apply(segment)
-        local output = segment
-        for i = 1, #words do
-            local word = words[i]
-            if word and word ~= "" then
-                local escaped = word:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
-                output = output:gsub("(" .. escaped .. ")", "|cff" .. color .. "%1|r")
-            end
-        end
-        return output
-    end
-
-    return TransformPlainTextSegments(text, apply)
-end
-
-
 local MentionCooldowns = {}
 
 local function NormalizeColor(value, fallback)
@@ -1005,15 +984,9 @@ function ns.FormatMessage(msg, eventName, author, ...)
 
         if type(ns.ApplyMentionRules) == "function" then
             output = ns.ApplyMentionRules(output, eventName, unpackValues(args, 1, argCount))
-        elseif db.highlightKeywords then
-            output = HighlightWordList(output, db.highlightKeywords, db.myHighlightColor or "ff0000")
         end
 
         output = DecorateLinksInText(output)
-
-        if (not db.enableMentionManager) and PLAYER_NAME and PLAYER_NAME ~= "" then
-            output = HighlightWordList(output, { PLAYER_NAME }, "ffd700")
-        end
 
         return output
     end)

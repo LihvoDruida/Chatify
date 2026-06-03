@@ -71,22 +71,26 @@ local function GetLSMFontValues()
 end
 
 local function GetLSMSoundValues()
+    local values = {}
+
     if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound then
-        return AceGUIWidgetLSMlists.sound
+        for key, value in pairs(AceGUIWidgetLSMlists.sound) do
+            values[key] = value
+        end
     end
 
-    local values = { ["None"] = "None" }
     if LibStub and LibStub("LibSharedMedia-3.0", true) then
         local LSM = LibStub("LibSharedMedia-3.0")
         local ok, hash = pcall(LSM.HashTable, LSM, "sound")
         if ok and type(hash) == "table" then
             for name in pairs(hash) do
-                values[name] = name
+                values[name] = values[name] or name
             end
         end
     end
 
-    values["Chatify Default"] = "Chatify Default"
+    values["None"] = values["None"] or "None"
+    values["Chatify Default"] = values["Chatify Default"] or "Chatify Default"
     return values
 end
 
@@ -149,6 +153,9 @@ local function EnsureProfileTables(db)
     db.mentionRules = db.mentionRules or {}
     db.sounds = db.sounds or { events = {} }
     db.sounds.events = db.sounds.events or {}
+    if type(ns.NormalizeMentionSettings) == "function" then
+        ns.NormalizeMentionSettings(db)
+    end
 end
 
 local function GetRetailSafeDescription()
@@ -194,12 +201,12 @@ local function GetMentionRuleValues(db)
     for index, rule in ipairs(db.mentionRules) do
         local text = type(rule) == "table" and rule.text or nil
         if type(text) ~= "string" or text == "" then
-            text = "Rule " .. index
+            text = T("Rule ") .. index
         end
-        values[index] = string.format("%d. %s%s", index, text, rule.enabled == false and " |cff888888(disabled)|r" or "")
+        values[index] = string.format("%d. %s%s", index, text, rule.enabled == false and " |cff888888" .. T("(disabled)") .. "|r" or "")
     end
     if #values == 0 then
-        values[1] = "No rules"
+        values[1] = T("No rules")
     end
     return values
 end
@@ -213,6 +220,29 @@ local function GetSelectedMentionRule(db)
         selectedMentionRuleIndex = 1
     end
     return db.mentionRules[selectedMentionRuleIndex], selectedMentionRuleIndex
+end
+
+local function PlaySelectedMentionRuleSound(db)
+    local rule = GetSelectedMentionRule(db)
+    local soundName = rule and rule.sound
+    if type(soundName) ~= "string" or soundName == "" or soundName == "None" then
+        if Chatify and Chatify.Print then
+            Chatify:Print(T("Selected mention rule has no sound."))
+        end
+        return
+    end
+
+    local sounds = Chatify and Chatify.GetModule and Chatify:GetModule("Sounds", true)
+    if sounds and type(sounds.Play) == "function" then
+        sounds:Play(soundName)
+        return
+    end
+
+    local soundFile = type(ns.ResolveSoundPath) == "function" and ns.ResolveSoundPath(soundName)
+    if soundFile and type(PlaySoundFile) == "function" then
+        local channel = db and db.sounds and db.sounds.masterVolume and "Master" or "SFX"
+        pcall(PlaySoundFile, soundFile, channel)
+    end
 end
 
 local function GetTabTemplateDefinitions()
@@ -575,8 +605,13 @@ function Chatify:GetOptions()
                         get = function(info) return self.db.profile.sounds.masterVolume end,
                     },
 
-                    headerEvents = { order = 10, type = "header", name = "Event Notifications" },
-                    
+                    headerEvents = { order = 10, type = "header", name = "Channel Notifications" },
+                    mentionRoutingNotice = {
+                        order = 10.5,
+                        type = "description",
+                        name = "Name/text mention sounds and color highlighting are configured only in Mention Manager. This tab controls generic channel notifications.",
+                    },
+
                     soundWhisper = {
                         order = 11,
                         type = "select",
@@ -587,19 +622,6 @@ function Chatify:GetOptions()
                         set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
                         get = function(info) return self.db.profile.sounds.events["WHISPER"] end,
                     },
-                    soundMention = {
-                        order = 12,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Name Mentioned",
-                        desc = "Plays when someone types your name.",
-                        values = GetLSMSoundValues(),
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.events["MENTION"] = val end,
-                        get = function(info) return self.db.profile.sounds.events["MENTION"] end,
-                    },
-                    
-                    spacer1 = { order = 12.5, type = "description", name = " " }, 
 
                     soundGuild = {
                         order = 13,
@@ -926,7 +948,7 @@ function Chatify:GetOptions()
                     headerMentions = {
                         order = 1,
                         type = "description",
-                        name = "Create per-word or per-phrase mention rules with color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.\n|cff999999Runs only on safe, accessible chat payloads.|r",
+                        name = "Create per-word or per-phrase mention rules with color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.\n|cff999999This is the only place for name/text highlight and mention sounds. Global chat sounds must be enabled for mention sounds to play during chat events. Runs only on safe, accessible chat payloads.|r",
                         fontSize = "medium",
                     },
                     enableMentionManager = {
@@ -1003,9 +1025,16 @@ function Chatify:GetOptions()
                         type = "select",
                         dialogControl = GetLSMSoundControl(),
                         name = "Sound",
+                        desc = "Per-rule mention sound. Use None for color-only highlights.",
                         values = GetLSMSoundValues(),
                         set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.sound = val end end,
                         get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.sound or "None" end,
+                    },
+                    testMentionSound = {
+                        order = 14.5,
+                        name = "Test Selected Sound",
+                        type = "execute",
+                        func = function() PlaySelectedMentionRuleSound(self.db.profile) end,
                     },
                     mentionChannels = {
                         order = 15,

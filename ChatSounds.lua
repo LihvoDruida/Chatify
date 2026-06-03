@@ -3,7 +3,6 @@ local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Sounds = Chatify:NewModule("Sounds", "AceEvent-3.0")
 local LSM = LibStub("LibSharedMedia-3.0")
 
-local strfind = string.find
 local strlower = string.lower
 local PlaySoundFile = PlaySoundFile
 local GetTime = GetTime
@@ -19,10 +18,8 @@ local myNameLower = myName and strlower(myName)
 local ignoreSelf = true
 
 local lastNormalSound = 0
-local lastMentionSound = 0
 local MIN_THROTTLE = 0.3
 local MAX_THROTTLE = 1.2
-local MENTION_THROTTLE = 0.8
 local ADAPTIVE_WINDOW = 2.0
 local messageTimes = {}
 local adaptiveThrottle = MIN_THROTTLE
@@ -43,8 +40,10 @@ local eventMap = {
     CHAT_MSG_RAID_WARNING = "RAID",
     CHAT_MSG_INSTANCE_CHAT = "RAID",
     CHAT_MSG_INSTANCE_CHAT_LEADER = "RAID",
-    CHAT_MSG_CHANNEL = nil,
+    CHAT_MSG_CHANNEL = false,
     CHAT_MSG_COMMUNITIES_CHANNEL = "GUILD",
+    CHAT_MSG_SAY = false,
+    CHAT_MSG_YELL = false,
 }
 
 local function GetSafeText(rawText)
@@ -65,13 +64,6 @@ local function GetSafeText(rawText)
     end
 
     return nil
-end
-
-local function EscapeLuaPattern(value)
-    if type(value) ~= "string" or value == "" then
-        return value
-    end
-    return (value:gsub("([%%%^%$%(%)%%.%[%]%*%+%-%?])", "%%%1"))
 end
 
 local function NormalizePlayerName(value)
@@ -254,41 +246,18 @@ function Sounds:OnEvent(event, msg, author, ...)
         local okRule, rule, ruleIndex = pcall(ns.GetMentionRuleMatch, safeMsg, event, ...)
         if okRule and rule then
             local soundName = rule.sound
-            if type(soundName) ~= "string" or soundName == "" then
-                soundName = db.events["MENTION"]
-            end
-            if type(ns.CanPlayMentionRuleSound) == "function" then
+            if type(soundName) == "string" and soundName ~= "" and soundName ~= "None" and type(ns.CanPlayMentionRuleSound) == "function" then
                 local okCanPlay, canPlay = pcall(ns.CanPlayMentionRuleSound, rule, ruleIndex)
                 if okCanPlay and canPlay then
                     self:Play(soundName)
-                    lastMentionSound = now
                     return
                 end
-            elseif (now - lastMentionSound) >= MENTION_THROTTLE then
-                self:Play(soundName)
-                lastMentionSound = now
-                return
             end
-        end
-    end
-
-    if safeMsg and myNameLower then
-        local okMention, isMention = pcall(function()
-            local msgLower = strlower(safeMsg)
-            local escapedName = EscapeLuaPattern(myNameLower)
-            return strfind(msgLower, "%f[%w]" .. escapedName .. "%f[%W]") ~= nil
-        end)
-        if okMention and isMention then
-            if (now - lastMentionSound) >= MENTION_THROTTLE then
-                self:Play(db.events["MENTION"])
-                lastMentionSound = now
-            end
-            return
         end
     end
 
     local eventType = eventMap[event]
-    if eventType and (not isSelf or (isSelf and not ignoreSelf)) then
+    if type(eventType) == "string" and (not isSelf or (isSelf and not ignoreSelf)) then
         if (now - lastNormalSound) >= adaptiveThrottle then
             self:Play(db.events[eventType])
             lastNormalSound = now

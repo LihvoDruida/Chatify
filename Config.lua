@@ -206,17 +206,12 @@ ns.defaults = {
         copyNativeAnnounce = true, -- Print a short hint when native selection mode is enabled
         language = "client", -- Мова аддона: client, enUS, ukUA
 
-        -- === HIGHLIGHTS ===
-        myHighlightColor = "ff0000", -- Колір підсвітки (Червоний)
-        highlightKeywords = { UnitName("player") }, -- Автоматично додаємо нік гравця
-
         -- === SOUNDS ===
         sounds = {
             enable = true,
             masterVolume = true, -- Програвати через Master (чути навіть якщо вимкнені ефекти)
             events = {
                 ["WHISPER"] = "Chatify Default",
-                ["MENTION"] = "Chatify Default",
                 ["GUILD"]   = "None",
                 ["PARTY"]   = "None",
                 ["RAID"]    = "None",
@@ -677,6 +672,116 @@ function ns.RemoveMessageEventFilterIfSupported(eventName, callback)
 
     return ok and true or false
 end
+
+function ns.NormalizeMentionSettings(db)
+    if not db then
+        return false
+    end
+
+    local changed = false
+    local hasLegacyHighlights = type(db.highlightKeywords) == "table" or db.myHighlightColor ~= nil
+    db.mentionRules = type(db.mentionRules) == "table" and db.mentionRules or {}
+    db.sounds = type(db.sounds) == "table" and db.sounds or {}
+    db.sounds.events = type(db.sounds.events) == "table" and db.sounds.events or {}
+
+    local hasLegacyMentionSound = db.sounds.events["MENTION"] ~= nil
+    if db._chatifyMentionSettingsMigrated and not hasLegacyHighlights and not hasLegacyMentionSound then
+        return false
+    end
+
+    local playerName = type(UnitName) == "function" and UnitName("player") or nil
+    local legacyColor = type(db.myHighlightColor) == "string" and db.myHighlightColor:gsub("#", "") or nil
+    if type(legacyColor) ~= "string" or not legacyColor:match("^%x%x%x%x%x%x$") then
+        legacyColor = "ffd700"
+    end
+
+    local legacyMentionSound = db.sounds.events["MENTION"]
+    if type(legacyMentionSound) ~= "string" or legacyMentionSound == "" then
+        legacyMentionSound = "Chatify Default"
+    end
+
+    local function sameText(a, b)
+        if type(a) ~= "string" or type(b) ~= "string" or a == "" or b == "" then
+            return false
+        end
+        return string.lower(a) == string.lower(b)
+    end
+
+    local function ensureRule(text, color, sound, channels)
+        if type(text) ~= "string" or text == "" then
+            return
+        end
+
+        for _, rule in ipairs(db.mentionRules) do
+            if type(rule) == "table" and sameText(rule.text or rule.word or rule.keyword, text) then
+                if type(rule.text) ~= "string" or rule.text == "" then
+                    rule.text = text
+                    changed = true
+                end
+                if type(rule.color) ~= "string" or rule.color == "" then
+                    rule.color = color or "ffd700"
+                    changed = true
+                end
+                if type(rule.sound) ~= "string" or rule.sound == "" then
+                    rule.sound = sound or "None"
+                    changed = true
+                end
+                if type(rule.channels) ~= "string" or rule.channels == "" then
+                    rule.channels = channels or "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL"
+                    changed = true
+                end
+                if rule.ignoreCase == nil then rule.ignoreCase = true; changed = true end
+                if rule.wholeWord == nil then rule.wholeWord = true; changed = true end
+                if rule.cooldown == nil then rule.cooldown = 2; changed = true end
+                return
+            end
+        end
+
+        table.insert(db.mentionRules, {
+            enabled = true,
+            text = text,
+            color = color or "ffd700",
+            sound = sound or "None",
+            channels = channels or "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL",
+            ignoreCase = true,
+            wholeWord = true,
+            cooldown = 2,
+        })
+        changed = true
+    end
+
+    if not db._chatifyMentionSettingsMigrated and type(playerName) == "string" and playerName ~= "" then
+        ensureRule(playerName, legacyColor, legacyMentionSound, "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL")
+    end
+
+    if type(db.highlightKeywords) == "table" then
+        for _, keyword in ipairs(db.highlightKeywords) do
+            if type(keyword) == "string" and keyword ~= "" and not sameText(keyword, playerName) then
+                ensureRule(keyword, legacyColor, "None", "ALL")
+            end
+        end
+        db.highlightKeywords = nil
+        changed = true
+    end
+
+    if db.myHighlightColor ~= nil then
+        db.myHighlightColor = nil
+        changed = true
+    end
+
+    if db.sounds.events["MENTION"] ~= nil then
+        db.sounds.events["MENTION"] = nil
+        changed = true
+    end
+
+    if db._chatifyMentionSettingsMigrated ~= true then
+        db._chatifyMentionSettingsMigrated = true
+        changed = true
+    end
+
+    return changed
+end
+
 function ns.RunRetailCompatibilityMigration(db)
     if not db or ns.IsRetailSecretValueBuild() then
         return false
