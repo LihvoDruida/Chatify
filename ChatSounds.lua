@@ -145,11 +145,19 @@ local function ProcessQueue()
     PlayNext()
 end
 
+local function GetSoundConfig()
+    local profile = ns.db or (Chatify and Chatify.db and Chatify.db.profile)
+    local soundDb = profile and profile.sounds
+    return profile, soundDb
+end
+
 function Sounds:Play(soundName)
-    local db = ns.db and ns.db.sounds
-    if not db or not soundName or soundName == "None" then
+    local _, db = GetSoundConfig()
+    if not soundName or soundName == "None" then
         return
     end
+
+    db = db or {}
 
     local soundFile = nil
     if type(ns.ResolveSoundPath) == "function" then
@@ -200,15 +208,20 @@ local function IsIncomingWhisperEvent(event)
 end
 
 function Sounds:OnEvent(event, msg, author, ...)
-    local db = ns.db and ns.db.sounds
-    if not db or not db.enable then
+    local profile, db = GetSoundConfig()
+    local mentionEnabled = profile and profile.enableMentionManager ~= false
+    local normalSoundsEnabled = db and db.enable == true
+
+    if not mentionEnabled and not normalSoundsEnabled then
         return
     end
 
+    db = db or { events = {} }
+    db.events = db.events or {}
+
     if type(ns.ShouldBypassWhisperMutation) == "function" and ns.ShouldBypassWhisperMutation(event) then
-        -- Sounds do not need to inspect protected whisper payloads. Keep the useful
-        -- incoming whisper notification, but skip all message/author processing.
-        if IsIncomingWhisperEvent(event) then
+        -- Keep the simple incoming-whisper notification without reading protected text.
+        if normalSoundsEnabled and IsIncomingWhisperEvent(event) then
             local now = GetTime()
             if (now - lastNormalSound) >= adaptiveThrottle then
                 self:Play(db.events["WHISPER"])
@@ -242,7 +255,7 @@ function Sounds:OnEvent(event, msg, author, ...)
         isSelf = IsBattleNetSelf(...)
     end
 
-    if safeMsg and not isSelf and type(ns.GetMentionRuleMatch) == "function" then
+    if mentionEnabled and safeMsg and not isSelf and type(ns.GetMentionRuleMatch) == "function" then
         local okRule, rule, ruleIndex = pcall(ns.GetMentionRuleMatch, safeMsg, event, ...)
         if okRule and rule then
             local soundName = rule.sound
@@ -254,6 +267,10 @@ function Sounds:OnEvent(event, msg, author, ...)
                 end
             end
         end
+    end
+
+    if not normalSoundsEnabled then
+        return
     end
 
     local eventType = eventMap[event]

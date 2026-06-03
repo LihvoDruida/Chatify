@@ -593,9 +593,9 @@ function ns.GetRetailSafeModeStatus(db)
     }
 
     if active then
-        status.history = "limited to safe captured events"
-        status.virtualChat = "disabled on Retail for taint safety"
-        status.whisperAutoReply = "disabled on Retail protected whisper payloads"
+        status.history = "limited for safety"
+        status.virtualChat = "disabled on modern Retail"
+        status.whisperAutoReply = "disabled on modern Retail whisper events"
         status.nativeCopy = "recommended"
     elseif db and db.copyNativeSelection == false then
         status.nativeCopy = "optional"
@@ -679,14 +679,46 @@ function ns.NormalizeMentionSettings(db)
     end
 
     local changed = false
+    if db.enableMentionManager == nil then
+        db.enableMentionManager = true
+        changed = true
+    end
+
     local hasLegacyHighlights = type(db.highlightKeywords) == "table" or db.myHighlightColor ~= nil
     db.mentionRules = type(db.mentionRules) == "table" and db.mentionRules or {}
     db.sounds = type(db.sounds) == "table" and db.sounds or {}
     db.sounds.events = type(db.sounds.events) == "table" and db.sounds.events or {}
 
+    for _, rule in ipairs(db.mentionRules) do
+        if type(rule) == "table" then
+            local normalizedColor = type(rule.color) == "string" and rule.color:gsub("#", "") or ""
+            if normalizedColor:match("^%x%x%x%x%x%x%x%x$") then
+                normalizedColor = normalizedColor:sub(3)
+            end
+            if not normalizedColor:match("^%x%x%x%x%x%x$") then
+                normalizedColor = "ffd700"
+            end
+            if rule.color ~= normalizedColor then
+                rule.color = normalizedColor
+                changed = true
+            end
+            if type(rule.sound) ~= "string" or rule.sound == "" then
+                rule.sound = "None"
+                changed = true
+            end
+            if type(rule.channels) ~= "string" or rule.channels == "" then
+                rule.channels = "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL"
+                changed = true
+            end
+            if rule.ignoreCase == nil then rule.ignoreCase = true; changed = true end
+            if rule.wholeWord == nil then rule.wholeWord = true; changed = true end
+            if rule.cooldown == nil then rule.cooldown = 2; changed = true end
+        end
+    end
+
     local hasLegacyMentionSound = db.sounds.events["MENTION"] ~= nil
     if db._chatifyMentionSettingsMigrated and not hasLegacyHighlights and not hasLegacyMentionSound then
-        return false
+        return changed
     end
 
     local playerName = type(UnitName) == "function" and UnitName("player") or nil
@@ -722,8 +754,8 @@ function ns.NormalizeMentionSettings(db)
                     rule.color = color or "ffd700"
                     changed = true
                 end
-                if type(rule.sound) ~= "string" or rule.sound == "" then
-                    rule.sound = sound or "None"
+                if (type(rule.sound) ~= "string" or rule.sound == "" or rule.sound == "None") and type(sound) == "string" and sound ~= "" then
+                    rule.sound = sound
                     changed = true
                 end
                 if type(rule.channels) ~= "string" or rule.channels == "" then

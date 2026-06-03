@@ -569,7 +569,7 @@ function Chatify:GetOptions()
                     timestampPost = {
                         order = 13,
                         name = "Show at End",
-                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only for safely accessible chat payloads.|r",
+                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only where Blizzard allows safe formatting.|r",
                         type = "toggle",
                         set = function(info, val) self.db.profile.timestampPost = val end,
                         get = function(info) return self.db.profile.timestampPost end,
@@ -609,7 +609,7 @@ function Chatify:GetOptions()
                     mentionRoutingNotice = {
                         order = 10.5,
                         type = "description",
-                        name = "Name/text mention sounds and color highlighting are configured only in Mention Manager. This tab controls generic channel notifications.",
+                        name = "Mention sounds and text highlighting are configured in Mention Manager. This tab only controls generic channel notifications.",
                     },
 
                     soundWhisper = {
@@ -948,7 +948,7 @@ function Chatify:GetOptions()
                     headerMentions = {
                         order = 1,
                         type = "description",
-                        name = "Create per-word or per-phrase mention rules with color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.\n|cff999999This is the only place for name/text highlight and mention sounds. Global chat sounds must be enabled for mention sounds to play during chat events. Runs only on safe, accessible chat payloads.|r",
+                        name = "Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown.\n|cff999999Mention sounds work from this tab and do not require generic channel sounds to be enabled.|r",
                         fontSize = "medium",
                     },
                     enableMentionManager = {
@@ -1025,7 +1025,7 @@ function Chatify:GetOptions()
                         type = "select",
                         dialogControl = GetLSMSoundControl(),
                         name = "Sound",
-                        desc = "Per-rule mention sound. Use None for color-only highlights.",
+                        desc = "Sound for this mention rule. Choose None for highlight only.",
                         values = GetLSMSoundValues(),
                         set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.sound = val end end,
                         get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.sound or "None" end,
@@ -1055,7 +1055,7 @@ function Chatify:GetOptions()
                     mentionWholeWord = {
                         order = 17,
                         name = "Whole Word Only",
-                        desc = "Works best for ASCII identifiers such as RL/Sebas. Non-ASCII phrases safely fall back to phrase matching.",
+                        desc = "Match the whole word instead of a part of another word. For non-Latin text, Chatify uses safe phrase matching.",
                         type = "toggle",
                         set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.wholeWord = val end end,
                         get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.wholeWord ~= false or false end,
@@ -1080,7 +1080,7 @@ function Chatify:GetOptions()
                     headerAutoReply = {
                         order = 1,
                         type = "description",
-                        name = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on protected payload builds; guild mention replies can still work when the message is accessible.|r",
+                        name = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on modern Retail; guild mention replies can still work when available.|r",
                         fontSize = "medium",
                     },
                     enableAutoReply = {

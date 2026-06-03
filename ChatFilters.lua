@@ -788,7 +788,7 @@ local function MentionRuleAppliesToEvent(rule, eventName, ...)
 end
 
 local function GetMentionRules(db)
-    if not db or not db.enableMentionManager or type(db.mentionRules) ~= "table" then
+    if not db or db.enableMentionManager == false or type(db.mentionRules) ~= "table" then
         return nil
     end
     return db.mentionRules

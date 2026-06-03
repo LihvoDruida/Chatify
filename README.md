@@ -63,11 +63,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Retail Safe Mode
 
-On modern Retail builds, Chatify avoids mutating protected whisper / BNet whisper payloads. Settings now show the active safe-mode status so users can clearly see why these paths are limited:
+On modern Retail builds, Chatify avoids unsafe whisper / BNet whisper processing. Settings show the active safe-mode status so users can clearly see why these paths are limited:
 
 - History is limited to safely captured events.
 - Virtual Chat remains disabled on protected Retail builds.
-- Whisper / BN whisper auto-replies are disabled when payloads are protected.
+- Whisper / BN whisper auto-replies are disabled on modern Retail when Blizzard restricts those events.
 - Native direct chat selection is the recommended copy path.
 
 ## Spam Filter 2.0
