@@ -39,6 +39,7 @@ Locale:RegisterLocale("ukUA", {
     ["Chat Font"] = "Шрифт чату",
     ["Chat History"] = "Історія чату",
     ["Chat Tabs Setup"] = "Налаштування вкладок чату",
+    ["Chat %d"] = "Чат %d",
     ["Chatify Copy"] = "Копіювання Chatify",
     ["Chatify Copy — selected line"] = "Копіювання Chatify — вибраний рядок",
     ["Chatify Settings"] = "Налаштування Chatify",

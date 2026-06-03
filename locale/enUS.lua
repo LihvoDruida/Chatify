@@ -39,6 +39,7 @@ Locale:RegisterLocale("enUS", {
     ["Chat Font"] = "Chat Font",
     ["Chat History"] = "Chat History",
     ["Chat Tabs Setup"] = "Chat Tabs Setup",
+    ["Chat %d"] = "Chat %d",
     ["Chatify Copy"] = "Chatify Copy",
     ["Chatify Copy — selected line"] = "Chatify Copy — selected line",
     ["Chatify Settings"] = "Chatify Settings",

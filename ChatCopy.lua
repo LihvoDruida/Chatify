@@ -359,6 +359,10 @@ local copyScroll
 local copyContent
 local copyHint
 local copyButton
+local copyTabs
+local copyTabButtons = {}
+local copyCurrentFrame
+local copyCurrentMaxLines = COPY_WINDOW_MAX_LINES
 local copyTextValue = ""
 local copySettingText = false
 local nativeCopySessions = setmetatable({}, { __mode = "k" })
@@ -366,6 +370,7 @@ local nativeCopySessionId = 0
 local nativeCopyActiveSessionId
 local nativeCopyGuardFrame
 local nativeCopyLastBlockedWarning = 0
+local GetPreferredChatFrame
 
 local function IsInCombatLockdown()
     return type(InCombatLockdown) == "function" and InCombatLockdown()
@@ -458,6 +463,158 @@ local function CreateMoveHandle(parent, name, anchorFunc)
     return handle
 end
 
+
+local function GetChatFrameDisplayName(frame, index)
+    local fallback = string.format(L("Chat %d"), tonumber(index) or 1)
+    if not frame then
+        return fallback
+    end
+
+    local name
+    if type(frame.GetName) == "function" then
+        local ok, value = pcall(frame.GetName, frame)
+        if ok and IsNonEmptyString(value) then
+            name = value
+        end
+    end
+
+    if frame.name and IsNonEmptyString(frame.name) then
+        name = frame.name
+    elseif frame.nameText and type(frame.nameText.GetText) == "function" then
+        local ok, value = pcall(frame.nameText.GetText, frame.nameText)
+        if ok and IsNonEmptyString(value) then
+            name = value
+        end
+    end
+
+    if type(_G.FCF_GetChatWindowInfo) == "function" and tonumber(index) then
+        local ok, value = pcall(_G.FCF_GetChatWindowInfo, index)
+        if ok and IsNonEmptyString(value) then
+            name = value
+        end
+    end
+
+    name = StripChatMarkup(name) or fallback
+    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" or name:match("^ChatFrame%d+$") then
+        return fallback
+    end
+    return name
+end
+
+local function BuildCopyFrameList(preferred)
+    local list, seen, nameCounts = {}, {}, {}
+    local total = tonumber(_G.NUM_CHAT_WINDOWS) or 10
+    if type(ns.GetMaxChatWindows) == "function" then
+        local ok, value = pcall(ns.GetMaxChatWindows)
+        if ok and type(value) == "number" and value > 0 then
+            total = value
+        end
+    end
+    total = math.max(1, math.min(total, 20))
+
+    local function add(frame, index)
+        if not frame or seen[frame] then
+            return
+        end
+        if type(frame.IsShown) == "function" and not frame:IsShown() then
+            return
+        end
+        seen[frame] = true
+        local baseName = GetChatFrameDisplayName(frame, index)
+        local count = (nameCounts[baseName] or 0) + 1
+        nameCounts[baseName] = count
+        local label = count > 1 and string.format("%s #%d", baseName, count) or baseName
+        list[#list + 1] = { frame = frame, index = index, label = label }
+    end
+
+    add(preferred, preferred and type(preferred.GetID) == "function" and preferred:GetID() or nil)
+    add(GetPreferredChatFrame(preferred), nil)
+    for i = 1, total do
+        add(_G["ChatFrame" .. i], i)
+    end
+    return list
+end
+
+local function StyleCopyTab(button, active)
+    if not button then
+        return
+    end
+    if button.bg and button.bg.SetColorTexture then
+        if active then
+            button.bg:SetColorTexture(0.42, 0.28, 0.06, 0.95)
+        else
+            button.bg:SetColorTexture(0.08, 0.07, 0.05, 0.92)
+        end
+    end
+    if button.border and button.border.SetBackdropBorderColor then
+        if active then
+            button.border:SetBackdropBorderColor(0.95, 0.72, 0.18, 1)
+        else
+            button.border:SetBackdropBorderColor(0.35, 0.28, 0.14, 0.85)
+        end
+    end
+    if button.text then
+        button.text:SetTextColor(active and 1 or 0.78, active and 0.86 or 0.68, active and 0.22 or 0.42, 1)
+    end
+end
+
+local function RefreshCopyTabs()
+    if not copyTabs then
+        return
+    end
+
+    local tabs = BuildCopyFrameList(copyCurrentFrame)
+    for i = 1, #copyTabButtons do
+        copyTabButtons[i]:Hide()
+    end
+
+    local last
+    for i = 1, #tabs do
+        local info = tabs[i]
+        local tab = copyTabButtons[i]
+        if not tab then
+            tab = CreateFrame("Button", nil, copyTabs, BackdropTemplateMixin and "BackdropTemplate" or nil)
+            tab:SetHeight(24)
+            tab:SetScript("OnClick", function(self)
+                if self.chatFrame and type(ns.OpenChatCopyWindow) == "function" then
+                    ns.OpenChatCopyWindow(self.chatFrame, copyCurrentMaxLines)
+                end
+            end)
+            tab:SetScript("OnEnter", function(self)
+                if self.text then self.text:SetTextColor(1, 0.92, 0.38, 1) end
+            end)
+            tab:SetScript("OnLeave", function(self)
+                StyleCopyTab(self, self.chatFrame == copyCurrentFrame)
+            end)
+            tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+            tab.bg:SetAllPoints()
+            tab.border = CreateFrame("Frame", nil, tab, BackdropTemplateMixin and "BackdropTemplate" or nil)
+            tab.border:SetAllPoints()
+            if tab.border.SetBackdrop then
+                tab.border:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+            end
+            tab.text = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            tab.text:SetPoint("LEFT", 9, 0)
+            tab.text:SetPoint("RIGHT", -9, 0)
+            tab.text:SetJustifyH("CENTER")
+            copyTabButtons[i] = tab
+        end
+        tab.chatFrame = info.frame
+        tab.text:SetText(info.label)
+        tab:SetWidth(math.max(76, math.min(148, (tab.text:GetStringWidth() or 70) + 24)))
+        tab:ClearAllPoints()
+        if last then
+            tab:SetPoint("LEFT", last, "RIGHT", 4, 0)
+        else
+            tab:SetPoint("LEFT", copyTabs, "LEFT", 0, 0)
+        end
+        tab:Show()
+        StyleCopyTab(tab, info.frame == copyCurrentFrame)
+        last = tab
+    end
+end
+
 local function CreateCopyWindow()
     if copyFrame then return end
 
@@ -511,8 +668,17 @@ local function CreateCopyWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0)
 
+    local tabs = CreateFrame("Frame", "ChatifyCopyTabs", f)
+    tabs:SetPoint("TOPLEFT", 18, -48)
+    tabs:SetPoint("TOPRIGHT", -42, -48)
+    tabs:SetHeight(24)
+    tabs:EnableMouseWheel(true)
+    tabs:SetScript("OnMouseWheel", function(_, delta)
+        ScrollCopyWindow(delta)
+    end)
+
     local previewBg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    previewBg:SetPoint("TOPLEFT", 16, -46)
+    previewBg:SetPoint("TOPLEFT", 16, -78)
     previewBg:SetPoint("BOTTOMRIGHT", -34, 58)
     previewBg:EnableMouse(false)
     if previewBg.SetBackdrop then
@@ -637,6 +803,7 @@ local function CreateCopyWindow()
     copyContent = content
     copyHint = hint
     copyButton = btn
+    copyTabs = tabs
 end
 
 local BuildTextFromEntries
@@ -709,7 +876,7 @@ BuildTextFromEntries = function(entries, maxChars)
     return table.concat(lines, "\n")
 end
 
-local function ShowCopyWindow(entries, title)
+local function ShowCopyWindow(entries, title, chatFrame, maxLines)
     if not copyFrame then CreateCopyWindow() end
 
     if type(entries) == "string" then
@@ -719,9 +886,12 @@ local function ShowCopyWindow(entries, title)
     end
 
     copyFrame:Show()
+    copyCurrentFrame = chatFrame or copyCurrentFrame
+    copyCurrentMaxLines = tonumber(maxLines) or copyCurrentMaxLines or COPY_WINDOW_MAX_LINES
     if copyTitle then
         copyTitle:SetText(title or L("Chatify Copy"))
     end
+    RefreshCopyTabs()
     if copyHint then
         copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
     end
@@ -1041,7 +1211,7 @@ local function GetDockSelectedFrame()
     return nil
 end
 
-local function GetPreferredChatFrame(preferred)
+function GetPreferredChatFrame(preferred)
     if IsNativeCopyFrame(preferred) then
         return preferred
     end
@@ -1383,7 +1553,7 @@ function ns.OpenChatCopyWindow(chatFrame, maxLines)
         entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons. Use Shift+Left Click on the copy button for direct chat selection."))
     end
 
-    ShowCopyWindow(entries, L("Chatify Copy — selected chat"))
+    ShowCopyWindow(entries, L("Chatify Copy — selected chat"), chatFrame, maxLines)
 end
 
 -- =========================================================
