@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/Language-Lua-%232C2D72?style=for-the-badge&logo=lua&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-%23A6E22E?style=for-the-badge)
 
-**Chatify** is a lightweight, modular addon for World of Warcraft (Retail) written in Lua. It cleans up the standard chat interface, adds message history, URL copying, spam filtering, mention controls, and sound alerts.
+**Chatify** is a lightweight, modular addon for World of Warcraft written in Lua. It cleans up the standard chat interface, adds message history, safer chat copying, spam filtering, mention controls, sound alerts, and quick channel buttons.
 
 ## ✨ Features
 
@@ -34,7 +34,7 @@ The addon is split into logical modules for better maintainability:
     * **Windows:** `World of Warcraft\_retail_\Interface\AddOns`
 2.  Clone the repository:
     ```bash
-    git clone [https://github.com/YOUR_USERNAME/Chatify.git](https://github.com/YOUR_USERNAME/Chatify.git)
+    git clone https://github.com/LihvoDruida/Chatify.git
     ```
 3.  Ensure the folder is named `Chatify`.
 4.  Launch the game or type `/reload` if already running.
@@ -55,6 +55,12 @@ Contributions are welcome!
 3.  Commit your changes (`git commit -m 'Add some NewFeature'`).
 4.  Push to the branch (`git push origin feature/NewFeature`).
 5.  Open a Pull Request.
+
+## Quality & Testing
+
+Chatify is checked as a release product, not only as separate Lua files. The release checklist covers TOC metadata, required files, settings loading, copy window behavior, spam filters, mention alerts, saved variables, and Retail-safe chat handling.
+
+The Ukrainian QA notes and terminology are kept in [`docs/QUALITY_AND_TESTING.md`](docs/QUALITY_AND_TESTING.md).
 
 ## 📝 License
 

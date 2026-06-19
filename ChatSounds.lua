@@ -1,7 +1,7 @@
 local addonName, ns = ...
 local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Sounds = Chatify:NewModule("Sounds", "AceEvent-3.0")
-local LSM = LibStub("LibSharedMedia-3.0")
+local LSM = LibStub("LibSharedMedia-3.0", true)
 
 local strlower = string.lower
 local PlaySoundFile = PlaySoundFile
@@ -169,7 +169,7 @@ function Sounds:Play(soundName, forceMaster)
     if type(ns.ResolveSoundPath) == "function" then
         soundFile = ns.ResolveSoundPath(soundName)
     else
-        soundFile = LSM:Fetch("sound", soundName, true)
+        soundFile = LSM and LSM.Fetch and LSM:Fetch("sound", soundName, true) or nil
     end
     if not soundFile then
         return

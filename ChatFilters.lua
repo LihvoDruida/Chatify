@@ -1177,7 +1177,8 @@ function Filters:HookCommunities()
                 if type(ns.ResolveFontPath) == "function" then
                     fontPath = ns.ResolveFontPath(fontId)
                 elseif fontId then
-                    fontPath = LibStub("LibSharedMedia-3.0"):Fetch("font", fontId, true)
+                    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
+                    fontPath = LSM and LSM.Fetch and LSM:Fetch("font", fontId, true) or nil
                 end
                 if fontPath then
                     local _, size, flags = frame.Message:GetFont()

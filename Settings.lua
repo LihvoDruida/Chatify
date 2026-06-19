@@ -49,8 +49,8 @@ local function GetLSMFontValues()
     end
 
     local values = {}
-    if LibStub and LibStub("LibSharedMedia-3.0", true) then
-        local LSM = LibStub("LibSharedMedia-3.0")
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
+    if LSM then
         local ok, hash = pcall(LSM.HashTable, LSM, "font")
         if ok and type(hash) == "table" then
             for name in pairs(hash) do
@@ -79,8 +79,8 @@ local function GetLSMSoundValues()
         end
     end
 
-    if LibStub and LibStub("LibSharedMedia-3.0", true) then
-        local LSM = LibStub("LibSharedMedia-3.0")
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
+    if LSM then
         local ok, hash = pcall(LSM.HashTable, LSM, "sound")
         if ok and type(hash) == "table" then
             for name in pairs(hash) do

@@ -15,9 +15,9 @@ body:
       label: Game Version
       description: Which version of World of Warcraft are you playing?
       options:
-        - Retail (The War Within 11.x)
-        - Cataclysm Classic
-        - Classic Era / SoD
+        - Retail (Midnight 12.x)
+        - Cataclysm Classic / Titan
+        - Classic Era / Anniversary / MoP Classic
     validations:
       required: true
 
@@ -25,8 +25,8 @@ body:
     id: addon_version
     attributes:
       label: Addon Version
-      description: Which version of Chatify are you using? (e.g., v1.2)
-      placeholder: v1.2
+      description: Which version of Chatify are you using? (e.g., 0.11.6)
+      placeholder: 0.11.6
     validations:
       required: true
 

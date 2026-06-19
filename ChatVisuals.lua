@@ -1,7 +1,7 @@
 local addonName, ns = ...
 local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 -- Підключаємо LibSharedMedia
-local LSM = LibStub("LibSharedMedia-3.0")
+local LSM = LibStub("LibSharedMedia-3.0", true)
 local VisualsModule = Chatify:NewModule("Visuals", "AceEvent-3.0", "AceHook-3.0")
 local visualsFiltersInstalled = false
 local visualsApplyQueued = false
@@ -164,7 +164,7 @@ local function StyleFrame(frame)
     if type(ns.ResolveFontPath) == "function" then
         fontPath = ns.ResolveFontPath(db.fontID)
     elseif db.fontID then
-        fontPath = LSM:Fetch("font", db.fontID, true)
+        fontPath = LSM and LSM.Fetch and LSM:Fetch("font", db.fontID, true) or nil
     end
 
     if not fontPath and ChatFontNormal and ChatFontNormal.GetFont then
