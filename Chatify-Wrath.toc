@@ -17,6 +17,7 @@
 
 ## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
 
+Compatibility.lua
 libs\_manifest.xml
 Locales.lua
 locale\enUS.lua
