@@ -1382,9 +1382,23 @@ function Chatify:OnInitialize()
         ns.EnforceRetailSafeMode(ns.db)
     end
 
-    -- Setup Config GUI
-    LibStub("AceConfig-3.0"):RegisterOptionsTable("Chatify", self:GetOptions())
-    self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("Chatify", "Chatify")
+    -- Setup Config GUI. PTR clients may expose small API differences that break
+    -- older AceGUI widgets, so never let the configuration UI stop Chatify from
+    -- loading or refreshing chat.
+    local aceConfig = LibStub("AceConfig-3.0", true)
+    if aceConfig and type(aceConfig.RegisterOptionsTable) == "function" then
+        pcall(aceConfig.RegisterOptionsTable, aceConfig, "Chatify", self:GetOptions())
+    end
+
+    if ACD and type(ACD.AddToBlizOptions) == "function" then
+        local ok, frame = pcall(ACD.AddToBlizOptions, ACD, "Chatify", "Chatify")
+        if ok then
+            self.optionsFrame = frame
+        else
+            self.optionsFrame = nil
+            ns.configRegistrationError = frame
+        end
+    end
 
     -- Chat Commands
     self:RegisterChatCommand("chatify", "OpenConfig")
@@ -1460,8 +1474,11 @@ end
 
 function Chatify:OpenConfig()
     if ACD and type(ACD.Open) == "function" then
-        pcall(ACD.Open, ACD, "Chatify")
-        return
+        local ok, err = pcall(ACD.Open, ACD, "Chatify")
+        if ok then
+            return
+        end
+        ns.configOpenError = err
     end
 
     local frame = self.optionsFrame
@@ -1472,11 +1489,14 @@ function Chatify:OpenConfig()
     local category = frame.name or frame
 
     if Settings and Settings.OpenToCategory then
-        pcall(Settings.OpenToCategory, category)
-        return
+        local ok = pcall(Settings.OpenToCategory, category)
+        if ok then
+            return
+        end
     end
 
     if InterfaceOptionsFrame_OpenToCategory then
+        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
         pcall(InterfaceOptionsFrame_OpenToCategory, frame)
     end
 end

@@ -119,3 +119,8 @@ The setup panel can create or update PM, Guild, and Raid/Guild/PM tab templates.
 ## Quick Button Skin Behavior
 
 Quick chat button skins can be forced to Standard, ElvUI, or GW2 UI even if those addons are not installed. In that case Chatify applies only the visual style and keeps its normal behavior, anchors, and chat logic. Auto mode still follows detected chat UI addons when they are active.
+
+## PTR 12.1 note
+
+This build includes a small compatibility layer for PTR clients where older embedded AceGUI checkbox code can fail on missing UI helpers. For PTR testing, delete the old `Interface/AddOns/Chatify` folder before installing this archive so stale bundled libraries do not remain from an older build.
+

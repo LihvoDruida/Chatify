@@ -2289,12 +2289,12 @@ local function EnsureContainer()
     settingsButton.RefreshVisual = RefreshSettingsButtonLook
 
     settingsButton:SetScript("OnClick", function()
-        if ACD and type(ACD.Open) == "function" then
-            pcall(ACD.Open, ACD, "Chatify")
-            return
-        end
         if Chatify and type(Chatify.OpenConfig) == "function" then
             Chatify:OpenConfig()
+            return
+        end
+        if ACD and type(ACD.Open) == "function" then
+            pcall(ACD.Open, ACD, "Chatify")
         end
     end)
 

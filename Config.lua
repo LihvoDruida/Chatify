@@ -8,13 +8,14 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 -- =========================================================
 -- 1. LIBS & MEDIA REGISTRATION
 -- =========================================================
-local LSM = LibStub("LibSharedMedia-3.0")
+local LSM = LibStub("LibSharedMedia-3.0", true)
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 -- Реєструємо ваші асети в глобальну бібліотеку
 -- Це дозволяє вибирати їх у випадаючих списках Config.lua
-LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg")
-LSM:Register("font", "Exo 2 (Chatify)", "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf")
+if LSM and type(LSM.Register) == "function" then
+    LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg")
+end
 
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
@@ -23,11 +24,10 @@ ns.Lists = {}
 
 -- Список шрифтів (Fallback, якщо LSM не працює)
 ns.Lists.Fonts = {
-    [1] = { name = "Exo 2 (Chatify)",      path = "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf" },
-    [2] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
-    [3] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
-    [4] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
-    [5] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
+    [1] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
+    [2] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
+    [3] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
+    [4] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
 }
 
 -- Список форматів часу
@@ -43,7 +43,7 @@ ns.Lists.TimeFormats = {
 -- 3. MEDIA RESOLVERS
 -- =========================================================
 local CHATIFY_DEFAULT_SOUND = "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg"
-local CHATIFY_DEFAULT_FONT = "Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf"
+local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
 
 function ns.ResolveFontPath(fontID)
     if type(fontID) ~= "string" or fontID == "" then
@@ -65,10 +65,6 @@ function ns.ResolveFontPath(fontID)
                 return entry.path
             end
         end
-    end
-
-    if fontID == "Exo 2 (Chatify)" then
-        return CHATIFY_DEFAULT_FONT
     end
 
     return CHATIFY_DEFAULT_FONT
@@ -101,7 +97,7 @@ end
 ns.defaults = {
     profile = {
         -- === VISUALS ===
-        fontID = "Exo 2 (Chatify)", -- Дефолтний шрифт (по назві з LSM)
+        fontID = "Friz Quadrata (WoW)", -- Дефолтний шрифт клієнта WoW
         fontOutline = "",    -- Контур тексту для кращої читабельності
         
         -- === TIME ===
