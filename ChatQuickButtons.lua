@@ -1745,6 +1745,13 @@ local function ActivateChatType(def, useAlt)
 end
 
 
+local function GetVisibleSidebarLayoutHost()
+    if settingsContainer and settingsContainer:IsShown() then
+        return settingsContainer
+    end
+    return GetMainSidebarButtonFrame()
+end
+
 local function EnsureSocialSidebarButton()
     local sidebarFrame = GetMainSidebarButtonFrame()
     if not sidebarFrame then
@@ -1758,7 +1765,7 @@ local function EnsureSocialSidebarButton()
         return nil
     end
 
-    button:SetParent(sidebarFrame)
+    button:SetParent(GetVisibleSidebarLayoutHost() or sidebarFrame)
     button:SetScript("OnMouseDown", nil)
     button:SetScript("OnMouseUp", nil)
     button:ClearAllPoints()
@@ -1771,7 +1778,7 @@ local function EnsureSocialSidebarButton()
         socialButtonHooked = true
         local originalSetPoint = button.SetPoint
         pcall(hooksecurefunc, button, "SetPoint", function(_, _, frame)
-            local currentSidebar = GetMainSidebarButtonFrame()
+            local currentSidebar = GetVisibleSidebarLayoutHost()
             if currentSidebar and frame ~= currentSidebar then
                 button:SetParent(currentSidebar)
                 button:ClearAllPoints()
@@ -1899,29 +1906,107 @@ local function AddSidebarLayoutItem(items, key, button, refreshFunc)
     items[#items + 1] = { key = key, frame = button, refresh = refreshFunc }
 end
 
-local function ApplySidebarButtonLayout(button, sidebarFrame, buttonWidth, buttonHeight, strata, frameLevel)
-    if not button then
+local function ApplySidebarButtonLayout(button, layoutHost, buttonWidth, buttonHeight, strata, frameLevel)
+    if not button or not layoutHost then
         return
     end
-    button:SetParent(sidebarFrame)
+    button:SetParent(layoutHost)
     button:ClearAllPoints()
     button:SetSize(buttonWidth, buttonHeight)
     button:SetFrameStrata(strata)
     if button.SetFrameLevel then
         button:SetFrameLevel(frameLevel + 2)
     end
+    if button.SetClipsChildren then
+        button:SetClipsChildren(false)
+    end
     button:Show()
 end
 
-local function LayoutSidebarButtonStack(sidebarFrame, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
+local function GetSidebarAvailableHeight(sidebarFrame, hostFrame)
+    local sidebarHeight = 0
+    local hostHeight = 0
+
+    if sidebarFrame and sidebarFrame.GetHeight then
+        local ok, value = pcall(sidebarFrame.GetHeight, sidebarFrame)
+        if ok and type(value) == "number" then
+            sidebarHeight = value
+        end
+    end
+    if hostFrame and hostFrame.GetHeight then
+        local ok, value = pcall(hostFrame.GetHeight, hostFrame)
+        if ok and type(value) == "number" then
+            hostHeight = value
+        end
+    end
+
+    -- The default Blizzard button frame is often sized for only the native
+    -- social/channel buttons. Use the real chat frame height as the available
+    -- budget so extra Chatify buttons fit instead of being clipped.
+    return math.max(64, math.floor(math.max(sidebarHeight, hostHeight) + 0.5))
+end
+
+local function FitSidebarButtonMetrics(sidebarFrame, hostFrame, itemCount, buttonWidth, buttonHeight, ratio, spacing)
+    itemCount = tonumber(itemCount) or 0
+    if itemCount <= 0 then
+        return buttonWidth, buttonHeight, spacing, 0
+    end
+
+    local availableHeight = GetSidebarAvailableHeight(sidebarFrame, hostFrame)
+    local naturalHeight = (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1))
+    if naturalHeight <= availableHeight then
+        return buttonWidth, buttonHeight, spacing, naturalHeight
+    end
+
+    spacing = math.max(0, math.min(spacing, 1))
+    local fittedHeight = math.floor((availableHeight - (spacing * math.max(0, itemCount - 1))) / itemCount)
+    fittedHeight = math.max(18, math.min(buttonHeight, fittedHeight))
+    local fittedWidth = math.max(18, math.floor((fittedHeight / math.max(ratio or DEFAULT_SIDEBAR_BUTTON_RATIO, 0.1)) + 0.5))
+    local totalHeight = (fittedHeight * itemCount) + (spacing * math.max(0, itemCount - 1))
+
+    return fittedWidth, fittedHeight, spacing, totalHeight
+end
+
+local function PrepareSidebarLayoutHost(sidebarFrame, hostFrame, buttonWidth, totalHeight, strata, frameLevel)
+    local layoutHost = settingsContainer or sidebarFrame
+    if not layoutHost then
+        return nil
+    end
+
+    local parent = (hostFrame and hostFrame.GetParent and hostFrame:GetParent()) or (sidebarFrame and sidebarFrame.GetParent and sidebarFrame:GetParent()) or UIParent
+    layoutHost:SetParent(parent)
+    layoutHost:ClearAllPoints()
+    if sidebarFrame then
+        layoutHost:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
+    elseif hostFrame then
+        layoutHost:SetPoint("TOPLEFT", hostFrame, "TOPRIGHT", 0, 0)
+    end
+    layoutHost:SetSize(buttonWidth + 4, math.max(1, totalHeight))
+    layoutHost:SetFrameStrata(strata)
+    if layoutHost.SetFrameLevel then
+        layoutHost:SetFrameLevel(frameLevel + 1)
+    end
+    if layoutHost.SetClipsChildren then
+        layoutHost:SetClipsChildren(false)
+    end
+    layoutHost:Show()
+
+    if sidebarFrame and sidebarFrame.SetClipsChildren then
+        sidebarFrame:SetClipsChildren(false)
+    end
+
+    return layoutHost
+end
+
+local function LayoutSidebarButtonStack(layoutHost, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
     local previous
     for _, item in ipairs(items) do
         local button = item.frame
-        ApplySidebarButtonLayout(button, sidebarFrame, buttonWidth, buttonHeight, strata, frameLevel)
+        ApplySidebarButtonLayout(button, layoutHost, buttonWidth, buttonHeight, strata, frameLevel)
         if previous then
             button:SetPoint("TOP", previous, "BOTTOM", SIDEBAR_LAYOUT.x, -spacing)
         else
-            button:SetPoint("TOP", sidebarFrame, "TOP", SIDEBAR_LAYOUT.x, -SIDEBAR_LAYOUT.paddingTop)
+            button:SetPoint("TOP", layoutHost, "TOP", SIDEBAR_LAYOUT.x, -SIDEBAR_LAYOUT.paddingTop)
         end
         if type(item.refresh) == "function" then
             item.refresh()
@@ -1993,21 +2078,19 @@ local function LayoutSettingsButton()
         return
     end
 
-    local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
+    local buttonWidth, buttonHeight, ratio = GetConfiguredButtonMetrics()
     local spacing = GetSidebarLayoutSpacing()
     local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
     local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
 
-    if settingsContainer then
-        settingsContainer:SetParent(sidebarFrame)
-        settingsContainer:ClearAllPoints()
-        settingsContainer:SetAllPoints(sidebarFrame)
-        settingsContainer:SetFrameStrata(strata)
-        settingsContainer:SetFrameLevel(frameLevel + 1)
-        settingsContainer:Show()
+    local totalHeight
+    buttonWidth, buttonHeight, spacing, totalHeight = FitSidebarButtonMetrics(sidebarFrame, hostFrame, #layoutItems, buttonWidth, buttonHeight, ratio, spacing)
+    local layoutHost = PrepareSidebarLayoutHost(sidebarFrame, hostFrame, buttonWidth, totalHeight, strata, frameLevel)
+    if not layoutHost then
+        return
     end
 
-    LayoutSidebarButtonStack(sidebarFrame, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel)
+    LayoutSidebarButtonStack(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel)
     HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton, historyButton)
 end
 

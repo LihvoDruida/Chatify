@@ -208,35 +208,9 @@ local function SaveVirtualLine(frameID, text, limit)
 end
 
 local function RestoreVirtualHistory()
-    local db = DB()
-    if not db or not db.useVirtualChat or not db.enableHistory then
-        return
-    end
-
-    if not ChatifyHistoryDB or not ChatifyHistoryDB.Virtual then
-        return
-    end
-
-    for frameID, messages in pairs(ChatifyHistoryDB.Virtual) do
-        local frame = _G["ChatFrame" .. frameID]
-        if frame and messages and #messages > 0 then
-            local orig = originalAddMessage[frame] or (frame and frame.AddMessage)
-            if type(orig) == "function" then
-                orig(frame, "|cff666666" .. L("---------------- Chatify History ----------------") .. "|r")
-                for i = 1, #messages do
-                    local msg = SafeString(messages[i])
-                    if msg then
-                        if db.historyAlpha then
-                            orig(frame, "|cff888888" .. msg .. "|r")
-                        else
-                            orig(frame, msg)
-                        end
-                    end
-                end
-                orig(frame, "|cff666666" .. L("-----------------------------------------------") .. "|r")
-            end
-        end
-    end
+    -- Popup-only history policy: never inject saved history into visible chat
+    -- frames, including the legacy virtual-chat route. The History window is
+    -- the only surface that displays saved lines.
 end
 
 local function ApplyTimestamp(text)
@@ -791,8 +765,6 @@ function Router:OnEnable()
     SafeAfter(1, function()
         self:ApplyToAllFrames()
         self:RefreshProxies()
-        if not retailRestricted then
-            RestoreVirtualHistory()
-        end
+        -- Saved history is intentionally not replayed into live chat frames.
     end)
 end

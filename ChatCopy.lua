@@ -363,6 +363,7 @@ local copyScroll
 local copyContent
 local copyHint
 local copyButton
+local copyPreviewBg
 local copyTabs
 local copyTabPrevButton
 local copyTabNextButton
@@ -1398,6 +1399,7 @@ local function CreateCopyWindow()
     copyContent = content
     copyHint = hint
     copyButton = btn
+    copyPreviewBg = previewBg
     copyTabs = tabs
     copyTabPrevButton = prevTab
     copyTabNextButton = nextTab
@@ -1479,6 +1481,21 @@ BuildTextFromEntries = function(entries, maxChars)
     return table.concat(lines, "\n")
 end
 
+local function ApplyCopyWindowModeStyle(mode)
+    local isHistory = mode == "history"
+    if copyPreviewBg and copyPreviewBg.SetBackdropBorderColor then
+        if isHistory then
+            copyPreviewBg:SetBackdropBorderColor(0.28, 0.50, 0.85, 0.95)
+        else
+            copyPreviewBg:SetBackdropBorderColor(0.42, 0.32, 0.12, 0.95)
+        end
+    end
+
+    if copyButton then
+        copyButton:SetText(isHistory and L("Select History") or L("Select All"))
+    end
+end
+
 local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     if not copyFrame then CreateCopyWindow() end
 
@@ -1495,10 +1512,11 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     if copyTitle then
         copyTitle:SetText(title or (copyWindowMode == "history" and L("Chatify History") or L("Chatify Copy")))
     end
+    ApplyCopyWindowModeStyle(copyWindowMode)
     RefreshCopyTabs(false)
     if copyHint then
         if copyWindowMode == "history" then
-            copyHint:SetText(L("Chat history is selectable. Click Select All or select only the needed lines."))
+            copyHint:SetText(L("Chat history is shown only here. Click Select History or select only the needed lines."))
         else
             copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
         end

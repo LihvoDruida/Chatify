@@ -473,37 +473,14 @@ function History:SaveHistory()
 end
 
 -- =========================================================
--- RESTORE HISTORY INTO BLIZZARD CHAT FRAMES
+-- POPUP-ONLY HISTORY RESTORE GUARD
 -- =========================================================
 function History:RestoreHistory()
-    local db = GetHistoryDB()
-    if not db or db.enableHistory == false then return end
-    if restoredToChatFrames then return end
+    -- History is popup-only. Do not replay saved lines into live Blizzard
+    -- chat frames: that creates duplicate/noisy messages and is not how
+    -- Prat/Chattynator-style history viewers behave. Saved lines are shown
+    -- only through the Chatify History window and its per-chat tabs.
     restoredToChatFrames = true
-
-    SeedFrameHistoryFromSaved()
-
-    for chatID, messages in pairs(frameHistory) do
-        chatID = NormalizeFrameID(chatID)
-        local frame = chatID and _G["ChatFrame"..chatID]
-        if frame and type(messages) == "table" and #messages > 0 then
-            AppendRestoredMessage(frame, L("------------------------------------------"), 0.6, 0.6, 0.6)
-            for _, msg in ipairs(messages) do
-                local safeMsg = GetSafeText(msg)
-                if safeMsg then
-                    if db.historyAlpha then
-                        AppendRestoredMessage(frame, "|cff888888"..safeMsg.."|r")
-                    else
-                        AppendRestoredMessage(frame, safeMsg)
-                    end
-                end
-            end
-            AppendRestoredMessage(frame, L("-------------- Chat History --------------"), 0.6, 0.6, 0.6)
-            if type(frame.ResetAllFadeTimes) == "function" then
-                pcall(frame.ResetAllFadeTimes, frame)
-            end
-        end
-    end
 end
 
 -- =========================================================
@@ -544,13 +521,8 @@ function History:OnEnable()
 
     InvalidateTargetFrameCache()
     SeedFrameHistoryFromSaved()
-    if type(ns.SafeAfter) == "function" then
-        ns.SafeAfter(1, function() self:RestoreHistory() end)
-    elseif C_Timer and C_Timer.After then
-        C_Timer.After(1, function() pcall(function() self:RestoreHistory() end) end)
-    else
-        pcall(function() self:RestoreHistory() end)
-    end
+    -- Keep history silent. It is stored for the History popup only and must
+    -- never be written back into the visible chat frames on login/reload.
 end
 
 function History:OnDisable()

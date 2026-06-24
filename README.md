@@ -10,7 +10,7 @@
 ## ✨ Features
 
 * **🎨 Visual Customization:** Configurable fonts and shadows.
-* **📜 Chat History:** Saves chat messages between sessions and reloads, with a selectable History window that uses the same per-chat tabs as ChatCopy.
+* **📜 Chat History:** Saves chat messages between sessions for a dedicated selectable History window. It never replays old lines into the live chat frame.
 * **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and ChatCopy 2.0 with selectable chat-window tabs.
 * **🛡 Spam Filter 2.0:** Blocks spam keywords and repeated messages with channel rules, whitelists, counters, and a log-only tuning mode.
 * **🔔 Mention Manager:** The single place for name/text highlights and mention sounds, with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
@@ -24,7 +24,7 @@ The addon is split into logical modules for better maintainability:
 * `Config.lua` — Default settings and variable initialization.
 * `Settings.lua` — GUI code (Options panel).
 * `ChatFilters.lua` — Safe text processing logic (URLs, spam rules, mention highlights).
-* `ChatHistory.lua` — Per-frame history store, reload restore, and History window data provider.
+* `ChatHistory.lua` — Per-frame history store and History window data provider.
 * `ChatVisuals.lua` — Visual tweaks (fonts, hiding elements).
 * `ChatCopy.lua` — ChatCopy 2.0 popup, shared tabbed copy/history window, safe copy cache, native selection guard, and configurable chat-window tabs.
 
@@ -102,9 +102,9 @@ The per-tab checklist is keyed by Blizzard chat frame ID, not by display text. T
 
 ## Chat History Window
 
-The History button is placed in the same main chat sidebar stack as Settings and Copy Chat. It opens the same styled, selectable popup layout as ChatCopy, but reads from Chatify's saved per-frame history store.
+The History button is placed in the same main chat sidebar stack as Settings and Copy Chat. The sidebar stack now auto-fits its buttons to the available chat height so the new History button does not clip or overlap the native chat buttons. The window uses the same selectable popup foundation as ChatCopy, but is styled and labeled as a History viewer and reads from Chatify's saved per-frame history store only.
 
-History tabs follow the same rules as ChatCopy tabs: Combat Log and Voice are excluded, hidden windows stay disabled by default, renamed tabs are supported, and empty secondary tabs do not borrow messages from General. On modern Retail clients, history capture follows the same protected-payload policy as ChatCopy and avoids whisper/BN/protected event payloads.
+History tabs follow the same rules as ChatCopy tabs: Combat Log and Voice are excluded, hidden windows stay disabled by default, renamed tabs are supported, and empty secondary tabs do not borrow messages from General. On modern Retail clients, history capture follows the same protected-payload policy as ChatCopy and avoids whisper/BN/protected event payloads. Saved history is never injected back into visible chat frames after login or `/reload`.
 
 ## Safe Chat Tabs
 
