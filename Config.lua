@@ -110,7 +110,7 @@ ns.defaults = {
         -- === HISTORY ===
         useVirtualChat = false,      -- На modern Retail лишається вимкненим: прямий chat-frame layer конфліктує з secret values
         enableHistory = true,
-        historyLimit = 50,          -- Зберігати 50 рядків
+        historyLimit = 250,         -- Зберігати 250 рядків для History popup
         historyAlpha = true,        -- Робити старі повідомлення сірими
 
         -- === SPAM FILTERS (Updated) ===

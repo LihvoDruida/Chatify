@@ -10,7 +10,7 @@
 ## ✨ Features
 
 * **🎨 Visual Customization:** Configurable fonts and shadows.
-* **📜 Chat History:** Saves chat messages between sessions and reloads (Multi-frame support).
+* **📜 Chat History:** Saves chat messages between sessions and reloads, with a selectable History window that uses the same per-chat tabs as ChatCopy.
 * **🔗 Utilities:** Clickable URLs (`discord.gg`, `youtube.com`) and ChatCopy 2.0 with selectable chat-window tabs.
 * **🛡 Spam Filter 2.0:** Blocks spam keywords and repeated messages with channel rules, whitelists, counters, and a log-only tuning mode.
 * **🔔 Mention Manager:** The single place for name/text highlights and mention sounds, with custom color, sound, channel scope, case sensitivity, whole-word matching, and sound cooldown.
@@ -24,9 +24,9 @@ The addon is split into logical modules for better maintainability:
 * `Config.lua` — Default settings and variable initialization.
 * `Settings.lua` — GUI code (Options panel).
 * `ChatFilters.lua` — Safe text processing logic (URLs, spam rules, mention highlights).
-* `ChatHistory.lua` — System for saving and restoring chat history.
+* `ChatHistory.lua` — Per-frame history store, reload restore, and History window data provider.
 * `ChatVisuals.lua` — Visual tweaks (fonts, hiding elements).
-* `ChatCopy.lua` — ChatCopy 2.0 popup, safe copy cache, native selection guard, and configurable chat-window tabs.
+* `ChatCopy.lua` — ChatCopy 2.0 popup, shared tabbed copy/history window, safe copy cache, native selection guard, and configurable chat-window tabs.
 
 ## 🚀 Installation (For Developers)
 
@@ -98,6 +98,13 @@ Configuration options are available in **Chatify → General & Visual → Copy C
 Combat Log and Voice are hard-blocked from ChatCopy: they are not shown in the tab strip, cannot be enabled in the checklist, and are skipped by direct selection compatibility mode. Hidden chat windows are unchecked by default; a normal hidden custom tab can still be enabled manually if needed.
 
 The per-tab checklist is keyed by Blizzard chat frame ID, not by display text. This means renamed tabs and duplicate names remain stable; duplicates get numbered labels in the popup.
+
+
+## Chat History Window
+
+The History button is placed in the same main chat sidebar stack as Settings and Copy Chat. It opens the same styled, selectable popup layout as ChatCopy, but reads from Chatify's saved per-frame history store.
+
+History tabs follow the same rules as ChatCopy tabs: Combat Log and Voice are excluded, hidden windows stay disabled by default, renamed tabs are supported, and empty secondary tabs do not borrow messages from General. On modern Retail clients, history capture follows the same protected-payload policy as ChatCopy and avoids whisper/BN/protected event payloads.
 
 ## Safe Chat Tabs
 

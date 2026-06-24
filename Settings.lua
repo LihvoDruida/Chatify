@@ -900,9 +900,9 @@ function Chatify:GetOptions()
                             historyLimit = {
                                 order = 3,
                                 name = "History Size",
-                                desc = "Lines to keep.",
+                                desc = "Lines to keep per chat tab for the History window and reload restore.",
                                 type = "range",
-                                min = 10, max = 100, step = 10,
+                                min = 25, max = 500, step = 25,
                                 disabled = function() return not self.db.profile.enableHistory end,
                                 set = function(info, val) self.db.profile.historyLimit = val end,
                                 get = function(info) return self.db.profile.historyLimit end,

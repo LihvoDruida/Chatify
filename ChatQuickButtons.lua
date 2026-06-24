@@ -11,6 +11,7 @@ local container
 local settingsContainer
 local settingsButton
 local copyButton
+local historyButton
 local socialButton
 local socialButtonHooked = false
 local buttons = {}
@@ -29,6 +30,7 @@ local elvuiChat
 local gw2Engine
 local UpdateButtonState
 local RefreshCopyButtonLook
+local RefreshHistoryButtonLook
 local elvuiHooksInstalled = false
 local gw2HooksInstalled = false
 local generalHooksInstalled = false
@@ -53,6 +55,7 @@ local MIN_STABLE_CHAT_FRAME_WIDTH = 120
 local MIN_STABLE_CHAT_FRAME_HEIGHT = 80
 local SETTINGS_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\SettingsCog.png"
 local COPY_CHAT_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\CopyChat.png"
+local HISTORY_CHAT_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\HistoryChat.png"
 
 
 local function GetColorComponents(color, fallback)
@@ -1612,6 +1615,20 @@ UpdateButtonState = function()
         copyButton.__chatifySelected = false
         RefreshCopyButtonLook()
     end
+
+    if historyButton then
+        local db = GetDB()
+        local enabled = type(ns.OpenChatHistoryWindow) == "function" and not (db and db.enableHistory == false)
+        historyButton:SetEnabled(true)
+        if historyButton.EnableMouse then
+            historyButton:EnableMouse(true)
+        end
+        historyButton.__chatifyDisabled = not enabled
+        historyButton.__chatifySelected = false
+        if RefreshHistoryButtonLook then
+            RefreshHistoryButtonLook()
+        end
+    end
 end
 
 local function ActivateChatType(def, useAlt)
@@ -1854,6 +1871,10 @@ RefreshCopyButtonLook = function()
     RefreshSidebarIconButtonLook(copyButton, COPY_CHAT_ICON, 14)
 end
 
+RefreshHistoryButtonLook = function()
+    RefreshSidebarIconButtonLook(historyButton, HISTORY_CHAT_ICON, 14)
+end
+
 -- Table-driven sidebar layout manager: one compact stack controls
 -- social/channel/settings/copy buttons and keeps spacing consistent.
 local SIDEBAR_LAYOUT = {
@@ -1936,6 +1957,9 @@ local function LayoutSettingsButton()
         if copyButton then
             copyButton:Hide()
         end
+        if historyButton then
+            historyButton:Hide()
+        end
         if socialButton then
             socialButton:Hide()
         end
@@ -1946,6 +1970,7 @@ local function LayoutSettingsButton()
     local channelButton = _G.ChatFrameChannelButton
     local showSettings = ShouldShowSettingsButton()
     local showCopy = showSettings and copyButton ~= nil
+    local showHistory = showSettings and historyButton ~= nil
 
     local layoutItems = {}
     AddSidebarLayoutItem(layoutItems, "social", social)
@@ -1956,12 +1981,15 @@ local function LayoutSettingsButton()
     if showCopy then
         AddSidebarLayoutItem(layoutItems, "copy", copyButton, RefreshCopyButtonLook)
     end
+    if showHistory then
+        AddSidebarLayoutItem(layoutItems, "history", historyButton, RefreshHistoryButtonLook)
+    end
 
     if #layoutItems == 0 then
         if settingsContainer then
             settingsContainer:Hide()
         end
-        HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton)
+        HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton, historyButton)
         return
     end
 
@@ -1980,7 +2008,7 @@ local function LayoutSettingsButton()
     end
 
     LayoutSidebarButtonStack(sidebarFrame, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel)
-    HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton)
+    HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton, historyButton)
 end
 
 local function LayoutButtons()
@@ -2171,6 +2199,11 @@ end
 local function IsNativeCopyEnabled()
     local db = GetDB()
     return not (db and db.copyNativeSelection == false)
+end
+
+local function IsHistoryWindowEnabled()
+    local db = GetDB()
+    return type(ns.OpenChatHistoryWindow) == "function" and not (db and db.enableHistory == false)
 end
 
 local function ShouldUseNativeCopy(mouseButton)
@@ -2405,6 +2438,54 @@ local function EnsureContainer()
 
     copyButton:SetScript("OnLeave", function(self)
         RefreshCopyButtonLook()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+
+    historyButton = CreateFrame("Button", "ChatifyChatMenuHistoryButton", settingsContainer, backdropTemplate)
+    historyButton:RegisterForClicks("LeftButtonUp")
+    historyButton:SetHitRectInsets(0, 0, 0, 0)
+    historyButton.RefreshVisual = RefreshHistoryButtonLook
+    EnsureSidebarIconButtonVisual(historyButton, HISTORY_CHAT_ICON, 14)
+
+    historyButton:SetScript("OnClick", function()
+        if not IsHistoryWindowEnabled() then
+            return
+        end
+        local frame = GetMainSidebarHostFrame() or GetAnchorFrame() or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+        if type(ns.OpenChatHistoryWindow) == "function" then
+            ns.OpenChatHistoryWindow(frame)
+        end
+    end)
+
+    historyButton:SetScript("OnEnter", function(self)
+        RefreshHistoryButtonLook()
+        if GameTooltip then
+            local skinLabel = "Standard"
+            if GetConfiguredTheme() == "ELVUI" then
+                skinLabel = "ElvUI"
+            elseif GetConfiguredTheme() == "GW2UI" then
+                skinLabel = "GW2 UI"
+            end
+
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(T("Chat History"), 1.00, 0.82, 0.18, true)
+            if IsHistoryWindowEnabled() then
+                AddTooltipLine(T("Left Click"), T("Open saved chat history with the same tabs as Copy Chat"), 0.95, 0.95, 0.95)
+                AddTooltipLine(T("Filter"), T("Uses the same included chat tabs as Copy Chat"), 0.72, 0.82, 1.00)
+            else
+                AddTooltipLine(T("Status"), T("Chat History is disabled in settings"), 1.00, 0.45, 0.35)
+            end
+            AddTooltipLine(T("Position"), T("Below Copy Chat"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
+            GameTooltip:Show()
+        end
+    end)
+
+    historyButton:SetScript("OnLeave", function(self)
+        RefreshHistoryButtonLook()
         if GameTooltip then
             GameTooltip:Hide()
         end

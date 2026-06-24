@@ -12,6 +12,7 @@ local fullChatCache = {}
 local fullChatIndex = 0
 local CACHE_SIZE = 500
 local COPY_WINDOW_MAX_LINES = 250
+local HISTORY_WINDOW_MAX_LINES = 500
 local COPY_WINDOW_MAX_CHARS = 60000
 local CHAT_CAPTURE_EVENTS = {
     "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE",
@@ -370,6 +371,7 @@ local copyTabOffset = 1
 local copyAvailableTabs = {}
 local copyCurrentFrame
 local copyCurrentMaxLines = COPY_WINDOW_MAX_LINES
+local copyWindowMode = "copy"
 local copyTextValue = ""
 local copySettingText = false
 local nativeCopySessions = setmetatable({}, { __mode = "k" })
@@ -1110,7 +1112,12 @@ local function RefreshCopyTabs(keepOffset)
             tab = CreateFrame("Button", nil, copyTabs, BackdropTemplateMixin and "BackdropTemplate" or nil)
             tab:SetHeight(24)
             tab:SetScript("OnClick", function(self)
-                if self.chatFrame and type(ns.OpenChatCopyWindow) == "function" then
+                if not self.chatFrame then
+                    return
+                end
+                if copyWindowMode == "history" and type(ns.OpenChatHistoryWindow) == "function" then
+                    ns.OpenChatHistoryWindow(self.chatFrame, copyCurrentMaxLines)
+                elseif type(ns.OpenChatCopyWindow) == "function" then
                     ns.OpenChatCopyWindow(self.chatFrame, copyCurrentMaxLines)
                 end
             end)
@@ -1472,7 +1479,7 @@ BuildTextFromEntries = function(entries, maxChars)
     return table.concat(lines, "\n")
 end
 
-local function ShowCopyWindow(entries, title, chatFrame, maxLines)
+local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     if not copyFrame then CreateCopyWindow() end
 
     if type(entries) == "string" then
@@ -1484,18 +1491,23 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines)
     copyFrame:Show()
     copyCurrentFrame = chatFrame or copyCurrentFrame
     copyCurrentMaxLines = tonumber(maxLines) or copyCurrentMaxLines or COPY_WINDOW_MAX_LINES
+    copyWindowMode = mode == "history" and "history" or "copy"
     if copyTitle then
-        copyTitle:SetText(title or L("Chatify Copy"))
+        copyTitle:SetText(title or (copyWindowMode == "history" and L("Chatify History") or L("Chatify Copy")))
     end
     RefreshCopyTabs(false)
     if copyHint then
-        copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
+        if copyWindowMode == "history" then
+            copyHint:SetText(L("Chat history is selectable. Click Select All or select only the needed lines."))
+        else
+            copyHint:SetText(L("Click Select All for the full export, or select part of the text manually."))
+        end
     end
 
     RenderCopyPreview(entries)
 
     if IsBlankCopyEntries(entries) and copyHint then
-        copyHint:SetText(entries.__chatifyHint or L("This chat tab has no messages to copy."))
+        copyHint:SetText(entries.__chatifyHint or (copyWindowMode == "history" and L("This chat tab has no saved history yet.") or L("This chat tab has no messages to copy.")))
     end
 
     if copyEditBox then
@@ -2171,6 +2183,75 @@ local function GetFirstAllowedCopyFrame(preferred)
         end
     end
     return nil
+end
+
+function ns.GetChatifyCopyFrameID(chatFrame)
+    return GetChatFrameID(chatFrame)
+end
+
+function ns.GetChatifyCopyFrameLabel(chatFrame)
+    return GetChatFrameDisplayName(chatFrame, GetChatFrameID(chatFrame))
+end
+
+function ns.IsChatifyCopyFrameAllowed(chatFrame)
+    return chatFrame ~= nil and not IsCopyBlockedChatFrame(chatFrame, GetChatFrameID(chatFrame))
+end
+
+local function GetHistoryWindowLimit(maxLines)
+    local db = GetCopyDB and GetCopyDB()
+    local limit = tonumber(maxLines) or tonumber(db and db.historyLimit) or HISTORY_WINDOW_MAX_LINES
+    if limit < 10 then
+        limit = 10
+    elseif limit > 1000 then
+        limit = 1000
+    end
+    return limit
+end
+
+local function ReadStoredHistoryForFrame(chatFrame, maxLines)
+    if type(ns.GetChatifyHistoryEntriesForFrame) ~= "function" then
+        return nil
+    end
+
+    local ok, entries = pcall(ns.GetChatifyHistoryEntriesForFrame, chatFrame, maxLines)
+    if ok and HasAnyCopyEntries(entries) then
+        return entries
+    end
+
+    return nil
+end
+
+function ns.OpenChatHistoryWindow(chatFrame, maxLines)
+    chatFrame = chatFrame or (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+    if IsCopyBlockedChatFrame(chatFrame, GetChatFrameID(chatFrame)) then
+        chatFrame = GetFirstAllowedCopyFrame(chatFrame)
+        if not chatFrame then
+            ShowCopyWindow({ BuildEntry(L("This chat window is excluded from ChatCopy.")) }, L("Chatify History"), nil, maxLines, "history")
+            return
+        end
+    end
+
+    local limit = GetHistoryWindowLimit(maxLines)
+    local entries = ReadStoredHistoryForFrame(chatFrame, limit)
+
+    -- If the persistent store is empty for a fresh install/reload, fall back to the
+    -- live ScrollingMessageFrame buffer. This mirrors Prat/Chattynator behaviour
+    -- while keeping the same blocked-frame and protected-line rules as ChatCopy.
+    if not HasReadableEntries(entries) then
+        local liveEntries = ReadMessageHistory(chatFrame, limit)
+        if HasReadableEntries(liveEntries) or (not HasAnyCopyEntries(entries) and HasAnyCopyEntries(liveEntries)) then
+            entries = liveEntries
+        end
+    end
+
+    if not HasAnyCopyEntries(entries) then
+        entries = BuildBlankCopyEntries(L("This chat tab has no saved history yet."))
+    elseif not HasReadableEntries(entries) and type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild() then
+        entries[#entries + 1] = BuildEntry(L("Some lines are protected by Blizzard and cannot be exported by addons."))
+    end
+
+    local frameLabel = GetChatFrameDisplayName(chatFrame, GetChatFrameID(chatFrame))
+    ShowCopyWindow(entries, string.format("%s — %s", L("Chatify History"), frameLabel), chatFrame, limit, "history")
 end
 
 function ns.OpenChatCopyWindow(chatFrame, maxLines)
