@@ -15,6 +15,12 @@ local UnitName = UnitName
 
 local PLAYER_NAME = UnitName("player")
 local CachedKeywords = {}
+local NormalizeCache = {}
+local NormalizeCacheOrder = {}
+local NORMALIZE_CACHE_LIMIT = 256
+local FriendCache = {}
+local friendCacheLastClear = 0
+local repeatCacheLastPrune = 0
 
 local function IsSecretValue(value)
     return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
@@ -227,6 +233,16 @@ function ns.NormalizeSpamText(text)
         return { compact = "", tokens = " ", clean = "" }
     end
 
+    -- Chattynator/Prat-style hot path: repeat spam checks should not rebuild the
+    -- same normalized forms over and over. Keep the cache small and only for
+    -- reasonably short normal strings; protected values are never stored.
+    if #safe <= 512 then
+        local cached = NormalizeCache[safe]
+        if cached then
+            return cached
+        end
+    end
+
     local ok, forms = pcall(function()
         local clean = string_upper(StripWoWMarkup(safe))
         local tokens = string_gsub(clean, "[^%w]+", " ")
@@ -241,6 +257,16 @@ function ns.NormalizeSpamText(text)
     end)
 
     if ok and type(forms) == "table" then
+        if #safe <= 512 then
+            NormalizeCache[safe] = forms
+            NormalizeCacheOrder[#NormalizeCacheOrder + 1] = safe
+            if #NormalizeCacheOrder > NORMALIZE_CACHE_LIMIT then
+                local oldKey = table.remove(NormalizeCacheOrder, 1)
+                if oldKey then
+                    NormalizeCache[oldKey] = nil
+                end
+            end
+        end
         return forms
     end
 
@@ -275,6 +301,8 @@ end
 function ns.UpdateSpamCache()
     local db = DB()
     CachedKeywords = {}
+    NormalizeCache = {}
+    NormalizeCacheOrder = {}
 
     if not db or type(db.spamKeywords) ~= "table" then
         return
@@ -458,6 +486,19 @@ local function QueueMentionRuleSound(rule, index, eventName, author, ...)
     end
 end
 
+local function ClearFriendCache()
+    FriendCache = {}
+    friendCacheLastClear = GetTime and GetTime() or 0
+end
+
+function Filters:FRIENDLIST_UPDATE()
+    ClearFriendCache()
+end
+
+function Filters:BN_FRIEND_LIST_SIZE_CHANGED()
+    ClearFriendCache()
+end
+
 local function IsFriendAuthor(author)
     local safeAuthor = GetSafeString(author)
     if type(safeAuthor) ~= "string" or safeAuthor == "" then
@@ -472,30 +513,42 @@ local function IsFriendAuthor(author)
         end
     end
     shortName = shortName:match("([^%-]+)") or shortName
+    if shortName == "" then
+        return false
+    end
 
+    local now = GetTime and GetTime() or 0
+    local cached = FriendCache[shortName]
+    if cached and (now - cached.time) < 30 then
+        return cached.value
+    end
+
+    local result = false
     if C_FriendList and type(C_FriendList.GetFriendInfoByName) == "function" then
         local ok, info = pcall(C_FriendList.GetFriendInfoByName, shortName)
         if ok and type(info) == "table" and info.name then
-            return true
+            result = true
         end
     end
 
-    if C_FriendList and type(C_FriendList.GetFriendInfo) == "function" then
+    if not result and C_FriendList and type(C_FriendList.GetFriendInfo) == "function" then
         local ok, info = pcall(C_FriendList.GetFriendInfo, shortName)
         if ok and type(info) == "table" and info.name then
-            return true
+            result = true
         end
     end
 
-    if type(GetFriendInfo) == "function" then
+    if not result and type(GetFriendInfo) == "function" then
         local ok, name = pcall(GetFriendInfo, shortName)
         if ok and type(name) == "string" and name ~= "" then
-            return true
+            result = true
         end
     end
 
-    return false
+    FriendCache[shortName] = { value = result, time = now }
+    return result
 end
+
 
 local function GetSpamWhitelist(db)
     db.spamWhitelist = db.spamWhitelist or {}
@@ -592,6 +645,10 @@ function ns.ResetSpamFilterStats()
     SpamRuntime.logged = 0
     SpamRuntime.log = {}
     RepeatCache = {}
+    repeatCacheLastPrune = 0
+    NormalizeCache = {}
+    NormalizeCacheOrder = {}
+    ClearFriendCache()
 end
 
 function ns.GetSpamDebugText()
@@ -627,11 +684,14 @@ local function GetRepeatReason(db, forms, author, eventName, channelKey)
     end
 
     local now = GetTime and GetTime() or 0
-    PruneRepeatCache(now, timeout * 2)
+    if (now - repeatCacheLastPrune) > 5 then
+        PruneRepeatCache(now, timeout * 2)
+        repeatCacheLastPrune = now
+    end
 
     local authorKey = NormalizeText(author or "unknown")
     if authorKey == "" then authorKey = "unknown" end
-    local key = table_concat({ eventName or "?", channelKey or "?", authorKey, compact }, "|")
+    local key = tostring(eventName or "?") .. "|" .. tostring(channelKey or "?") .. "|" .. authorKey .. "|" .. compact
     local previous = RepeatCache[key]
     RepeatCache[key] = { time = now }
 
@@ -709,6 +769,12 @@ end
 local function TransformPlainTextSegments(text, transformer)
     if type(text) ~= "string" then
         return text
+    end
+    if type(transformer) ~= "function" then
+        return text
+    end
+    if not text:find("|H", 1, true) then
+        return transformer(text)
     end
 
     local out = {}
@@ -788,6 +854,10 @@ local function DecorateLinksInText(text)
     end
 
     if text:find("|Hurl:", 1, true) then
+        return text
+    end
+
+    if not text:find("://", 1, true) and not text:find("www.", 1, true) and not text:find("@", 1, true) and not text:find("%.") then
         return text
     end
 
@@ -1209,6 +1279,14 @@ function Filters:OnEnable()
 
     if Chatify and Chatify.db and Chatify.db.profile then
         ns.EnforceRetailSafeMode(Chatify.db.profile)
+    end
+
+    if type(ns.RegisterEventIfSupported) == "function" then
+        ns.RegisterEventIfSupported(self, "FRIENDLIST_UPDATE", "FRIENDLIST_UPDATE")
+        ns.RegisterEventIfSupported(self, "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED")
+    else
+        pcall(self.RegisterEvent, self, "FRIENDLIST_UPDATE", "FRIENDLIST_UPDATE")
+        pcall(self.RegisterEvent, self, "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED")
     end
 
     if not filtersInstalled then

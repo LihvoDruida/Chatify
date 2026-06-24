@@ -135,9 +135,12 @@ local function StripChatMarkup(text)
         -- Prat-style safety: replace protected/K hyperlinks with a visible marker,
         -- then strip normal color/texture/hyperlink markup without touching secret payloads.
         value = value:gsub("|K.-|k", "<protected>")
+        value = value:gsub("|W.-|w", "<protected>")
         value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
         value = value:gsub("|r", "")
         value = value:gsub("|H.-|h(.-)|h", "%1")
+        value = value:gsub("|A:Professions%-ChatIcon%-Quality%-Tier(%d):.-|a", "%1*")
+        value = value:gsub("|A.-|a", "")
         value = value:gsub("|T.-|t", "")
         value = value:gsub("||", "|")
         return value
@@ -395,10 +398,7 @@ local function SafeFrameCall(frame, methodName, ...)
     -- It does not make protected calls legal in combat, so callers still avoid
     -- combat lockdown before toggling native chat selection.
     if type(securecallfunction) == "function" then
-        local args = { ... }
-        local ok = pcall(function()
-            return securecallfunction(method, frame, unpack(args))
-        end)
+        local ok = pcall(securecallfunction, method, frame, ...)
         if ok then
             return true
         end

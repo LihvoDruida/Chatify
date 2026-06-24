@@ -148,13 +148,32 @@ local selectedMentionRuleIndex = 1
 
 local function EnsureProfileTables(db)
     if not db then return end
-    db.spamWhitelist = db.spamWhitelist or {}
-    db.spamChannelRules = db.spamChannelRules or {}
-    db.mentionRules = db.mentionRules or {}
-    db.sounds = db.sounds or { events = {} }
-    db.sounds.events = db.sounds.events or {}
+    local defaults = ns.defaults and ns.defaults.profile or {}
+
+    db.spamWhitelist = type(db.spamWhitelist) == "table" and db.spamWhitelist or {}
+    db.spamChannelRules = type(db.spamChannelRules) == "table" and db.spamChannelRules or {}
+    db.mentionRules = type(db.mentionRules) == "table" and db.mentionRules or {}
+    db.sounds = type(db.sounds) == "table" and db.sounds or { events = {} }
+    db.sounds.events = type(db.sounds.events) == "table" and db.sounds.events or {}
+    db.autoReply = type(db.autoReply) == "table" and db.autoReply or {}
     db.copyTabMode = db.copyTabMode or "VISIBLE"
-    db.copyTabFrames = db.copyTabFrames or {}
+    db.copyTabFrames = type(db.copyTabFrames) == "table" and db.copyTabFrames or {}
+
+    if type(defaults.autoReply) == "table" then
+        for key, value in pairs(defaults.autoReply) do
+            if db.autoReply[key] == nil then
+                db.autoReply[key] = value
+            end
+        end
+    end
+    if type(defaults.sounds) == "table" and type(defaults.sounds.events) == "table" then
+        for key, value in pairs(defaults.sounds.events) do
+            if db.sounds.events[key] == nil then
+                db.sounds.events[key] = value
+            end
+        end
+    end
+
     if type(ns.NormalizeMentionSettings) == "function" then
         ns.NormalizeMentionSettings(db)
     end
@@ -178,6 +197,13 @@ local function GetSpamLogDescription()
         return ns.GetSpamDebugText()
     end
     return "|cff888888Spam debug log is not available yet.|r"
+end
+
+local function GetRuntimeDebugDescription()
+    if type(ns.GetRuntimeDebugText) == "function" then
+        return ns.GetRuntimeDebugText()
+    end
+    return "|cff888888Runtime debug log is not available yet.|r"
 end
 
 local function AddMentionRule(db, text)
@@ -1327,6 +1353,12 @@ function Chatify:GetOptions()
                     },
 
                     headerMaintenance = { order = 10, type = "header", name = "Maintenance" },
+                    runtimeDebug = {
+                        order = 10.5,
+                        type = "description",
+                        name = GetRuntimeDebugDescription,
+                        fontSize = "medium",
+                    },
                     btnReset = {
                         order = 12,
                         name = "Reset All Settings",
@@ -1411,33 +1443,35 @@ end
 
 local refreshQueued = false
 local function RefreshRuntimeModulesNow()
+    local safeCall = type(ns.SafeCall) == "function" and ns.SafeCall or function(_, func, ...) return pcall(func, ...) end
+
     if type(ns.UpdateSpamCache) == "function" then
-        pcall(ns.UpdateSpamCache)
+        safeCall("UpdateSpamCache", ns.UpdateSpamCache)
     end
 
     -- One visual pass is enough. Calling both ns.ApplyVisuals() and the module
     -- method caused duplicate style/filter work during profile changes.
     if type(ns.ApplyVisuals) == "function" then
-        pcall(ns.ApplyVisuals)
+        safeCall("ApplyVisuals", ns.ApplyVisuals)
     end
 
     if type(ns.NotifyQuickChatSettingsChanged) == "function" then
-        pcall(ns.NotifyQuickChatSettingsChanged)
+        safeCall("QuickChatSettingsChanged", ns.NotifyQuickChatSettingsChanged)
     end
 
     local router = Chatify.GetModule and Chatify:GetModule("Router", true)
     if router then
         if type(router.ApplyToAllFrames) == "function" then
-            pcall(router.ApplyToAllFrames, router)
+            safeCall("Router.ApplyToAllFrames", router.ApplyToAllFrames, router)
         end
         if type(router.RefreshProxies) == "function" then
-            pcall(router.RefreshProxies, router)
+            safeCall("Router.RefreshProxies", router.RefreshProxies, router)
         end
     end
 
     local quickButtons = Chatify.GetModule and Chatify:GetModule("QuickButtons", true)
     if quickButtons and type(quickButtons.Refresh) == "function" then
-        pcall(quickButtons.Refresh, quickButtons)
+        safeCall("QuickButtons.Refresh", quickButtons.Refresh, quickButtons)
     end
 end
 

@@ -136,6 +136,16 @@ end
 
 local delayedRefreshToken = 0
 
+local function SafeRun(label, func, ...)
+    if type(ns.SafeCall) == "function" then
+        return ns.SafeCall(label, func, ...)
+    end
+    if type(func) == "function" then
+        return pcall(func, ...)
+    end
+    return false
+end
+
 local function ScheduleRefresh(delay)
     delay = tonumber(delay) or 0
     if delay < 0 then
@@ -144,7 +154,7 @@ local function ScheduleRefresh(delay)
 
     local after = ns.SafeAfter
     if type(after) ~= "function" and (not C_Timer or not C_Timer.After) then
-        pcall(ns.RefreshQuickChatButtons)
+        SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons)
         return
     end
 
@@ -156,14 +166,14 @@ local function ScheduleRefresh(delay)
                 if token ~= delayedRefreshToken then
                     return
                 end
-                ns.RefreshQuickChatButtons()
+                SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons)
             end)
         else
             C_Timer.After(delay, function()
                 if token ~= delayedRefreshToken then
                     return
                 end
-                ns.RefreshQuickChatButtons()
+                SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons)
             end)
         end
         return
@@ -176,7 +186,7 @@ local function ScheduleRefresh(delay)
     refreshQueued = true
     local function runRefresh()
         refreshQueued = false
-        ns.RefreshQuickChatButtons()
+        SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons)
     end
     if type(after) == "function" then
         after(0, runRefresh)
@@ -188,7 +198,7 @@ end
 local function ScheduleButtonStateUpdate()
     local after = ns.SafeAfter
     if type(after) ~= "function" and (not C_Timer or not C_Timer.After) then
-        pcall(UpdateButtonState)
+        SafeRun("QuickButtons.UpdateState", UpdateButtonState)
         return
     end
 
@@ -199,7 +209,7 @@ local function ScheduleButtonStateUpdate()
     stateUpdateQueued = true
     local function runUpdate()
         stateUpdateQueued = false
-        UpdateButtonState()
+        SafeRun("QuickButtons.UpdateState", UpdateButtonState)
     end
     if type(after) == "function" then
         after(0, runUpdate)
@@ -2122,11 +2132,16 @@ local function HookAnchorFrameSignals()
     end
 
     hookedAnchorFrame = frame
-    frame:HookScript("OnSizeChanged", function()
-        ScheduleRefresh(0.05)
-    end)
-    frame:HookScript("OnShow", function() ScheduleRefresh(0) end)
-    frame:HookScript("OnHide", function() ScheduleRefresh(0) end)
+    local hook = ns.SafeHookScript
+    if type(hook) == "function" then
+        hook(frame, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyQuickAnchorSize")
+        hook(frame, "OnShow", function() ScheduleRefresh(0) end, "__chatifyQuickAnchorShow")
+        hook(frame, "OnHide", function() ScheduleRefresh(0) end, "__chatifyQuickAnchorHide")
+    else
+        frame:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        frame:HookScript("OnShow", function() ScheduleRefresh(0) end)
+        frame:HookScript("OnHide", function() ScheduleRefresh(0) end)
+    end
 end
 
 local function HookEditBoxSignals()
@@ -2136,11 +2151,20 @@ local function HookEditBoxSignals()
     end
 
     hookedEditBox = editBox
-    editBox:HookScript("OnShow", ScheduleButtonStateUpdate)
-    editBox:HookScript("OnHide", ScheduleButtonStateUpdate)
-    editBox:HookScript("OnEditFocusGained", ScheduleButtonStateUpdate)
-    editBox:HookScript("OnEditFocusLost", ScheduleButtonStateUpdate)
-    editBox:HookScript("OnTextChanged", ScheduleButtonStateUpdate)
+    local hook = ns.SafeHookScript
+    if type(hook) == "function" then
+        hook(editBox, "OnShow", ScheduleButtonStateUpdate, "__chatifyQuickEditShow")
+        hook(editBox, "OnHide", ScheduleButtonStateUpdate, "__chatifyQuickEditHide")
+        hook(editBox, "OnEditFocusGained", ScheduleButtonStateUpdate, "__chatifyQuickEditFocusGained")
+        hook(editBox, "OnEditFocusLost", ScheduleButtonStateUpdate, "__chatifyQuickEditFocusLost")
+        hook(editBox, "OnTextChanged", ScheduleButtonStateUpdate, "__chatifyQuickEditTextChanged")
+    else
+        editBox:HookScript("OnShow", ScheduleButtonStateUpdate)
+        editBox:HookScript("OnHide", ScheduleButtonStateUpdate)
+        editBox:HookScript("OnEditFocusGained", ScheduleButtonStateUpdate)
+        editBox:HookScript("OnEditFocusLost", ScheduleButtonStateUpdate)
+        editBox:HookScript("OnTextChanged", ScheduleButtonStateUpdate)
+    end
 end
 
 
@@ -2488,22 +2512,22 @@ local function HookGW2RefreshSignals()
 
     local frame = GetAnchorFrame()
     if frame and frame.Container and frame.Container.HookScript and not frame.Container.__chatifyGW2Hooked then
-        frame.Container:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        frame.Container:HookScript("OnHide", function() ScheduleRefresh(0) end)
-        frame.Container:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        ns.SafeHookScript(frame.Container, "OnShow", function() ScheduleRefresh(0) end, "__chatifyGW2OnShow")
+        ns.SafeHookScript(frame.Container, "OnHide", function() ScheduleRefresh(0) end, "__chatifyGW2OnHide")
+        ns.SafeHookScript(frame.Container, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyGW2OnSizeChanged")
         frame.Container.__chatifyGW2Hooked = true
     end
 
     local background = frame and frame.GetName and _G[frame:GetName() .. "Background"]
     if background and background.HookScript and not background.__chatifyGW2Hooked then
-        background:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        background:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        ns.SafeHookScript(background, "OnShow", function() ScheduleRefresh(0) end, "__chatifyGW2BackgroundShow")
+        ns.SafeHookScript(background, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyGW2BackgroundSize")
         background.__chatifyGW2Hooked = true
     end
 
     if _G.GeneralDockManager and _G.GeneralDockManager.HookScript and not _G.GeneralDockManager.__chatifyGW2Hooked then
-        _G.GeneralDockManager:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.GeneralDockManager:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        ns.SafeHookScript(_G.GeneralDockManager, "OnShow", function() ScheduleRefresh(0) end, "__chatifyGW2DockShow")
+        ns.SafeHookScript(_G.GeneralDockManager, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyGW2DockSize")
         _G.GeneralDockManager.__chatifyGW2Hooked = true
     end
 
@@ -2541,24 +2565,24 @@ local function HookElvUIRefreshSignals()
     hookMethod("FCF_SetWindowAlpha")
 
     if _G.LeftChatToggleButton and _G.LeftChatToggleButton.HookScript and not _G.LeftChatToggleButton.__chatifyElvUIHooked then
-        _G.LeftChatToggleButton:HookScript("OnClick", function() ScheduleRefresh(0) end)
+        ns.SafeHookScript(_G.LeftChatToggleButton, "OnClick", function() ScheduleRefresh(0) end, "__chatifyElvUIToggleLeftClick")
         _G.LeftChatToggleButton.__chatifyElvUIHooked = true
     end
 
     if _G.RightChatToggleButton and _G.RightChatToggleButton.HookScript and not _G.RightChatToggleButton.__chatifyElvUIHooked then
-        _G.RightChatToggleButton:HookScript("OnClick", function() ScheduleRefresh(0) end)
+        ns.SafeHookScript(_G.RightChatToggleButton, "OnClick", function() ScheduleRefresh(0) end, "__chatifyElvUIToggleRightClick")
         _G.RightChatToggleButton.__chatifyElvUIHooked = true
     end
 
     if _G.LeftChatPanel and _G.LeftChatPanel.HookScript and not _G.LeftChatPanel.__chatifyElvUIHooked then
-        _G.LeftChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.LeftChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        ns.SafeHookScript(_G.LeftChatPanel, "OnShow", function() ScheduleRefresh(0) end, "__chatifyElvUIPanelLeftShow")
+        ns.SafeHookScript(_G.LeftChatPanel, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyElvUIPanelLeftSize")
         _G.LeftChatPanel.__chatifyElvUIHooked = true
     end
 
     if _G.RightChatPanel and _G.RightChatPanel.HookScript and not _G.RightChatPanel.__chatifyElvUIHooked then
-        _G.RightChatPanel:HookScript("OnShow", function() ScheduleRefresh(0) end)
-        _G.RightChatPanel:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        ns.SafeHookScript(_G.RightChatPanel, "OnShow", function() ScheduleRefresh(0) end, "__chatifyElvUIPanelRightShow")
+        ns.SafeHookScript(_G.RightChatPanel, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyElvUIPanelRightSize")
         _G.RightChatPanel.__chatifyElvUIHooked = true
     end
 
@@ -2609,7 +2633,7 @@ function ns.RefreshQuickChatButtons()
         end
     end
 
-    UpdateButtonState()
+    SafeRun("QuickButtons.UpdateState", UpdateButtonState)
 
     if showQuickButtons then
         container:Show()
@@ -2668,13 +2692,13 @@ function QuickButtonsModule:OnEnable()
         end
     end)
 
-    ns.RefreshQuickChatButtons()
+    SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons)
 
     if type(ns.SafeAfter) == "function" then
-        ns.SafeAfter(0, function() ns.RefreshQuickChatButtons() end)
-        ns.SafeAfter(1, function() ns.RefreshQuickChatButtons() end)
+        ns.SafeAfter(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        ns.SafeAfter(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     elseif C_Timer and C_Timer.After then
-        C_Timer.After(0, function() ns.RefreshQuickChatButtons() end)
-        C_Timer.After(1, function() ns.RefreshQuickChatButtons() end)
+        C_Timer.After(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        C_Timer.After(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     end
 end

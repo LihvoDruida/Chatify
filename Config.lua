@@ -936,3 +936,84 @@ function ns.ScheduleUnique(key, delay, callback)
         callback()
     end)
 end
+
+
+-- =========================================================
+-- 7. LIGHTWEIGHT RUNTIME HELPERS
+-- =========================================================
+-- Small helpers inspired by large chat addons: keep expensive refreshes coalesced,
+-- never let optional UI work break chat processing, and keep a tiny runtime error log
+-- for diagnostics without spamming the user.
+ns.Runtime = ns.Runtime or { errors = {}, counters = {} }
+local Runtime = ns.Runtime
+
+function ns.SafeCall(label, func, ...)
+    if type(func) ~= "function" then
+        return false, "missing function"
+    end
+
+    local ok, result = pcall(func, ...)
+    if ok then
+        return true, result
+    end
+
+    local errorText = tostring(result or "unknown error")
+    local entry = {
+        time = date and date("%H:%M:%S") or tostring(math.floor(GetTime and GetTime() or 0)),
+        label = tostring(label or "runtime"),
+        error = errorText,
+    }
+    table.insert(Runtime.errors, 1, entry)
+    while #Runtime.errors > 20 do
+        table.remove(Runtime.errors)
+    end
+    Runtime.counters[entry.label] = (Runtime.counters[entry.label] or 0) + 1
+    return false, result
+end
+
+function ns.GetRuntimeDebugText()
+    local lines = {}
+    lines[#lines + 1] = "Runtime guarded errors: " .. tostring(#(Runtime.errors or {}))
+    if not Runtime.errors or #Runtime.errors == 0 then
+        lines[#lines + 1] = "|cff888888No guarded runtime errors this session.|r"
+        return table.concat(lines, "\n")
+    end
+    for i = 1, math.min(#Runtime.errors, 10) do
+        local entry = Runtime.errors[i]
+        lines[#lines + 1] = string.format("%02d. [%s] %s: %s", i, entry.time or "?", entry.label or "?", entry.error or "?")
+    end
+    return table.concat(lines, "\n")
+end
+
+function ns.Debounce(key, delay, callback)
+    return ns.ScheduleUnique("debounce:" .. tostring(key or "default"), delay or 0, callback)
+end
+
+function ns.SafeHookScript(frame, scriptName, callback, marker)
+    if not frame or type(scriptName) ~= "string" or type(callback) ~= "function" then
+        return false
+    end
+    if type(frame.HookScript) ~= "function" then
+        return false
+    end
+
+    marker = marker or ("__chatifyHooked" .. scriptName)
+    if frame[marker] then
+        return true
+    end
+
+    local ok = pcall(frame.HookScript, frame, scriptName, function(...)
+        ns.SafeCall("HookScript:" .. scriptName, callback, ...)
+    end)
+    if ok then
+        frame[marker] = true
+    end
+    return ok and true or false
+end
+
+function ns.SafeBoolean(value, default)
+    if value == nil then
+        return default and true or false
+    end
+    return value and true or false
+end

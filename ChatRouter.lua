@@ -486,7 +486,8 @@ local function EnsureFrameHyperlinks(frame)
     interactiveFrames[frame] = true
 
     if frame.HookScript then
-        pcall(frame.HookScript, frame, "OnHyperlinkEnter", function(self, link)
+        local hook = ns.SafeHookScript
+        local function onEnter(self, link)
             if not IsSafeHyperlink(link) then
                 return
             end
@@ -501,11 +502,18 @@ local function EnsureFrameHyperlinks(frame)
             end
 
             ShowHyperlinkTooltip(self, link)
-        end)
-
-        pcall(frame.HookScript, frame, "OnHyperlinkLeave", function(self)
+        end
+        local function onLeave(self)
             HideHyperlinkTooltip(self)
-        end)
+        end
+
+        if type(hook) == "function" then
+            hook(frame, "OnHyperlinkEnter", onEnter, "__chatifyRouterHyperlinkEnter")
+            hook(frame, "OnHyperlinkLeave", onLeave, "__chatifyRouterHyperlinkLeave")
+        else
+            pcall(frame.HookScript, frame, "OnHyperlinkEnter", onEnter)
+            pcall(frame.HookScript, frame, "OnHyperlinkLeave", onLeave)
+        end
     end
 end
 
