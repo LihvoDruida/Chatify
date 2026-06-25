@@ -133,3 +133,14 @@ This build includes a small compatibility layer for PTR clients where older embe
 
 
 - Classic-era chat button compatibility keeps Blizzard chat controls untouched; Chatify Settings, Copy and History use a detached toolbar on BCC, Vanilla, Wrath/Titan and MoP Classic.
+
+
+### Internal fonts
+
+Chatify resolves internal fonts through addon-rooted paths so the same font choice works on Retail, MoP Classic, Wrath/Titan, Vanilla and Burning Crusade Classic. The resolver checks both supported internal locations:
+
+- `Interface\\AddOns\\Chatify\\assets\\Fonts\\Exo2.ttf`
+- `Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf`
+
+If a selected internal font is unavailable in a local build, Chatify safely falls back to the active Blizzard chat font and then the default WoW font instead of breaking chat rendering.
+

@@ -14,6 +14,40 @@ local CACHE_SIZE = 500
 local COPY_WINDOW_MAX_LINES = 250
 local HISTORY_WINDOW_MAX_LINES = 500
 local COPY_WINDOW_MAX_CHARS = 60000
+
+local function ApplyChatifyPopupFont(fontObject, fallbackSize)
+    if not fontObject then
+        return
+    end
+
+    local db = Chatify and Chatify.db and Chatify.db.profile
+    local fontPath
+    if db and type(ns.ResolveFontPath) == "function" then
+        local ok, resolved = pcall(ns.ResolveFontPath, db.fontID)
+        if ok and type(resolved) == "string" and resolved ~= "" then
+            fontPath = resolved
+        end
+    end
+
+    local size = fallbackSize or 13
+    local flags = ""
+    if ChatFontNormal and ChatFontNormal.GetFont then
+        local ok, _, chatSize, chatFlags = pcall(ChatFontNormal.GetFont, ChatFontNormal)
+        if ok then
+            size = tonumber(chatSize) or size
+            flags = chatFlags or flags
+        end
+    end
+
+    if type(ns.SafeSetFont) == "function" then
+        ns.SafeSetFont(fontObject, fontPath, size, flags)
+    elseif type(fontObject.SetFont) == "function" and type(fontPath) == "string" then
+        pcall(fontObject.SetFont, fontObject, fontPath, size, flags)
+    elseif fontObject.SetFontObject and ChatFontNormal then
+        pcall(fontObject.SetFontObject, fontObject, ChatFontNormal)
+    end
+end
+
 local CHAT_CAPTURE_EVENTS = {
     "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE",
     "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
@@ -1304,6 +1338,7 @@ local function CreateCopyWindow()
     eb:SetMaxLetters(COPY_WINDOW_MAX_CHARS + 1000)
     eb:SetAutoFocus(false)
     eb:SetFontObject(ChatFontNormal)
+    ApplyChatifyPopupFont(eb, 13)
     eb:SetTextColor(0.94, 0.94, 0.94, 1)
     if eb.SetHighlightColor then
         eb:SetHighlightColor(0.95, 0.72, 0.18, 0.35)

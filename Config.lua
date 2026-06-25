@@ -11,24 +11,76 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 local LSM = LibStub("LibSharedMedia-3.0", true)
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
--- Реєструємо ваші асети в глобальну бібліотеку
--- Це дозволяє вибирати їх у випадаючих списках Config.lua
-if LSM and type(LSM.Register) == "function" then
-    LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg")
-end
+local CHATIFY_ADDON_ROOT = "Interface\\AddOns\\" .. tostring(addonName or "Chatify") .. "\\"
+local CHATIFY_DEFAULT_SOUND = CHATIFY_ADDON_ROOT .. "assets\\alert\\notification-0.ogg"
+local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
 
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
 -- =========================================================
-ns.Lists = {}
+ns.Lists = ns.Lists or {}
 
--- Список шрифтів (Fallback, якщо LSM не працює)
-ns.Lists.Fonts = {
-    [1] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
-    [2] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
-    [3] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
-    [4] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
-}
+local fontAliasMap = {}
+
+local function AddFontEntry(name, path, aliases, candidates)
+    if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
+        return
+    end
+
+    local entry = {
+        name = name,
+        path = path,
+        aliases = aliases or {},
+        candidates = candidates or { path },
+    }
+
+    ns.Lists.Fonts[#ns.Lists.Fonts + 1] = entry
+    fontAliasMap[name] = entry
+    fontAliasMap[path] = entry
+
+    for _, alias in ipairs(entry.aliases) do
+        if type(alias) == "string" and alias ~= "" then
+            fontAliasMap[alias] = entry
+        end
+    end
+end
+
+-- Font list used when LibSharedMedia is unavailable and as a stable fallback
+-- for all WoW flavors. Internal Chatify fonts use addon-rooted paths because
+-- Classic clients are stricter about relative addon media paths than Retail.
+ns.Lists.Fonts = {}
+AddFontEntry("Friz Quadrata (WoW)", "Fonts\\FRIZQT__.TTF", { "Friz Quadrata" })
+AddFontEntry("Arial Narrow (WoW)", "Fonts\\ARIALN.TTF", { "Arial Narrow" })
+AddFontEntry("Skurri (WoW)", "Fonts\\skurri.ttf", { "Skurri" })
+AddFontEntry("Morpheus (Quest)", "Fonts\\MORPHEUS.TTF", { "Morpheus" })
+
+AddFontEntry("Exo 2 (Chatify)", CHATIFY_ADDON_ROOT .. "assets\\Fonts\\Exo2.ttf", {
+    "Exo2",
+    "Exo 2",
+    "Chatify",
+    "Chatify Default Font",
+}, {
+    CHATIFY_ADDON_ROOT .. "assets\\Fonts\\Exo2.ttf",
+    CHATIFY_ADDON_ROOT .. "fonts\\Exo2.ttf",
+})
+
+function ns.RegisterChatifyMedia()
+    if not (LSM and type(LSM.Register) == "function") then
+        return
+    end
+
+    pcall(LSM.Register, LSM, "sound", "Chatify Default", CHATIFY_DEFAULT_SOUND)
+
+    if ns.Lists and ns.Lists.Fonts then
+        for _, entry in ipairs(ns.Lists.Fonts) do
+            if entry and type(entry.name) == "string" and type(entry.path) == "string" then
+                pcall(LSM.Register, LSM, "font", entry.name, entry.path)
+            end
+        end
+    end
+end
+
+ns.RegisterChatifyMedia()
 
 -- Список форматів часу
 ns.Lists.TimeFormats = {
@@ -42,32 +94,73 @@ ns.Lists.TimeFormats = {
 -- =========================================================
 -- 3. MEDIA RESOLVERS
 -- =========================================================
-local CHATIFY_DEFAULT_SOUND = "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg"
-local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
-
-function ns.ResolveFontPath(fontID)
-    if type(fontID) ~= "string" or fontID == "" then
-        return CHATIFY_DEFAULT_FONT
+local function AddUniqueFontCandidate(list, seen, path)
+    if type(path) ~= "string" or path == "" then
+        return
     end
 
-    if string.find(fontID, "\\", 1, true) or string.find(fontID, "/", 1, true) then
-        return fontID
+    local normalized = path:gsub("/", "\\")
+    if seen[normalized] then
+        return
     end
 
-    local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
-    if fromLSM and type(fromLSM) == "string" then
-        return fromLSM
-    end
+    seen[normalized] = true
+    list[#list + 1] = normalized
+end
 
-    if ns.Lists and ns.Lists.Fonts then
-        for _, entry in ipairs(ns.Lists.Fonts) do
-            if entry and (entry.name == fontID or entry.path == fontID) and type(entry.path) == "string" then
-                return entry.path
+function ns.ResolveFontCandidates(fontID)
+    local candidates = {}
+    local seen = {}
+
+    if type(fontID) == "string" and fontID ~= "" then
+        local key = fontID:gsub("/", "\\")
+        local entry = fontAliasMap[key] or fontAliasMap[fontID]
+
+        if entry and type(entry.candidates) == "table" then
+            for _, path in ipairs(entry.candidates) do
+                AddUniqueFontCandidate(candidates, seen, path)
+            end
+        end
+
+        if entry and type(entry.path) == "string" then
+            AddUniqueFontCandidate(candidates, seen, entry.path)
+        end
+
+        if string.find(key, "\\", 1, true) then
+            AddUniqueFontCandidate(candidates, seen, key)
+        else
+            local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
+            if type(fromLSM) == "string" and fromLSM ~= "" then
+                AddUniqueFontCandidate(candidates, seen, fromLSM)
+            end
+        end
+
+        if ns.Lists and ns.Lists.Fonts then
+            for _, fallbackEntry in ipairs(ns.Lists.Fonts) do
+                if fallbackEntry
+                    and (fallbackEntry.name == fontID or fallbackEntry.path == key)
+                    and type(fallbackEntry.path) == "string" then
+                    AddUniqueFontCandidate(candidates, seen, fallbackEntry.path)
+                    break
+                end
             end
         end
     end
 
-    return CHATIFY_DEFAULT_FONT
+    if ChatFontNormal and ChatFontNormal.GetFont then
+        local ok, chatFont = pcall(ChatFontNormal.GetFont, ChatFontNormal)
+        if ok and type(chatFont) == "string" and chatFont ~= "" then
+            AddUniqueFontCandidate(candidates, seen, chatFont)
+        end
+    end
+
+    AddUniqueFontCandidate(candidates, seen, CHATIFY_DEFAULT_FONT)
+    return candidates
+end
+
+function ns.ResolveFontPath(fontID)
+    local candidates = ns.ResolveFontCandidates(fontID)
+    return candidates[1] or CHATIFY_DEFAULT_FONT
 end
 
 function ns.ResolveSoundPath(soundID)
@@ -845,31 +938,51 @@ function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
         return false
     end
 
-    local primary = fontPath
-    if type(primary) ~= "string" or primary == "" then
-        if ChatFontNormal and ChatFontNormal.GetFont then
-            primary = ChatFontNormal:GetFont()
+    local candidates = {}
+    local seen = {}
+
+    local function add(path)
+        if type(path) ~= "string" or path == "" then
+            return
+        end
+
+        path = path:gsub("/", "\\")
+        if seen[path] then
+            return
+        end
+
+        seen[path] = true
+        candidates[#candidates + 1] = path
+    end
+
+    if type(ns.ResolveFontCandidates) == "function" then
+        local resolved = ns.ResolveFontCandidates(fontPath)
+        if type(resolved) == "table" then
+            for _, path in ipairs(resolved) do
+                add(path)
+            end
+        end
+    else
+        add(fontPath)
+    end
+
+    add(fallbackFont)
+
+    if ChatFontNormal and ChatFontNormal.GetFont then
+        local ok, chatFont = pcall(ChatFontNormal.GetFont, ChatFontNormal)
+        if ok then
+            add(chatFont)
         end
     end
 
-    local ok = false
-    if type(primary) == "string" and primary ~= "" then
-        ok = pcall(target.SetFont, target, primary, size, flags or "") and true or false
-    end
+    add(CHATIFY_DEFAULT_FONT)
 
-    if ok then
-        return true
-    end
-
-    local fallback = fallbackFont
-    if type(fallback) ~= "string" or fallback == "" then
-        if ChatFontNormal and ChatFontNormal.GetFont then
-            fallback = ChatFontNormal:GetFont()
+    for _, candidate in ipairs(candidates) do
+        local ok, applied = pcall(target.SetFont, target, candidate, size, flags or "")
+        if ok and applied ~= false then
+            target.__chatifyFontPath = candidate
+            return true
         end
-    end
-
-    if type(fallback) == "string" and fallback ~= "" then
-        return pcall(target.SetFont, target, fallback, size, flags or "") and true or false
     end
 
     return false

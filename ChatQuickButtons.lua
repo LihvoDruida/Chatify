@@ -791,13 +791,8 @@ local function RefreshButtonLook(button)
         local width = math.max(1, button:GetWidth() or 26)
         local height = math.max(1, button:GetHeight() or 28)
         local fontSize = math.max(10, math.floor(math.min(width, height) * 0.56 * GetConfiguredFontScale()))
-        local fontPath = STANDARD_TEXT_FONT
-        if theme == "GW2UI" then
-            fontPath = GetGW2ChatFont() or fontPath
-        elseif ChatFontNormal and ChatFontNormal.GetFont then
-            fontPath = ChatFontNormal:GetFont() or fontPath
-        end
-        pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+        local fontPath = GetQuickButtonFontPath(theme)
+        SetQuickButtonFont(button.Label, fontPath, fontSize, "OUTLINE")
         button.Label:ClearAllPoints()
         button.Label:SetPoint("CENTER", button, "CENTER", pressed and 1 or 0, pressed and -1 or 0)
 
@@ -1089,6 +1084,45 @@ GetGW2ChatFont = function()
     end
 
     return STANDARD_TEXT_FONT
+end
+
+local function GetQuickButtonFontPath(theme)
+    local db = GetDB()
+    if db and type(db.fontID) == "string" and db.fontID ~= "" and type(ns.ResolveFontPath) == "function" then
+        local ok, fontPath = pcall(ns.ResolveFontPath, db.fontID)
+        if ok and type(fontPath) == "string" and fontPath ~= "" then
+            return fontPath
+        end
+    end
+
+    if theme == "GW2UI" then
+        return GetGW2ChatFont() or STANDARD_TEXT_FONT
+    end
+
+    if ChatFontNormal and ChatFontNormal.GetFont then
+        local ok, fontPath = pcall(ChatFontNormal.GetFont, ChatFontNormal)
+        if ok and type(fontPath) == "string" and fontPath ~= "" then
+            return fontPath
+        end
+    end
+
+    return STANDARD_TEXT_FONT
+end
+
+local function SetQuickButtonFont(fontString, fontPath, fontSize, flags)
+    if not fontString then
+        return false
+    end
+
+    if type(ns.SafeSetFont) == "function" then
+        return ns.SafeSetFont(fontString, fontPath, fontSize, flags or "OUTLINE")
+    end
+
+    if type(fontString.SetFont) == "function" then
+        return pcall(fontString.SetFont, fontString, fontPath or STANDARD_TEXT_FONT, fontSize, flags or "OUTLINE") and true or false
+    end
+
+    return false
 end
 
 MixColor = function(fromColor, toColor, t)
@@ -2555,12 +2589,7 @@ local function LayoutButtons()
 
     local theme = GetConfiguredTheme()
     local fontScale = GetConfiguredFontScale()
-    local fontPath = STANDARD_TEXT_FONT
-    if theme == "GW2UI" then
-        fontPath = GetGW2ChatFont() or fontPath
-    elseif ChatFontNormal and ChatFontNormal.GetFont then
-        fontPath = ChatFontNormal:GetFont() or fontPath
-    end
+    local fontPath = GetQuickButtonFontPath(theme)
     local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * fontScale))
 
     local previous
@@ -2580,7 +2609,7 @@ local function LayoutButtons()
 
         if button.Label then
             if button.__chatifyFontPath ~= fontPath or button.__chatifyFontSize ~= fontSize then
-                pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+                SetQuickButtonFont(button.Label, fontPath, fontSize, "OUTLINE")
                 button.__chatifyFontPath = fontPath
                 button.__chatifyFontSize = fontSize
             end
