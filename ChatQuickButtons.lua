@@ -791,8 +791,13 @@ local function RefreshButtonLook(button)
         local width = math.max(1, button:GetWidth() or 26)
         local height = math.max(1, button:GetHeight() or 28)
         local fontSize = math.max(10, math.floor(math.min(width, height) * 0.56 * GetConfiguredFontScale()))
-        local fontPath = GetQuickButtonFontPath(theme)
-        SetQuickButtonFont(button.Label, fontPath, fontSize, "OUTLINE")
+        local fontPath = STANDARD_TEXT_FONT
+        if theme == "GW2UI" then
+            fontPath = GetGW2ChatFont() or fontPath
+        elseif ChatFontNormal and ChatFontNormal.GetFont then
+            fontPath = ChatFontNormal:GetFont() or fontPath
+        end
+        pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
         button.Label:ClearAllPoints()
         button.Label:SetPoint("CENTER", button, "CENTER", pressed and 1 or 0, pressed and -1 or 0)
 
@@ -1084,45 +1089,6 @@ GetGW2ChatFont = function()
     end
 
     return STANDARD_TEXT_FONT
-end
-
-local function GetQuickButtonFontPath(theme)
-    local db = GetDB()
-    if db and type(db.fontID) == "string" and db.fontID ~= "" and type(ns.ResolveFontPath) == "function" then
-        local ok, fontPath = pcall(ns.ResolveFontPath, db.fontID)
-        if ok and type(fontPath) == "string" and fontPath ~= "" then
-            return fontPath
-        end
-    end
-
-    if theme == "GW2UI" then
-        return GetGW2ChatFont() or STANDARD_TEXT_FONT
-    end
-
-    if ChatFontNormal and ChatFontNormal.GetFont then
-        local ok, fontPath = pcall(ChatFontNormal.GetFont, ChatFontNormal)
-        if ok and type(fontPath) == "string" and fontPath ~= "" then
-            return fontPath
-        end
-    end
-
-    return STANDARD_TEXT_FONT
-end
-
-local function SetQuickButtonFont(fontString, fontPath, fontSize, flags)
-    if not fontString then
-        return false
-    end
-
-    if type(ns.SafeSetFont) == "function" then
-        return ns.SafeSetFont(fontString, fontPath, fontSize, flags or "OUTLINE")
-    end
-
-    if type(fontString.SetFont) == "function" then
-        return pcall(fontString.SetFont, fontString, fontPath or STANDARD_TEXT_FONT, fontSize, flags or "OUTLINE") and true or false
-    end
-
-    return false
 end
 
 MixColor = function(fromColor, toColor, t)
@@ -2288,11 +2254,9 @@ local function GetClassicNativeButtonBounds(sidebarFrame, hostFrame)
     AddClassicNativeButtonCandidate(candidates, _G.ChatFrameChannelButton)
 
     if sidebarFrame and sidebarFrame.GetChildren then
-        local okChildren, children = pcall(function() return { sidebarFrame:GetChildren() } end)
-        if okChildren and type(children) == "table" then
-            for i = 1, #children do
-                AddClassicNativeButtonCandidate(candidates, children[i])
-            end
+        local children = { sidebarFrame:GetChildren() }
+        for i = 1, #children do
+            AddClassicNativeButtonCandidate(candidates, children[i])
         end
     end
 
@@ -2591,7 +2555,12 @@ local function LayoutButtons()
 
     local theme = GetConfiguredTheme()
     local fontScale = GetConfiguredFontScale()
-    local fontPath = GetQuickButtonFontPath(theme)
+    local fontPath = STANDARD_TEXT_FONT
+    if theme == "GW2UI" then
+        fontPath = GetGW2ChatFont() or fontPath
+    elseif ChatFontNormal and ChatFontNormal.GetFont then
+        fontPath = ChatFontNormal:GetFont() or fontPath
+    end
     local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * fontScale))
 
     local previous
@@ -2611,7 +2580,7 @@ local function LayoutButtons()
 
         if button.Label then
             if button.__chatifyFontPath ~= fontPath or button.__chatifyFontSize ~= fontSize then
-                SetQuickButtonFont(button.Label, fontPath, fontSize, "OUTLINE")
+                pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
                 button.__chatifyFontPath = fontPath
                 button.__chatifyFontSize = fontSize
             end
@@ -2716,7 +2685,7 @@ local function EnsureContainer()
     local parent = GetAnchorParent()
     container = CreateFrame("Frame", "ChatifyQuickChatButtons", parent, backdropTemplate)
     container:SetFrameStrata("MEDIUM")
-    if container.SetClampedToScreen then pcall(container.SetClampedToScreen, container, true) end
+    container:SetClampedToScreen(true)
 
     for _, def in ipairs(BUTTON_DEFS) do
         local button = CreateFrame("Button", "ChatifyQuickChatButton" .. def.key, container, backdropTemplate)
@@ -2732,7 +2701,7 @@ local function EnsureContainer()
 
         local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetJustifyH("CENTER")
-        if label.SetJustifyV then pcall(label.SetJustifyV, label, "MIDDLE") end
+        label:SetJustifyV("MIDDLE")
         label:SetPoint("CENTER", button, "CENTER", 0, 0)
         label:SetText(def.label)
         button.Label = label
@@ -2822,7 +2791,7 @@ local function EnsureContainer()
 
     settingsContainer = CreateFrame("Frame", "ChatifyChatMenuSettingsContainer", GetAnchorParent(), backdropTemplate)
     settingsContainer:SetFrameStrata("MEDIUM")
-    if settingsContainer.SetClampedToScreen then pcall(settingsContainer.SetClampedToScreen, settingsContainer, true) end
+    settingsContainer:SetClampedToScreen(true)
 
     settingsButton = CreateFrame("Button", "ChatifyChatMenuSettingsButton", settingsContainer, backdropTemplate)
     settingsButton:RegisterForClicks("LeftButtonUp")
@@ -3263,7 +3232,7 @@ function QuickButtonsModule:OnEnable()
         ns.SafeAfter(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
         ns.SafeAfter(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     elseif C_Timer and C_Timer.After then
-        pcall(C_Timer.After, 0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
-        pcall(C_Timer.After, 1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        C_Timer.After(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        C_Timer.After(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     end
 end

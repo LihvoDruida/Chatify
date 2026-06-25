@@ -45,14 +45,6 @@ local FANOUT_WINDOW = 0.08
 local recentLinesPruneCounter = 0
 local RECENT_LINES_PRUNE_INTERVAL = 50
 
-local function SafeGetTime()
-    if type(GetTime) == "function" then
-        local ok, value = pcall(GetTime)
-        if ok and type(value) == "number" then return value end
-    end
-    return time and time() or 0
-end
-
 
 local function IsRetailSecretValueBuild()
     if type(ns.IsRetailSecretValueBuild) == "function" then
@@ -259,7 +251,7 @@ local function ApplyTimestamp(text)
 end
 
 local function PruneRecentLines(maxAge)
-    local now = SafeGetTime()
+    local now = GetTime()
     local cutoff = now - math.max(maxAge or 5, FANOUT_WINDOW, 5)
 
     for normalized, state in pairs(recentLines) do
@@ -287,7 +279,7 @@ local function ShouldSuppressForSpam(frameID, text)
         PruneRecentLines(throttleTime)
     end
 
-    local now = SafeGetTime()
+    local now = GetTime()
     local state = recentLines[normalized]
 
     if db.enableSpamFilter and ns.IsSpamMessage and ns.IsSpamMessage(text) then
@@ -328,47 +320,25 @@ local function ShouldSuppressForSpam(frameID, text)
     return false
 end
 
-local function SafeGetFrameName(frame)
-    if frame and type(frame.GetName) == "function" then
-        local ok, name = pcall(frame.GetName, frame)
-        if ok and type(name) == "string" and name ~= "" then return name end
-    end
-    return nil
-end
-
-local function SafeGetFrameID(frame)
-    if frame and type(frame.GetID) == "function" then
-        local ok, id = pcall(frame.GetID, frame)
-        if ok and tonumber(id) then return tonumber(id) end
-    end
-    return 0
-end
-
 local function CopyFrameSettings(source, target)
     if not source or not target then
         return
     end
 
-    if source.GetFont and target.SetFont then
-        local okFont, font, size, flags = pcall(source.GetFont, source)
-        if okFont and font then
-            if type(ns.SafeSetFont) == "function" then
-                ns.SafeSetFont(target, font, size or 14, flags)
-            else
-                pcall(target.SetFont, target, font, size or 14, flags)
-            end
-        end
+    local font, size, flags = source:GetFont()
+    if font then
+        target:SetFont(font, size or 14, flags)
     end
 
-    if target.SetIndentedWordWrap then pcall(target.SetIndentedWordWrap, target, true) end
-    if source.GetMaxLines and target.SetMaxLines then local ok, v = pcall(source.GetMaxLines, source); pcall(target.SetMaxLines, target, (ok and v) or 128) end
-    if source.GetFading and target.SetFading then local ok, v = pcall(source.GetFading, source); if ok then pcall(target.SetFading, target, v) end end
-    if source.GetTimeVisible and target.SetTimeVisible then local ok, v = pcall(source.GetTimeVisible, source); if ok then pcall(target.SetTimeVisible, target, v) end end
-    if source.GetFadeDuration and target.SetFadeDuration then local ok, v = pcall(source.GetFadeDuration, source); if ok then pcall(target.SetFadeDuration, target, v) end end
-    if source.GetSpacing and target.SetSpacing then local ok, v = pcall(source.GetSpacing, source); pcall(target.SetSpacing, target, (ok and v) or 0) end
-    if source.GetInsertMode and target.SetInsertMode then local ok, v = pcall(source.GetInsertMode, source); if ok then pcall(target.SetInsertMode, target, v) end end
-    if source.GetJustifyH and target.SetJustifyH then local ok, v = pcall(source.GetJustifyH, source); pcall(target.SetJustifyH, target, (ok and v) or "LEFT") end
-    if target.SetHyperlinksEnabled then pcall(target.SetHyperlinksEnabled, target, true) end
+    if target.SetIndentedWordWrap then target:SetIndentedWordWrap(true) end
+    if source.GetMaxLines and target.SetMaxLines then target:SetMaxLines(source:GetMaxLines() or 128) end
+    if source.GetFading and target.SetFading then target:SetFading(source:GetFading()) end
+    if source.GetTimeVisible and target.SetTimeVisible then target:SetTimeVisible(source:GetTimeVisible()) end
+    if source.GetFadeDuration and target.SetFadeDuration then target:SetFadeDuration(source:GetFadeDuration()) end
+    if source.GetSpacing and target.SetSpacing then target:SetSpacing(source:GetSpacing() or 0) end
+    if source.GetInsertMode and target.SetInsertMode then target:SetInsertMode(source:GetInsertMode()) end
+    if source.GetJustifyH and target.SetJustifyH then target:SetJustifyH(source:GetJustifyH() or "LEFT") end
+    if target.SetHyperlinksEnabled then target:SetHyperlinksEnabled(true) end
 end
 
 local function ShouldShowHoverHyperlinkTooltips()
@@ -536,13 +506,12 @@ local function HideOriginalFrame(frame)
         pcall(frame.Clear, frame)
     end
 
-    local frameName = SafeGetFrameName(frame)
-    local tab = frameName and _G[frameName .. "Tab"] or nil
+    local tab = frame.GetName and _G[frame:GetName() .. "Tab"] or nil
     if tab then
         tab:SetAlpha(1)
     end
 
-    local buttonFrame = frameName and _G[frameName .. "ButtonFrame"] or nil
+    local buttonFrame = frame.GetName and _G[frame:GetName() .. "ButtonFrame"] or nil
     if buttonFrame then
         buttonFrame:SetAlpha(1)
     end
@@ -604,8 +573,7 @@ local function HandleRetailRestrictedAddMessage(frame, text, ...)
         end
     end
 
-    local ok, result = pcall(orig, frame, output, ...)
-    if ok then return result end
+    return orig(frame, output, ...)
 end
 
 local function HandleVirtualAddMessage(frame, text, ...)
@@ -617,7 +585,7 @@ local function HandleVirtualAddMessage(frame, text, ...)
         return PassThrough(frame, text, ...)
     end
 
-    local frameID = SafeGetFrameID(frame)
+    local frameID = frame and frame.GetID and frame:GetID() or 0
     if ShouldSuppressForSpam(frameID, text) then
         return
     end
@@ -678,7 +646,7 @@ local function HookFrame(frame)
         return
     end
 
-    if SafeGetFrameName(frame) == "ChatFrame2" or SafeGetFrameID(frame) == 2 then
+    if frame.GetName and frame:GetName() == "ChatFrame2" then
         return
     end
 

@@ -53,33 +53,6 @@ local retailSafeEventTypeMap = {
     CHAT_MSG_MONEY = "LOOT",
 }
 
-local eventMessageGroups = {
-    CHAT_MSG_CHANNEL = "CHANNEL",
-    CHAT_MSG_SAY = "SAY",
-    CHAT_MSG_YELL = "YELL",
-    CHAT_MSG_WHISPER = "WHISPER",
-    CHAT_MSG_WHISPER_INFORM = "WHISPER",
-    CHAT_MSG_BN_WHISPER = "BN_WHISPER",
-    CHAT_MSG_BN_WHISPER_INFORM = "BN_WHISPER",
-    CHAT_MSG_BN_CONVERSATION = "BN_WHISPER",
-    CHAT_MSG_GUILD = "GUILD",
-    CHAT_MSG_GUILD_MOTD = "GUILD",
-    CHAT_MSG_OFFICER = "OFFICER",
-    CHAT_MSG_PARTY = "PARTY",
-    CHAT_MSG_PARTY_LEADER = "PARTY_LEADER",
-    CHAT_MSG_RAID = "RAID",
-    CHAT_MSG_RAID_LEADER = "RAID_LEADER",
-    CHAT_MSG_RAID_WARNING = "RAID_WARNING",
-    CHAT_MSG_INSTANCE_CHAT = "INSTANCE_CHAT",
-    CHAT_MSG_INSTANCE_CHAT_LEADER = "INSTANCE_CHAT_LEADER",
-    CHAT_MSG_SYSTEM = "SYSTEM",
-    CHAT_MSG_AFK = "AFK",
-    CHAT_MSG_DND = "DND",
-    CHAT_MSG_COMMUNITIES_CHANNEL = "COMMUNITIES_CHANNEL",
-    CHAT_MSG_LOOT = "LOOT",
-    CHAT_MSG_MONEY = "MONEY",
-}
-
 -- =========================================================
 -- STATE
 -- =========================================================
@@ -194,34 +167,6 @@ local function GetMaxChatWindows()
     return math.max(1, math.min(total, 20))
 end
 
-local function IsFrameConfiguredForEvent(frame, frameID, event)
-    if frame and type(frame.IsEventRegistered) == "function" then
-        local ok, registered = pcall(frame.IsEventRegistered, frame, event)
-        if ok and registered then return true end
-    end
-
-    local wanted = eventMessageGroups[event]
-    if not wanted or type(GetChatWindowMessages) ~= "function" or not frameID then
-        return false
-    end
-
-    local ok, messages = pcall(function() return { GetChatWindowMessages(frameID) } end)
-    if not ok or type(messages) ~= "table" then
-        return false
-    end
-
-    for i = 1, #messages do
-        if messages[i] == wanted then return true end
-        -- Older clients sometimes route leader variants through the base group.
-        if wanted == "PARTY_LEADER" and messages[i] == "PARTY" then return true end
-        if wanted == "RAID_LEADER" and messages[i] == "RAID" then return true end
-        if wanted == "INSTANCE_CHAT_LEADER" and messages[i] == "INSTANCE_CHAT" then return true end
-        if wanted == "MONEY" and messages[i] == "LOOT" then return true end
-    end
-
-    return false
-end
-
 local function GetTargetFrames(event)
     local cached = targetFrameCache[event]
     if cached then
@@ -231,15 +176,12 @@ local function GetTargetFrames(event)
     local frames = {}
     for i = 1, GetMaxChatWindows() do
         local frame = _G["ChatFrame"..i]
-        if frame and IsFrameAllowed(frame) and IsFrameConfiguredForEvent(frame, i, event) then
-            frames[#frames + 1] = i
+        if frame and IsFrameAllowed(frame) and type(frame.IsEventRegistered) == "function" then
+            local ok, registered = pcall(frame.IsEventRegistered, frame, event)
+            if ok and registered then
+                frames[#frames + 1] = i
+            end
         end
-    end
-
-    -- Last-resort safety for Classic layouts where Blizzard APIs do not report
-    -- frame subscriptions during early login: keep history useful instead of empty.
-    if #frames == 0 and event ~= "CHAT_MSG_CHANNEL" and _G.ChatFrame1 and IsFrameAllowed(_G.ChatFrame1) then
-        frames[#frames + 1] = 1
     end
 
     targetFrameCache[event] = frames

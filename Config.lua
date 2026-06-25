@@ -11,76 +11,24 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 local LSM = LibStub("LibSharedMedia-3.0", true)
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
-local CHATIFY_ADDON_ROOT = "Interface\\AddOns\\" .. tostring(addonName or "Chatify") .. "\\"
-local CHATIFY_DEFAULT_SOUND = CHATIFY_ADDON_ROOT .. "assets\\alert\\notification-0.ogg"
-local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
+-- Реєструємо ваші асети в глобальну бібліотеку
+-- Це дозволяє вибирати їх у випадаючих списках Config.lua
+if LSM and type(LSM.Register) == "function" then
+    LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg")
+end
 
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
 -- =========================================================
-ns.Lists = ns.Lists or {}
+ns.Lists = {}
 
-local fontAliasMap = {}
-
-local function AddFontEntry(name, path, aliases, candidates)
-    if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
-        return
-    end
-
-    local entry = {
-        name = name,
-        path = path,
-        aliases = aliases or {},
-        candidates = candidates or { path },
-    }
-
-    ns.Lists.Fonts[#ns.Lists.Fonts + 1] = entry
-    fontAliasMap[name] = entry
-    fontAliasMap[path] = entry
-
-    for _, alias in ipairs(entry.aliases) do
-        if type(alias) == "string" and alias ~= "" then
-            fontAliasMap[alias] = entry
-        end
-    end
-end
-
--- Font list used when LibSharedMedia is unavailable and as a stable fallback
--- for all WoW flavors. Internal Chatify fonts use addon-rooted paths because
--- Classic clients are stricter about relative addon media paths than Retail.
-ns.Lists.Fonts = {}
-AddFontEntry("Friz Quadrata (WoW)", "Fonts\\FRIZQT__.TTF", { "Friz Quadrata" })
-AddFontEntry("Arial Narrow (WoW)", "Fonts\\ARIALN.TTF", { "Arial Narrow" })
-AddFontEntry("Skurri (WoW)", "Fonts\\skurri.ttf", { "Skurri" })
-AddFontEntry("Morpheus (Quest)", "Fonts\\MORPHEUS.TTF", { "Morpheus" })
-
-AddFontEntry("Exo 2 (Chatify)", CHATIFY_ADDON_ROOT .. "assets\\Fonts\\Exo2.ttf", {
-    "Exo2",
-    "Exo 2",
-    "Chatify",
-    "Chatify Default Font",
-}, {
-    CHATIFY_ADDON_ROOT .. "assets\\Fonts\\Exo2.ttf",
-    CHATIFY_ADDON_ROOT .. "fonts\\Exo2.ttf",
-})
-
-function ns.RegisterChatifyMedia()
-    if not (LSM and type(LSM.Register) == "function") then
-        return
-    end
-
-    pcall(LSM.Register, LSM, "sound", "Chatify Default", CHATIFY_DEFAULT_SOUND)
-
-    if ns.Lists and ns.Lists.Fonts then
-        for _, entry in ipairs(ns.Lists.Fonts) do
-            if entry and type(entry.name) == "string" and type(entry.path) == "string" then
-                pcall(LSM.Register, LSM, "font", entry.name, entry.path)
-            end
-        end
-    end
-end
-
-ns.RegisterChatifyMedia()
+-- Список шрифтів (Fallback, якщо LSM не працює)
+ns.Lists.Fonts = {
+    [1] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
+    [2] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
+    [3] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
+    [4] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
+}
 
 -- Список форматів часу
 ns.Lists.TimeFormats = {
@@ -94,73 +42,32 @@ ns.Lists.TimeFormats = {
 -- =========================================================
 -- 3. MEDIA RESOLVERS
 -- =========================================================
-local function AddUniqueFontCandidate(list, seen, path)
-    if type(path) ~= "string" or path == "" then
-        return
-    end
-
-    local normalized = path:gsub("/", "\\")
-    if seen[normalized] then
-        return
-    end
-
-    seen[normalized] = true
-    list[#list + 1] = normalized
-end
-
-function ns.ResolveFontCandidates(fontID)
-    local candidates = {}
-    local seen = {}
-
-    if type(fontID) == "string" and fontID ~= "" then
-        local key = fontID:gsub("/", "\\")
-        local entry = fontAliasMap[key] or fontAliasMap[fontID]
-
-        if entry and type(entry.candidates) == "table" then
-            for _, path in ipairs(entry.candidates) do
-                AddUniqueFontCandidate(candidates, seen, path)
-            end
-        end
-
-        if entry and type(entry.path) == "string" then
-            AddUniqueFontCandidate(candidates, seen, entry.path)
-        end
-
-        if string.find(key, "\\", 1, true) then
-            AddUniqueFontCandidate(candidates, seen, key)
-        else
-            local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
-            if type(fromLSM) == "string" and fromLSM ~= "" then
-                AddUniqueFontCandidate(candidates, seen, fromLSM)
-            end
-        end
-
-        if ns.Lists and ns.Lists.Fonts then
-            for _, fallbackEntry in ipairs(ns.Lists.Fonts) do
-                if fallbackEntry
-                    and (fallbackEntry.name == fontID or fallbackEntry.path == key)
-                    and type(fallbackEntry.path) == "string" then
-                    AddUniqueFontCandidate(candidates, seen, fallbackEntry.path)
-                    break
-                end
-            end
-        end
-    end
-
-    if ChatFontNormal and ChatFontNormal.GetFont then
-        local ok, chatFont = pcall(ChatFontNormal.GetFont, ChatFontNormal)
-        if ok and type(chatFont) == "string" and chatFont ~= "" then
-            AddUniqueFontCandidate(candidates, seen, chatFont)
-        end
-    end
-
-    AddUniqueFontCandidate(candidates, seen, CHATIFY_DEFAULT_FONT)
-    return candidates
-end
+local CHATIFY_DEFAULT_SOUND = "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg"
+local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
 
 function ns.ResolveFontPath(fontID)
-    local candidates = ns.ResolveFontCandidates(fontID)
-    return candidates[1] or CHATIFY_DEFAULT_FONT
+    if type(fontID) ~= "string" or fontID == "" then
+        return CHATIFY_DEFAULT_FONT
+    end
+
+    if string.find(fontID, "\\", 1, true) or string.find(fontID, "/", 1, true) then
+        return fontID
+    end
+
+    local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
+    if fromLSM and type(fromLSM) == "string" then
+        return fromLSM
+    end
+
+    if ns.Lists and ns.Lists.Fonts then
+        for _, entry in ipairs(ns.Lists.Fonts) do
+            if entry and (entry.name == fontID or entry.path == fontID) and type(entry.path) == "string" then
+                return entry.path
+            end
+        end
+    end
+
+    return CHATIFY_DEFAULT_FONT
 end
 
 function ns.ResolveSoundPath(soundID)
@@ -526,57 +433,16 @@ function ns.IsClassicClient()
     return key ~= "retail" and key ~= "unknown"
 end
 
-local function ResolveChatFrameCandidate(candidate)
-    if type(candidate) ~= "table" then
-        return nil
-    end
-
-    if candidate.AddMessage and (candidate.GetID or candidate.editBox or type(candidate.GetName) == "function") then
-        return candidate
-    end
-
-    local nested = candidate.chatFrame or candidate.frame or candidate.owner or candidate.parent
-    if type(nested) == "table" and nested.AddMessage then
-        return nested
-    end
-
-    if type(candidate.GetID) == "function" then
-        local ok, id = pcall(candidate.GetID, candidate)
-        if ok and tonumber(id) and _G["ChatFrame" .. tonumber(id)] then
-            return _G["ChatFrame" .. tonumber(id)]
-        end
-    end
-
-    return nil
-end
-
 function ns.GetSelectedChatFrame()
-    local candidates = {}
-
-    if SELECTED_CHAT_FRAME then candidates[#candidates + 1] = SELECTED_CHAT_FRAME end
-    if DEFAULT_CHAT_FRAME then candidates[#candidates + 1] = DEFAULT_CHAT_FRAME end
-
-    if _G and _G.GeneralDockManager then
-        candidates[#candidates + 1] = _G.GeneralDockManager.selected
-        candidates[#candidates + 1] = _G.GeneralDockManager.primary
+    if SELECTED_CHAT_FRAME then return SELECTED_CHAT_FRAME end
+    if _G and _G.GeneralDockManager and _G.GeneralDockManager.selected then
+        return _G.GeneralDockManager.selected
     end
-
     if type(FCF_GetCurrentChatFrame) == "function" then
         local ok, frame = pcall(FCF_GetCurrentChatFrame)
-        if ok then candidates[#candidates + 1] = frame end
+        if ok and frame then return frame end
     end
-
-    if type(FCFDock_GetSelectedWindow) == "function" and _G.GeneralDockManager then
-        local ok, frame = pcall(FCFDock_GetSelectedWindow, _G.GeneralDockManager)
-        if ok then candidates[#candidates + 1] = frame end
-    end
-
-    for i = 1, #candidates do
-        local frame = ResolveChatFrameCandidate(candidates[i])
-        if frame then return frame end
-    end
-
-    return ResolveChatFrameCandidate(_G.ChatFrame1) or _G.ChatFrame1
+    return DEFAULT_CHAT_FRAME or _G.ChatFrame1
 end
 
 function ns.GetChatFrameByID(id)
@@ -586,66 +452,28 @@ function ns.GetChatFrameByID(id)
 end
 
 function ns.GetChatEditBox(chatFrame)
-    chatFrame = ResolveChatFrameCandidate(chatFrame) or ns.GetSelectedChatFrame()
     if chatFrame and chatFrame.editBox then return chatFrame.editBox end
-
     if chatFrame and type(chatFrame.GetName) == "function" then
         local ok, name = pcall(chatFrame.GetName, chatFrame)
-        if ok and type(name) == "string" and name ~= "" then
-            local byName = _G[name .. "EditBox"]
-            if byName then return byName end
-        end
+        if ok and name and _G[name .. "EditBox"] then return _G[name .. "EditBox"] end
     end
-
-    if chatFrame and type(chatFrame.GetID) == "function" then
-        local ok, id = pcall(chatFrame.GetID, chatFrame)
-        id = ok and tonumber(id) or nil
-        if id and _G["ChatFrame" .. id .. "EditBox"] then
-            return _G["ChatFrame" .. id .. "EditBox"]
-        end
-    end
-
-    if type(ChatEdit_GetActiveWindow) == "function" then
-        local ok, frame = pcall(ChatEdit_GetActiveWindow)
-        local active = ok and ResolveChatFrameCandidate(frame) or nil
-        if active and active.editBox then return active.editBox end
-    end
-
     if ChatFrame1EditBox then return ChatFrame1EditBox end
     return nil
 end
 
 function ns.ChatFrameOpenChat(text, chatFrame)
-    chatFrame = ResolveChatFrameCandidate(chatFrame) or ns.GetSelectedChatFrame()
     local util = _G.ChatFrameUtil
-
     if type(ChatFrame_OpenChat) == "function" then
-        local ok = pcall(ChatFrame_OpenChat, text or "", chatFrame)
-        if ok then return true end
+        return pcall(ChatFrame_OpenChat, text or "", chatFrame)
     end
-
     if util and type(util.OpenChat) == "function" then
-        local ok = pcall(util.OpenChat, util, text or "", chatFrame)
-        if ok then return true end
+        return pcall(util.OpenChat, util, text or "", chatFrame)
     end
-
-    if type(ChatEdit_ActivateChat) == "function" then
-        local ok = pcall(ChatEdit_ActivateChat, ns.GetChatEditBox(chatFrame))
-        if ok then
-            local editBox = ns.GetChatEditBox(chatFrame)
-            if editBox and type(editBox.SetText) == "function" then
-                pcall(editBox.SetText, editBox, text or "")
-                if type(editBox.SetFocus) == "function" then pcall(editBox.SetFocus, editBox) end
-                return true
-            end
-        end
-    end
-
-    local editBox = ns.GetChatEditBox(chatFrame)
+    local editBox = ns.GetChatEditBox(chatFrame or ns.GetSelectedChatFrame())
     if editBox and type(editBox.SetText) == "function" and type(editBox.Show) == "function" then
         pcall(editBox.Show, editBox)
         pcall(editBox.SetText, editBox, text or "")
-        if type(editBox.SetFocus) == "function" then pcall(editBox.SetFocus, editBox) end
+        pcall(editBox.SetFocus, editBox)
         return true
     end
     return false
@@ -1017,51 +845,31 @@ function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
         return false
     end
 
-    local candidates = {}
-    local seen = {}
-
-    local function add(path)
-        if type(path) ~= "string" or path == "" then
-            return
-        end
-
-        path = path:gsub("/", "\\")
-        if seen[path] then
-            return
-        end
-
-        seen[path] = true
-        candidates[#candidates + 1] = path
-    end
-
-    if type(ns.ResolveFontCandidates) == "function" then
-        local resolved = ns.ResolveFontCandidates(fontPath)
-        if type(resolved) == "table" then
-            for _, path in ipairs(resolved) do
-                add(path)
-            end
-        end
-    else
-        add(fontPath)
-    end
-
-    add(fallbackFont)
-
-    if ChatFontNormal and ChatFontNormal.GetFont then
-        local ok, chatFont = pcall(ChatFontNormal.GetFont, ChatFontNormal)
-        if ok then
-            add(chatFont)
+    local primary = fontPath
+    if type(primary) ~= "string" or primary == "" then
+        if ChatFontNormal and ChatFontNormal.GetFont then
+            primary = ChatFontNormal:GetFont()
         end
     end
 
-    add(CHATIFY_DEFAULT_FONT)
+    local ok = false
+    if type(primary) == "string" and primary ~= "" then
+        ok = pcall(target.SetFont, target, primary, size, flags or "") and true or false
+    end
 
-    for _, candidate in ipairs(candidates) do
-        local ok, applied = pcall(target.SetFont, target, candidate, size, flags or "")
-        if ok and applied ~= false then
-            target.__chatifyFontPath = candidate
-            return true
+    if ok then
+        return true
+    end
+
+    local fallback = fallbackFont
+    if type(fallback) ~= "string" or fallback == "" then
+        if ChatFontNormal and ChatFontNormal.GetFont then
+            fallback = ChatFontNormal:GetFont()
         end
+    end
+
+    if type(fallback) == "string" and fallback ~= "" then
+        return pcall(target.SetFont, target, fallback, size, flags or "") and true or false
     end
 
     return false

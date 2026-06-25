@@ -43,44 +43,31 @@ local function GetAddonMetadataValue(key)
     return nil
 end
 
-local function MergeChatifyFontValues(values)
-    values = values or {}
+local function GetLSMFontValues()
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
+        return AceGUIWidgetLSMlists.font
+    end
 
-    if ns.Lists and ns.Lists.Fonts then
+    local values = {}
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
+    if LSM then
+        local ok, hash = pcall(LSM.HashTable, LSM, "font")
+        if ok and type(hash) == "table" then
+            for name in pairs(hash) do
+                values[name] = name
+            end
+        end
+    end
+
+    if next(values) == nil and ns.Lists and ns.Lists.Fonts then
         for _, entry in ipairs(ns.Lists.Fonts) do
-            if entry and type(entry.name) == "string" then
-                values[entry.name] = values[entry.name] or entry.name
+            if entry and entry.name then
+                values[entry.name] = entry.name
             end
         end
     end
 
     return values
-end
-
-local function GetLSMFontValues()
-    local values = {}
-
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
-        for key, value in pairs(AceGUIWidgetLSMlists.font) do
-            values[key] = value
-        end
-    end
-
-    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
-    if LSM then
-        if type(ns.RegisterChatifyMedia) == "function" then
-            pcall(ns.RegisterChatifyMedia)
-        end
-
-        local ok, hash = pcall(LSM.HashTable, LSM, "font")
-        if ok and type(hash) == "table" then
-            for name in pairs(hash) do
-                values[name] = values[name] or name
-            end
-        end
-    end
-
-    return MergeChatifyFontValues(values)
 end
 
 local function GetLSMSoundValues()
