@@ -2288,9 +2288,11 @@ local function GetClassicNativeButtonBounds(sidebarFrame, hostFrame)
     AddClassicNativeButtonCandidate(candidates, _G.ChatFrameChannelButton)
 
     if sidebarFrame and sidebarFrame.GetChildren then
-        local children = { sidebarFrame:GetChildren() }
-        for i = 1, #children do
-            AddClassicNativeButtonCandidate(candidates, children[i])
+        local okChildren, children = pcall(function() return { sidebarFrame:GetChildren() } end)
+        if okChildren and type(children) == "table" then
+            for i = 1, #children do
+                AddClassicNativeButtonCandidate(candidates, children[i])
+            end
         end
     end
 
@@ -2714,7 +2716,7 @@ local function EnsureContainer()
     local parent = GetAnchorParent()
     container = CreateFrame("Frame", "ChatifyQuickChatButtons", parent, backdropTemplate)
     container:SetFrameStrata("MEDIUM")
-    container:SetClampedToScreen(true)
+    if container.SetClampedToScreen then pcall(container.SetClampedToScreen, container, true) end
 
     for _, def in ipairs(BUTTON_DEFS) do
         local button = CreateFrame("Button", "ChatifyQuickChatButton" .. def.key, container, backdropTemplate)
@@ -2730,7 +2732,7 @@ local function EnsureContainer()
 
         local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetJustifyH("CENTER")
-        label:SetJustifyV("MIDDLE")
+        if label.SetJustifyV then pcall(label.SetJustifyV, label, "MIDDLE") end
         label:SetPoint("CENTER", button, "CENTER", 0, 0)
         label:SetText(def.label)
         button.Label = label
@@ -2820,7 +2822,7 @@ local function EnsureContainer()
 
     settingsContainer = CreateFrame("Frame", "ChatifyChatMenuSettingsContainer", GetAnchorParent(), backdropTemplate)
     settingsContainer:SetFrameStrata("MEDIUM")
-    settingsContainer:SetClampedToScreen(true)
+    if settingsContainer.SetClampedToScreen then pcall(settingsContainer.SetClampedToScreen, settingsContainer, true) end
 
     settingsButton = CreateFrame("Button", "ChatifyChatMenuSettingsButton", settingsContainer, backdropTemplate)
     settingsButton:RegisterForClicks("LeftButtonUp")
@@ -3261,7 +3263,7 @@ function QuickButtonsModule:OnEnable()
         ns.SafeAfter(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
         ns.SafeAfter(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     elseif C_Timer and C_Timer.After then
-        C_Timer.After(0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
-        C_Timer.After(1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        pcall(C_Timer.After, 0, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
+        pcall(C_Timer.After, 1, function() SafeRun("QuickButtons.Refresh", ns.RefreshQuickChatButtons) end)
     end
 end

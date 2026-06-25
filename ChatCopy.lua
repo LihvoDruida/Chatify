@@ -1249,7 +1249,9 @@ local function CreateCopyWindow()
     f:SetSize(660, 486)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
-    f:SetClampedToScreen(true)
+    if f.SetClampedToScreen then
+        pcall(f.SetClampedToScreen, f, true)
+    end
     f:EnableMouse(true)
     f:SetMovable(true)
     f:Hide()
@@ -1350,7 +1352,9 @@ local function CreateCopyWindow()
         eb:SetSpacing(2)
     end
     eb:SetJustifyH("LEFT")
-    eb:SetJustifyV("TOP")
+    if eb.SetJustifyV then
+        pcall(eb.SetJustifyV, eb, "TOP")
+    end
     eb:SetWidth(580)
     eb:SetHeight(1)
     eb:EnableMouse(true)
@@ -1409,9 +1413,9 @@ local function CreateCopyWindow()
     btn:SetText(L("Select All"))
     btn:SetScript("OnClick", function()
         if copyEditBox then
-            copyEditBox:SetFocus()
-            copyEditBox:SetCursorPosition(0)
-            copyEditBox:HighlightText(0, -1)
+            if copyEditBox.SetFocus then pcall(copyEditBox.SetFocus, copyEditBox) end
+            if copyEditBox.SetCursorPosition then pcall(copyEditBox.SetCursorPosition, copyEditBox, 0) end
+            if copyEditBox.HighlightText then pcall(copyEditBox.HighlightText, copyEditBox, 0, -1) end
         end
         if copyHint then
             copyHint:SetText(L("Selected text is ready. Press Ctrl+C to copy."))
@@ -1564,8 +1568,8 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     end
 
     if copyEditBox then
-        copyEditBox:ClearFocus()
-        copyEditBox:HighlightText(0, 0)
+        if copyEditBox.ClearFocus then pcall(copyEditBox.ClearFocus, copyEditBox) end
+        if copyEditBox.HighlightText then pcall(copyEditBox.HighlightText, copyEditBox, 0, 0) end
     end
     if copyScroll and copyScroll.SetVerticalScroll then
         copyScroll:SetVerticalScroll(0)

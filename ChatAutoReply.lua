@@ -170,6 +170,9 @@ local function SendWhisper(target, message)
     end
 
     target = NormalizePlayerName(target, "none") or target
+    if type(SendChatMessage) ~= "function" then
+        return false
+    end
     local ok = pcall(SendChatMessage, message, "WHISPER", nil, target)
     return ok
 end
@@ -221,14 +224,15 @@ end
 
 local function GetQueueInfo()
     if type(GetLFGQueueStats) == "function" then
-        local hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = GetLFGQueueStats(LE_LFG_CATEGORY_LFD)
-        if hasData and myWait and myWait > 0 then
-            return true, math_floor(myWait / 60), instanceName or "instance"
-        end
+        local lfgCategories = {}
+        if type(LE_LFG_CATEGORY_LFD) == "number" then lfgCategories[#lfgCategories + 1] = LE_LFG_CATEGORY_LFD end
+        if type(LE_LFG_CATEGORY_RF) == "number" then lfgCategories[#lfgCategories + 1] = LE_LFG_CATEGORY_RF end
 
-        hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = GetLFGQueueStats(LE_LFG_CATEGORY_RF)
-        if hasData and myWait and myWait > 0 then
-            return true, math_floor(myWait / 60), instanceName or "raid"
+        for i = 1, #lfgCategories do
+            local okStats, hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = pcall(GetLFGQueueStats, lfgCategories[i])
+            if okStats and hasData and myWait and myWait > 0 then
+                return true, math_floor(myWait / 60), instanceName or "instance"
+            end
         end
     end
 
@@ -407,7 +411,7 @@ local function IsAllowedSender(sender, isBNet)
         end
     end
 
-    if IsInGuild() then
+    if type(IsInGuild) == "function" and IsInGuild() and type(UnitIsInMyGuild) == "function" then
         local ok, inGuild = pcall(UnitIsInMyGuild, safeSender)
         if ok and inGuild then
             return true
@@ -498,7 +502,7 @@ local function SendGuildAutoReply(sender)
         return
     end
 
-    if pcall(SendChatMessage, message, "GUILD") then
+    if type(SendChatMessage) == "function" and pcall(SendChatMessage, message, "GUILD") then
         lastGuildReplyTime = now
     end
 end

@@ -134,19 +134,29 @@ local function GetSafeText(rawText)
 end
 
 function ns.GetEditBox(chatFrame)
-    if not chatFrame then return nil end
-    if chatFrame.editBox then return chatFrame.editBox end
-
-    local name = chatFrame:GetName()
-    if name then
-        local suffixBox = _G[name .. "EditBox"]
-        if suffixBox then return suffixBox end
+    if type(ns.GetChatEditBox) == "function" then
+        local ok, editBox = pcall(ns.GetChatEditBox, chatFrame)
+        if ok and editBox then return editBox end
     end
 
-    local id = chatFrame:GetID()
-    if id then
-        local idBox = _G["ChatFrame" .. id .. "EditBox"]
-        if idBox then return idBox end
+    if not chatFrame then return ChatFrame1EditBox end
+    if chatFrame.editBox then return chatFrame.editBox end
+
+    if type(chatFrame.GetName) == "function" then
+        local ok, name = pcall(chatFrame.GetName, chatFrame)
+        if ok and type(name) == "string" then
+            local suffixBox = _G[name .. "EditBox"]
+            if suffixBox then return suffixBox end
+        end
+    end
+
+    if type(chatFrame.GetID) == "function" then
+        local ok, id = pcall(chatFrame.GetID, chatFrame)
+        id = ok and tonumber(id) or nil
+        if id then
+            local idBox = _G["ChatFrame" .. id .. "EditBox"]
+            if idBox then return idBox end
+        end
     end
 
     return ChatFrame1EditBox
@@ -206,10 +216,22 @@ local function StyleFrame(frame)
     if editBox then
         local editName = type(editBox.GetName) == "function" and editBox:GetName() or nil
         local header = editName and _G[editName.."Header"] or nil
-        if header then pcall(header.SetFont, header, fontPath, size, outline) end
+        if header then
+            if type(ns.SafeSetFont) == "function" then
+                ns.SafeSetFont(header, fontPath, size, outline)
+            else
+                pcall(header.SetFont, header, fontPath, size, outline)
+            end
+        end
 
         local suffix = editName and _G[editName.."HeaderSuffix"] or nil
-        if suffix then pcall(suffix.SetFont, suffix, fontPath, size, outline) end
+        if suffix then
+            if type(ns.SafeSetFont) == "function" then
+                ns.SafeSetFont(suffix, fontPath, size, outline)
+            else
+                pcall(suffix.SetFont, suffix, fontPath, size, outline)
+            end
+        end
 
         if type(ns.SafeSetFont) == "function" then
             ns.SafeSetFont(editBox, fontPath, size, outline)
@@ -407,23 +429,32 @@ function VisualsModule:OnEnable()
         ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", "ApplyStyle")
         ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
     else
-        self:RegisterEvent("PLAYER_LOGIN")
-        self:RegisterEvent("PLAYER_ENTERING_WORLD", "ApplyStyle")
-        self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
-        self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+        pcall(self.RegisterEvent, self, "PLAYER_LOGIN")
+        pcall(self.RegisterEvent, self, "PLAYER_ENTERING_WORLD", "ApplyStyle")
+        pcall(self.RegisterEvent, self, "UPDATE_CHAT_WINDOWS", "ApplyStyle")
+        pcall(self.RegisterEvent, self, "UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
     end
 
-    if type(FCF_OpenTemporaryWindow) == "function" then
-        pcall(self.SecureHook, self, "FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
-    end
-    if type(FCF_OpenNewWindow) == "function" then
-        pcall(self.SecureHook, self, "FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
-    end
-    if type(FCF_SetTemporaryWindowType) == "function" then
-        pcall(self.SecureHook, self, "FCF_SetTemporaryWindowType", function(chatFrame)
+    if type(ns.SafeSecureHook) == "function" then
+        ns.SafeSecureHook(self, "FCF_OpenTemporaryWindow", nil, function() QueueApplyVisuals(0) end)
+        ns.SafeSecureHook(self, "FCF_OpenNewWindow", nil, function() QueueApplyVisuals(0) end)
+        ns.SafeSecureHook(self, "FCF_SetTemporaryWindowType", nil, function(chatFrame)
             StyleFrame(chatFrame)
             QueueApplyVisuals(0)
         end)
+    else
+        if type(FCF_OpenTemporaryWindow) == "function" and type(self.SecureHook) == "function" then
+            pcall(self.SecureHook, self, "FCF_OpenTemporaryWindow", function() QueueApplyVisuals(0) end)
+        end
+        if type(FCF_OpenNewWindow) == "function" and type(self.SecureHook) == "function" then
+            pcall(self.SecureHook, self, "FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
+        end
+        if type(FCF_SetTemporaryWindowType) == "function" and type(self.SecureHook) == "function" then
+            pcall(self.SecureHook, self, "FCF_SetTemporaryWindowType", function(chatFrame)
+                StyleFrame(chatFrame)
+                QueueApplyVisuals(0)
+            end)
+        end
     end
 
     if type(hooksecurefunc) == "function" and type(FCF_SetChatWindowFontSize) == "function" then

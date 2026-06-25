@@ -499,6 +499,39 @@ function Filters:BN_FRIEND_LIST_SIZE_CHANGED()
     ClearFriendCache()
 end
 
+local function IsLegacyFriendByName(shortName)
+    if type(shortName) ~= "string" or shortName == "" then
+        return false
+    end
+
+    if type(GetNumFriends) ~= "function" or type(GetFriendInfo) ~= "function" then
+        return false
+    end
+
+    local okCount, count = pcall(GetNumFriends)
+    count = okCount and tonumber(count) or 0
+    if not count or count <= 0 then
+        return false
+    end
+
+    for i = 1, count do
+        local okInfo, name = pcall(GetFriendInfo, i)
+        if okInfo and type(name) == "string" and name ~= "" then
+            local candidate = name
+            if type(Ambiguate) == "function" then
+                local okAmb, value = pcall(Ambiguate, name, "none")
+                if okAmb and type(value) == "string" and value ~= "" then candidate = value end
+            end
+            candidate = candidate:match("([^%-]+)") or candidate
+            if candidate == shortName or name == shortName then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function IsFriendAuthor(author)
     local safeAuthor = GetSafeString(author)
     if type(safeAuthor) ~= "string" or safeAuthor == "" then
@@ -541,6 +574,8 @@ local function IsFriendAuthor(author)
     if not result and type(GetFriendInfo) == "function" then
         local ok, name = pcall(GetFriendInfo, shortName)
         if ok and type(name) == "string" and name ~= "" then
+            result = true
+        elseif IsLegacyFriendByName(shortName) then
             result = true
         end
     end
@@ -1274,7 +1309,9 @@ end
 function Filters:ADDON_LOADED(_, name)
     if name == "Blizzard_Communities" then
         self:HookCommunities()
-        self:UnregisterEvent("ADDON_LOADED")
+        if type(self.UnregisterEvent) == "function" then
+            pcall(self.UnregisterEvent, self, "ADDON_LOADED")
+        end
     end
 end
 

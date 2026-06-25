@@ -143,4 +143,16 @@ Chatify resolves internal fonts through addon-rooted paths so the same font choi
 - `Interface\\AddOns\\Chatify\\fonts\\Exo2.ttf`
 
 If a selected internal font is unavailable in a local build, Chatify safely falls back to the active Blizzard chat font and then the default WoW font instead of breaking chat rendering.
+### Classic compatibility
+
+Chatify uses separate runtime guards for Retail and Classic clients. Classic flavors avoid protected/unstable Retail chat APIs and fall back to older Blizzard chat APIs where needed. This is applied to chat frame selection, edit box lookup, history capture, message filters, quick buttons, fonts, sounds and auto-reply activity checks.
+
+Supported Classic targets:
+
+- WoW Burning Crusade Classic / BCC
+- WoW Classic / Vanilla
+- WoW Wrath / Titan Reforged
+- WoW Mists of Pandaria Classic / MoP Classic
+
+Retail keeps the modern secret-value safety path and is not forced into Classic fallbacks.
 

@@ -526,16 +526,57 @@ function ns.IsClassicClient()
     return key ~= "retail" and key ~= "unknown"
 end
 
-function ns.GetSelectedChatFrame()
-    if SELECTED_CHAT_FRAME then return SELECTED_CHAT_FRAME end
-    if _G and _G.GeneralDockManager and _G.GeneralDockManager.selected then
-        return _G.GeneralDockManager.selected
+local function ResolveChatFrameCandidate(candidate)
+    if type(candidate) ~= "table" then
+        return nil
     end
+
+    if candidate.AddMessage and (candidate.GetID or candidate.editBox or type(candidate.GetName) == "function") then
+        return candidate
+    end
+
+    local nested = candidate.chatFrame or candidate.frame or candidate.owner or candidate.parent
+    if type(nested) == "table" and nested.AddMessage then
+        return nested
+    end
+
+    if type(candidate.GetID) == "function" then
+        local ok, id = pcall(candidate.GetID, candidate)
+        if ok and tonumber(id) and _G["ChatFrame" .. tonumber(id)] then
+            return _G["ChatFrame" .. tonumber(id)]
+        end
+    end
+
+    return nil
+end
+
+function ns.GetSelectedChatFrame()
+    local candidates = {}
+
+    if SELECTED_CHAT_FRAME then candidates[#candidates + 1] = SELECTED_CHAT_FRAME end
+    if DEFAULT_CHAT_FRAME then candidates[#candidates + 1] = DEFAULT_CHAT_FRAME end
+
+    if _G and _G.GeneralDockManager then
+        candidates[#candidates + 1] = _G.GeneralDockManager.selected
+        candidates[#candidates + 1] = _G.GeneralDockManager.primary
+    end
+
     if type(FCF_GetCurrentChatFrame) == "function" then
         local ok, frame = pcall(FCF_GetCurrentChatFrame)
-        if ok and frame then return frame end
+        if ok then candidates[#candidates + 1] = frame end
     end
-    return DEFAULT_CHAT_FRAME or _G.ChatFrame1
+
+    if type(FCFDock_GetSelectedWindow) == "function" and _G.GeneralDockManager then
+        local ok, frame = pcall(FCFDock_GetSelectedWindow, _G.GeneralDockManager)
+        if ok then candidates[#candidates + 1] = frame end
+    end
+
+    for i = 1, #candidates do
+        local frame = ResolveChatFrameCandidate(candidates[i])
+        if frame then return frame end
+    end
+
+    return ResolveChatFrameCandidate(_G.ChatFrame1) or _G.ChatFrame1
 end
 
 function ns.GetChatFrameByID(id)
@@ -545,28 +586,66 @@ function ns.GetChatFrameByID(id)
 end
 
 function ns.GetChatEditBox(chatFrame)
+    chatFrame = ResolveChatFrameCandidate(chatFrame) or ns.GetSelectedChatFrame()
     if chatFrame and chatFrame.editBox then return chatFrame.editBox end
+
     if chatFrame and type(chatFrame.GetName) == "function" then
         local ok, name = pcall(chatFrame.GetName, chatFrame)
-        if ok and name and _G[name .. "EditBox"] then return _G[name .. "EditBox"] end
+        if ok and type(name) == "string" and name ~= "" then
+            local byName = _G[name .. "EditBox"]
+            if byName then return byName end
+        end
     end
+
+    if chatFrame and type(chatFrame.GetID) == "function" then
+        local ok, id = pcall(chatFrame.GetID, chatFrame)
+        id = ok and tonumber(id) or nil
+        if id and _G["ChatFrame" .. id .. "EditBox"] then
+            return _G["ChatFrame" .. id .. "EditBox"]
+        end
+    end
+
+    if type(ChatEdit_GetActiveWindow) == "function" then
+        local ok, frame = pcall(ChatEdit_GetActiveWindow)
+        local active = ok and ResolveChatFrameCandidate(frame) or nil
+        if active and active.editBox then return active.editBox end
+    end
+
     if ChatFrame1EditBox then return ChatFrame1EditBox end
     return nil
 end
 
 function ns.ChatFrameOpenChat(text, chatFrame)
+    chatFrame = ResolveChatFrameCandidate(chatFrame) or ns.GetSelectedChatFrame()
     local util = _G.ChatFrameUtil
+
     if type(ChatFrame_OpenChat) == "function" then
-        return pcall(ChatFrame_OpenChat, text or "", chatFrame)
+        local ok = pcall(ChatFrame_OpenChat, text or "", chatFrame)
+        if ok then return true end
     end
+
     if util and type(util.OpenChat) == "function" then
-        return pcall(util.OpenChat, util, text or "", chatFrame)
+        local ok = pcall(util.OpenChat, util, text or "", chatFrame)
+        if ok then return true end
     end
-    local editBox = ns.GetChatEditBox(chatFrame or ns.GetSelectedChatFrame())
+
+    if type(ChatEdit_ActivateChat) == "function" then
+        local ok = pcall(ChatEdit_ActivateChat, ns.GetChatEditBox(chatFrame))
+        if ok then
+            local editBox = ns.GetChatEditBox(chatFrame)
+            if editBox and type(editBox.SetText) == "function" then
+                pcall(editBox.SetText, editBox, text or "")
+                if type(editBox.SetFocus) == "function" then pcall(editBox.SetFocus, editBox) end
+                return true
+            end
+        end
+    end
+
+    local editBox = ns.GetChatEditBox(chatFrame)
     if editBox and type(editBox.SetText) == "function" and type(editBox.Show) == "function" then
         pcall(editBox.Show, editBox)
         pcall(editBox.SetText, editBox, text or "")
-        pcall(editBox.SetFocus, editBox)
+        if type(editBox.SetFocus) == "function" then pcall(editBox.SetFocus, editBox) end
         return true
     end
     return false
