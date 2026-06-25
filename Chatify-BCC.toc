@@ -5,7 +5,7 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.9.5
+## Version: 0.11.11
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
@@ -17,6 +17,7 @@
 
 ## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
 
+Compatibility.lua
 libs\_manifest.xml
 Locales.lua
 locale\enUS.lua

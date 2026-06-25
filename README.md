@@ -102,7 +102,7 @@ The per-tab checklist is keyed by Blizzard chat frame ID, not by display text. T
 
 ## Chat History Window
 
-The History button is placed in the same main chat sidebar stack as Settings and Copy Chat. The sidebar stack now auto-fits its buttons to the available chat height so the new History button does not clip or overlap the native chat buttons. The window uses the same selectable popup foundation as ChatCopy, but is styled and labeled as a History viewer and reads from Chatify's saved per-frame history store only.
+The History button is placed next to the Settings and Copy Chat buttons. On Retail, Chatify can share the main chat sidebar stack. On Classic-era clients (Vanilla, Burning Crusade Classic, Wrath/Titan and Mists Classic), Chatify uses a detached mini stack and leaves Blizzard's native scroll/menu buttons untouched so the client-specific chat buttons do not clip, overlap, or get reparented incorrectly. The window uses the same selectable popup foundation as ChatCopy, but is styled and labeled as a History viewer and reads from Chatify's saved per-frame history store only.
 
 History tabs follow the same rules as ChatCopy tabs: Combat Log and Voice are excluded, hidden windows stay disabled by default, renamed tabs are supported, and empty secondary tabs do not borrow messages from General. On modern Retail clients, history capture follows the same protected-payload policy as ChatCopy and avoids whisper/BN/protected event payloads. Saved history is never injected back into visible chat frames after login or `/reload`.
 
@@ -131,3 +131,5 @@ Quick chat button skins can be forced to Standard, ElvUI, or GW2 UI even if thos
 
 This build includes a small compatibility layer for PTR clients where older embedded AceGUI checkbox code can fail on missing UI helpers. For PTR testing, delete the old `Interface/AddOns/Chatify` folder before installing this archive so stale bundled libraries do not remain from an older build.
 
+
+- Classic-era chat button compatibility keeps Blizzard chat controls untouched; Chatify Settings, Copy and History use a detached toolbar on BCC, Vanilla, Wrath/Titan and MoP Classic.

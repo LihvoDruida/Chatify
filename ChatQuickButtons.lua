@@ -1017,6 +1017,17 @@ local function ShouldShowSettingsButton()
 end
 
 local function GetSocialSidebarButton()
+    -- Classic-era clients already own the chat menu/scroll stack. Do not
+    -- steal the global social/micro button into the chat button frame there;
+    -- it breaks BCC/Vanilla/Wrath/Titan/Mists layouts where the native stack
+    -- contains scroll buttons instead of the Retail social/channel pair.
+    if type(ns.IsClassicClient) == "function" then
+        local ok, classic = pcall(ns.IsClassicClient)
+        if ok and classic then
+            return nil
+        end
+    end
+
     if QuickJoinToastButton then
         return QuickJoinToastButton
     end
@@ -1344,6 +1355,10 @@ local function GetMainSidebarButtonFrame()
         return frame.ButtonFrame, frame
     end
 
+    if frame.buttonFrame then
+        return frame.buttonFrame, frame
+    end
+
     if type(frame.GetName) == "function" then
         local ok, name = pcall(frame.GetName, frame)
         if ok and type(name) == "string" and name ~= "" then
@@ -1378,6 +1393,85 @@ local function GetSidebarButtonMetrics()
     end
 
     return width, height
+end
+
+local function IsDetachedClassicSidebarLayout()
+    if type(ns.IsClassicClient) == "function" then
+        local ok, classic = pcall(ns.IsClassicClient)
+        if ok and classic then
+            return true
+        end
+    end
+
+    if type(ns.GetProjectKey) == "function" then
+        local ok, key = pcall(ns.GetProjectKey)
+        if ok then
+            return key == "vanilla"
+                or key == "tbc"
+                or key == "bcc"
+                or key == "wrath"
+                or key == "titan"
+                or key == "mists"
+                or key == "cata"
+        end
+    end
+
+    local project = _G.WOW_PROJECT_ID
+    return project ~= nil and _G.WOW_PROJECT_MAINLINE ~= nil and project ~= _G.WOW_PROJECT_MAINLINE
+end
+
+local function SafeFrameCenterX(frame)
+    if not frame then
+        return nil
+    end
+
+    if frame.GetCenter then
+        local ok, x = pcall(frame.GetCenter, frame)
+        if ok and type(x) == "number" then
+            return x
+        end
+    end
+
+    if frame.GetLeft and frame.GetRight then
+        local okLeft, left = pcall(frame.GetLeft, frame)
+        local okRight, right = pcall(frame.GetRight, frame)
+        if okLeft and okRight and type(left) == "number" and type(right) == "number" then
+            return (left + right) * 0.5
+        end
+    end
+
+    return nil
+end
+
+local function GetClassicSidebarSide(sidebarFrame, hostFrame)
+    local side
+    if hostFrame then
+        if type(hostFrame.buttonSide) == "string" then
+            side = hostFrame.buttonSide
+        elseif hostFrame.GetAttribute then
+            local ok, value = pcall(hostFrame.GetAttribute, hostFrame, "buttonSide")
+            if ok and type(value) == "string" then
+                side = value
+            end
+        end
+    end
+
+    if type(side) == "string" then
+        side = string.lower(side)
+        if string.find(side, "left", 1, true) then
+            return "LEFT"
+        elseif string.find(side, "right", 1, true) then
+            return "RIGHT"
+        end
+    end
+
+    local sidebarCenter = SafeFrameCenterX(sidebarFrame)
+    local hostCenter = SafeFrameCenterX(hostFrame)
+    if sidebarCenter and hostCenter and sidebarCenter < hostCenter then
+        return "LEFT"
+    end
+
+    return "RIGHT"
 end
 
 local function GetConfiguredButtonMetrics()
@@ -1438,9 +1532,14 @@ local function GetLayoutSignature()
     local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
     local showQuickButtons = db.quickChatButtons ~= false
     local showSettingsButton = ShouldShowSettingsButton()
+    local sidebarFrame, sidebarHostFrame = GetMainSidebarButtonFrame()
+    local sidebarMode = IsDetachedClassicSidebarLayout() and "classic-detached" or "native-stack"
+    local sidebarSide = sidebarFrame and GetClassicSidebarSide(sidebarFrame, sidebarHostFrame) or "none"
 
     return table.concat({
         GetConfiguredTheme(),
+        sidebarMode,
+        sidebarSide,
         GetFrameIdentity(frame),
         GetFrameIdentity(visualFrame),
         tostring(width),
@@ -1817,13 +1916,23 @@ local function EnsureSidebarIconButtonVisual(self, iconPath, iconSize)
 
     self:HookScript("OnMouseDown", function(button)
         if button.Icon then
-            button.Icon:AdjustPointsOffset(2, -2)
+            if button.Icon.AdjustPointsOffset then
+                button.Icon:AdjustPointsOffset(2, -2)
+            else
+                button.Icon:ClearAllPoints()
+                button.Icon:SetPoint("CENTER", button, "CENTER", 2, -2)
+            end
         end
     end)
 
     self:HookScript("OnMouseUp", function(button)
         if button.Icon then
-            button.Icon:AdjustPointsOffset(-2, 2)
+            if button.Icon.AdjustPointsOffset then
+                button.Icon:AdjustPointsOffset(-2, 2)
+            else
+                button.Icon:ClearAllPoints()
+                button.Icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+            end
         end
     end)
 
@@ -2015,6 +2124,80 @@ local function LayoutSidebarButtonStack(layoutHost, items, buttonWidth, buttonHe
     end
 end
 
+local function LayoutSidebarButtonRow(layoutHost, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
+    local previous
+    for _, item in ipairs(items) do
+        local button = item.frame
+        ApplySidebarButtonLayout(button, layoutHost, buttonWidth, buttonHeight, strata, frameLevel)
+        if previous then
+            button:SetPoint("LEFT", previous, "RIGHT", spacing, 0)
+        else
+            button:SetPoint("LEFT", layoutHost, "LEFT", 0, 0)
+        end
+        if type(item.refresh) == "function" then
+            item.refresh()
+        end
+        previous = button
+    end
+end
+
+local function GetFrameRect(frame)
+    if not frame then
+        return nil
+    end
+
+    local left, right, top, bottom
+    if frame.GetLeft then
+        local ok, value = pcall(frame.GetLeft, frame)
+        if ok and type(value) == "number" then left = value end
+    end
+    if frame.GetRight then
+        local ok, value = pcall(frame.GetRight, frame)
+        if ok and type(value) == "number" then right = value end
+    end
+    if frame.GetTop then
+        local ok, value = pcall(frame.GetTop, frame)
+        if ok and type(value) == "number" then top = value end
+    end
+    if frame.GetBottom then
+        local ok, value = pcall(frame.GetBottom, frame)
+        if ok and type(value) == "number" then bottom = value end
+    end
+
+    return left, right, top, bottom
+end
+
+local function GetUIParentWidth()
+    if UIParent and UIParent.GetWidth then
+        local ok, value = pcall(UIParent.GetWidth, UIParent)
+        if ok and type(value) == "number" and value > 0 then
+            return value
+        end
+    end
+    return nil
+end
+
+local function ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing)
+    local gap = 6
+    local rowWidth = (buttonWidth * itemCount) + (spacing * math.max(0, itemCount - 1))
+    local left, right, top = GetFrameRect(sidebarFrame)
+    local uiWidth = GetUIParentWidth()
+    local side = GetClassicSidebarSide(sidebarFrame, hostFrame)
+
+    if side == "LEFT" then
+        if left and left >= (buttonWidth + gap) then
+            return "vertical-left", buttonWidth + 4, (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1)), gap
+        end
+        return "row-above-left", rowWidth, buttonHeight, gap
+    end
+
+    if right and uiWidth and (uiWidth - right) >= (buttonWidth + gap) then
+        return "vertical-right", buttonWidth + 4, (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1)), gap
+    end
+
+    return "row-above-right", rowWidth, buttonHeight, gap
+end
+
 local function HideUnusedSidebarButtons(activeItems, ...)
     local active = {}
     for _, item in ipairs(activeItems or {}) do
@@ -2026,6 +2209,188 @@ local function HideUnusedSidebarButtons(activeItems, ...)
             button:Hide()
         end
     end
+end
+
+local function AddClassicNativeButtonCandidate(candidates, button)
+    if not button or candidates[button] then
+        return
+    end
+    if button == settingsButton or button == copyButton or button == historyButton then
+        return
+    end
+    if button.IsShown and not button:IsShown() then
+        return
+    end
+    if not button.GetTop or not button.GetBottom then
+        return
+    end
+
+    local okTop, top = pcall(button.GetTop, button)
+    local okBottom, bottom = pcall(button.GetBottom, button)
+    if okTop and okBottom and type(top) == "number" and type(bottom) == "number" then
+        candidates[button] = { frame = button, top = top, bottom = bottom }
+    end
+end
+
+local function GetClassicNativeButtonBounds(sidebarFrame, hostFrame)
+    local candidates = {}
+    local hostName
+    if hostFrame and hostFrame.GetName then
+        local ok, name = pcall(hostFrame.GetName, hostFrame)
+        if ok and type(name) == "string" then
+            hostName = name
+        end
+    end
+
+    if hostName then
+        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameUpButton"])
+        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameDownButton"])
+        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameBottomButton"])
+        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameMinimizeButton"])
+        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "MinimizeButton"])
+    end
+
+    AddClassicNativeButtonCandidate(candidates, _G.ChatFrameMenuButton)
+    AddClassicNativeButtonCandidate(candidates, _G.ChatFrameChannelButton)
+
+    if sidebarFrame and sidebarFrame.GetChildren then
+        local children = { sidebarFrame:GetChildren() }
+        for i = 1, #children do
+            AddClassicNativeButtonCandidate(candidates, children[i])
+        end
+    end
+
+    local topButton, bottomButton
+    local highestTop, lowestBottom
+    for button, data in pairs(candidates) do
+        if not highestTop or data.top > highestTop then
+            highestTop = data.top
+            topButton = button
+        end
+        if not lowestBottom or data.bottom < lowestBottom then
+            lowestBottom = data.bottom
+            bottomButton = button
+        end
+    end
+
+    return topButton, highestTop, bottomButton, lowestBottom
+end
+
+local function PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing, strata, frameLevel)
+    local layoutHost = settingsContainer
+    if not layoutHost then
+        return nil, nil
+    end
+
+    local parent = (hostFrame and hostFrame.GetParent and hostFrame:GetParent())
+        or (sidebarFrame and sidebarFrame.GetParent and sidebarFrame:GetParent())
+        or UIParent
+
+    itemCount = math.max(1, tonumber(itemCount) or 1)
+    local placement, width, height, gap = ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing)
+
+    -- Classic chat button frames are not stable across Vanilla/BCC/Wrath/Titan/Mists.
+    -- Do not insert Chatify into Blizzard's ButtonFrame at all; keep a separate
+    -- toolbar beside/above the native stack so scroll/menu buttons remain untouched.
+    layoutHost:SetParent(parent)
+    layoutHost:ClearAllPoints()
+    layoutHost:SetSize(math.max(1, width or buttonWidth), math.max(1, height or buttonHeight))
+
+    if placement == "vertical-left" and sidebarFrame then
+        layoutHost:SetPoint("TOPRIGHT", sidebarFrame, "TOPLEFT", -gap, 0)
+    elseif placement == "vertical-right" and sidebarFrame then
+        layoutHost:SetPoint("TOPLEFT", sidebarFrame, "TOPRIGHT", gap, 0)
+    elseif placement == "row-above-right" and sidebarFrame then
+        layoutHost:SetPoint("BOTTOMRIGHT", sidebarFrame, "TOPRIGHT", 0, gap)
+    elseif sidebarFrame then
+        layoutHost:SetPoint("BOTTOMLEFT", sidebarFrame, "TOPLEFT", 0, gap)
+    elseif hostFrame then
+        layoutHost:SetPoint("BOTTOMLEFT", hostFrame, "TOPLEFT", 0, gap)
+    else
+        layoutHost:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+
+    layoutHost.__chatifyClassicPlacement = placement
+    layoutHost:SetFrameStrata(strata)
+    if layoutHost.SetFrameLevel then
+        layoutHost:SetFrameLevel(frameLevel + 20)
+    end
+    if layoutHost.SetClipsChildren then
+        layoutHost:SetClipsChildren(false)
+    end
+    -- Do not clamp this toolbar: clamping can push it back on top of Blizzard's
+    -- native chat buttons at screen edges, which is exactly the BCC overlap bug.
+    if layoutHost.SetClampedToScreen then
+        layoutHost:SetClampedToScreen(false)
+    end
+    layoutHost:Show()
+
+    return layoutHost, placement
+end
+
+local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
+    if not settingsButton then
+        return false
+    end
+
+    local showSettings = ShouldShowSettingsButton()
+    local showCopy = showSettings and copyButton ~= nil
+    local showHistory = showSettings and historyButton ~= nil
+
+    local layoutItems = {}
+    if showSettings then
+        AddSidebarLayoutItem(layoutItems, "settings", settingsButton, RefreshSettingsButtonLook)
+    end
+    if showCopy then
+        AddSidebarLayoutItem(layoutItems, "copy", copyButton, RefreshCopyButtonLook)
+    end
+    if showHistory then
+        AddSidebarLayoutItem(layoutItems, "history", historyButton, RefreshHistoryButtonLook)
+    end
+
+    if #layoutItems == 0 then
+        if settingsContainer then
+            settingsContainer:Hide()
+        end
+        HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
+        return true
+    end
+
+    local buttonWidth, buttonHeight, ratio = GetConfiguredButtonMetrics()
+    local spacing = GetSidebarLayoutSpacing()
+    local strata = (sidebarFrame and sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata())
+        or (hostFrame and hostFrame.GetFrameStrata and hostFrame:GetFrameStrata())
+        or "HIGH"
+    local frameLevel = (sidebarFrame and sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel())
+        or (hostFrame and hostFrame.GetFrameLevel and hostFrame:GetFrameLevel())
+        or 1
+
+    -- Classic keeps Chatify controls detached from Blizzard's native button
+    -- column. Use the native button size, but do not fit against the native
+    -- ButtonFrame height because that reintroduces overlap on BCC.
+    spacing = math.max(2, spacing)
+
+    local layoutHost, placement = PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, #layoutItems, spacing, strata, frameLevel)
+    if not layoutHost then
+        return false
+    end
+
+    if placement == "row-above-left" or placement == "row-above-right" then
+        LayoutSidebarButtonRow(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
+    else
+        LayoutSidebarButtonStack(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
+    end
+    HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
+
+    -- Never hide or reparent Blizzard's Classic chat buttons here. BCC,
+    -- Vanilla, Wrath/Titan and MoP Classic use different native children
+    -- (Up/Down/Bottom/Minimize/Menu), and changing their parent/order is what
+    -- causes the broken vertical stack shown in game.
+    if socialButton and socialButton.Hide then
+        socialButton:Hide()
+    end
+
+    return true
 end
 
 local function LayoutSettingsButton()
@@ -2048,6 +2413,11 @@ local function LayoutSettingsButton()
         if socialButton then
             socialButton:Hide()
         end
+        return
+    end
+
+    if IsDetachedClassicSidebarLayout() then
+        LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
         return
     end
 
