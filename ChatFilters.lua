@@ -1252,7 +1252,11 @@ function Filters:HookCommunities()
                 end
                 if fontPath then
                     local _, size, flags = frame.Message:GetFont()
-                    pcall(frame.Message.SetFont, frame.Message, fontPath, size, flags)
+                    if type(ns.SafeSetFont) == "function" then
+                        ns.SafeSetFont(frame.Message, fontPath, size, flags)
+                    else
+                        pcall(frame.Message.SetFont, frame.Message, fontPath, size, flags)
+                    end
                 end
             end
         end

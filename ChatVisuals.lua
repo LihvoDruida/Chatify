@@ -187,7 +187,8 @@ local function StyleFrame(frame)
     if type(ns.SafeSetFont) == "function" then
         ok = ns.SafeSetFont(frame, fontPath, size, outline)
     elseif type(frame.SetFont) == "function" then
-        ok = pcall(frame.SetFont, frame, fontPath, size, outline) and true or false
+        local okCall, applied = pcall(frame.SetFont, frame, fontPath, size, outline)
+        ok = okCall and applied ~= false
     end
 
     if not ok and ChatFontNormal and ChatFontNormal.GetFont then
@@ -206,10 +207,22 @@ local function StyleFrame(frame)
     if editBox then
         local editName = type(editBox.GetName) == "function" and editBox:GetName() or nil
         local header = editName and _G[editName.."Header"] or nil
-        if header then pcall(header.SetFont, header, fontPath, size, outline) end
+        if header then
+            if type(ns.SafeSetFont) == "function" then
+                ns.SafeSetFont(header, fontPath, size, outline)
+            else
+                pcall(header.SetFont, header, fontPath, size, outline)
+            end
+        end
 
         local suffix = editName and _G[editName.."HeaderSuffix"] or nil
-        if suffix then pcall(suffix.SetFont, suffix, fontPath, size, outline) end
+        if suffix then
+            if type(ns.SafeSetFont) == "function" then
+                ns.SafeSetFont(suffix, fontPath, size, outline)
+            else
+                pcall(suffix.SetFont, suffix, fontPath, size, outline)
+            end
+        end
 
         if type(ns.SafeSetFont) == "function" then
             ns.SafeSetFont(editBox, fontPath, size, outline)

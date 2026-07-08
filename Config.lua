@@ -11,24 +11,66 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 local LSM = LibStub("LibSharedMedia-3.0", true)
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
--- Реєструємо ваші асети в глобальну бібліотеку
--- Це дозволяє вибирати їх у випадаючих списках Config.lua
-if LSM and type(LSM.Register) == "function" then
-    LSM:Register("sound", "Chatify Default", "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg")
-end
-
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
 -- =========================================================
-ns.Lists = {}
+ns.Lists = ns.Lists or {}
 
--- Список шрифтів (Fallback, якщо LSM не працює)
-ns.Lists.Fonts = {
-    [1] = { name = "Friz Quadrata (WoW)",  path = "Fonts\\FRIZQT__.TTF" },
-    [2] = { name = "Arial Narrow (WoW)",   path = "Fonts\\ARIALN.TTF" },
-    [3] = { name = "Skurri (WoW)",         path = "Fonts\\skurri.ttf" },
-    [4] = { name = "Morpheus (Quest)",     path = "Fonts\\MORPHEUS.TTF" },
-}
+local ADDON_FONT_ROOT = "Interface\\AddOns\\Chatify\\assets\\Fonts\\"
+local CHATIFY_DEFAULT_SOUND = "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg"
+local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
+
+local function AddFont(list, name, path, opts)
+    if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
+        return
+    end
+    opts = opts or {}
+    list[#list + 1] = {
+        name = name,
+        path = path,
+        internal = opts.internal == true,
+        family = opts.family,
+        weight = opts.weight,
+        aliases = opts.aliases,
+    }
+end
+
+-- Список шрифтів. Це fallback-реєстр Chatify і джерело для LibSharedMedia.
+-- Внутрішні шрифти реєструються як звичайні LSM fonts, якщо файли є в assets/Fonts.
+ns.Lists.Fonts = {}
+AddFont(ns.Lists.Fonts, "Friz Quadrata (WoW)", "Fonts\\FRIZQT__.TTF", { family = "WoW" })
+AddFont(ns.Lists.Fonts, "Arial Narrow (WoW)", "Fonts\\ARIALN.TTF", { family = "WoW" })
+AddFont(ns.Lists.Fonts, "Skurri (WoW)", "Fonts\\skurri.ttf", { family = "WoW" })
+AddFont(ns.Lists.Fonts, "Morpheus (Quest)", "Fonts\\MORPHEUS.TTF", { family = "WoW" })
+
+-- Legacy bundled font path used by older Chatify builds.
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2", ADDON_FONT_ROOT .. "Exo2.ttf", {
+    internal = true,
+    family = "Exo 2",
+    weight = "Regular",
+    aliases = { "Exo2", "EXO2", "Exo 2" },
+})
+
+-- Optional internal font variants. They become usable when the matching files are present in assets/Fonts.
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Regular", ADDON_FONT_ROOT .. "Exo2-Regular.ttf", { internal = true, family = "Exo 2", weight = "Regular" })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Medium", ADDON_FONT_ROOT .. "Exo2-Medium.ttf", { internal = true, family = "Exo 2", weight = "Medium" })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 SemiBold", ADDON_FONT_ROOT .. "Exo2-SemiBold.ttf", { internal = true, family = "Exo 2", weight = "SemiBold" })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Bold", ADDON_FONT_ROOT .. "Exo2-Bold.ttf", { internal = true, family = "Exo 2", weight = "Bold" })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Italic", ADDON_FONT_ROOT .. "Exo2-Italic.ttf", { internal = true, family = "Exo 2", weight = "Italic" })
+
+AddFont(ns.Lists.Fonts, "Chatify: Inter", ADDON_FONT_ROOT .. "Inter-Regular.ttf", {
+    internal = true,
+    family = "Inter",
+    weight = "Regular",
+    aliases = { "Inter", "INTER" },
+})
+AddFont(ns.Lists.Fonts, "Chatify: Inter Medium", ADDON_FONT_ROOT .. "Inter-Medium.ttf", { internal = true, family = "Inter", weight = "Medium" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter SemiBold", ADDON_FONT_ROOT .. "Inter-SemiBold.ttf", { internal = true, family = "Inter", weight = "SemiBold" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Bold", ADDON_FONT_ROOT .. "Inter-Bold.ttf", { internal = true, family = "Inter", weight = "Bold" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Display", ADDON_FONT_ROOT .. "InterDisplay-Regular.ttf", { internal = true, family = "Inter Display", weight = "Regular" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Display Medium", ADDON_FONT_ROOT .. "InterDisplay-Medium.ttf", { internal = true, family = "Inter Display", weight = "Medium" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Display SemiBold", ADDON_FONT_ROOT .. "InterDisplay-SemiBold.ttf", { internal = true, family = "Inter Display", weight = "SemiBold" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Display Bold", ADDON_FONT_ROOT .. "InterDisplay-Bold.ttf", { internal = true, family = "Inter Display", weight = "Bold" })
 
 -- Список форматів часу
 ns.Lists.TimeFormats = {
@@ -39,12 +81,47 @@ ns.Lists.TimeFormats = {
     [5] = { name = "D.M HH:MM (08.02 12:30)",  format = "%d.%m %H:%M" },
 }
 
+local fontAliasLookup
+local function BuildFontAliasLookup()
+    local lookup = {}
+    for _, entry in ipairs(ns.Lists.Fonts or {}) do
+        if entry and type(entry.name) == "string" and type(entry.path) == "string" then
+            lookup[entry.name] = entry.path
+            lookup[string.lower(entry.name)] = entry.path
+            lookup[entry.path] = entry.path
+            if type(entry.aliases) == "table" then
+                for _, alias in ipairs(entry.aliases) do
+                    if type(alias) == "string" and alias ~= "" then
+                        lookup[alias] = entry.path
+                        lookup[string.lower(alias)] = entry.path
+                    end
+                end
+            end
+        end
+    end
+    return lookup
+end
+
+local function RegisterChatifyMedia()
+    if not (LSM and type(LSM.Register) == "function") then
+        return
+    end
+
+    pcall(LSM.Register, LSM, "sound", "Chatify Default", CHATIFY_DEFAULT_SOUND)
+
+    for _, entry in ipairs(ns.Lists.Fonts or {}) do
+        if entry and type(entry.name) == "string" and type(entry.path) == "string" then
+            pcall(LSM.Register, LSM, "font", entry.name, entry.path)
+        end
+    end
+end
+
+ns.RegisterChatifyMedia = RegisterChatifyMedia
+RegisterChatifyMedia()
+
 -- =========================================================
 -- 3. MEDIA RESOLVERS
 -- =========================================================
-local CHATIFY_DEFAULT_SOUND = "Interface\\AddOns\\Chatify\\assets\\alert\\notification-0.ogg"
-local CHATIFY_DEFAULT_FONT = "Fonts\\FRIZQT__.TTF"
-
 function ns.ResolveFontPath(fontID)
     if type(fontID) ~= "string" or fontID == "" then
         return CHATIFY_DEFAULT_FONT
@@ -59,12 +136,10 @@ function ns.ResolveFontPath(fontID)
         return fromLSM
     end
 
-    if ns.Lists and ns.Lists.Fonts then
-        for _, entry in ipairs(ns.Lists.Fonts) do
-            if entry and (entry.name == fontID or entry.path == fontID) and type(entry.path) == "string" then
-                return entry.path
-            end
-        end
+    fontAliasLookup = fontAliasLookup or BuildFontAliasLookup()
+    local fromAlias = fontAliasLookup[fontID] or fontAliasLookup[string.lower(fontID)]
+    if type(fromAlias) == "string" and fromAlias ~= "" then
+        return fromAlias
     end
 
     return CHATIFY_DEFAULT_FONT
@@ -931,13 +1006,11 @@ function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
         end
     end
 
-    local ok = false
     if type(primary) == "string" and primary ~= "" then
-        ok = pcall(target.SetFont, target, primary, size, flags or "") and true or false
-    end
-
-    if ok then
-        return true
+        local ok, applied = pcall(target.SetFont, target, primary, size, flags or "")
+        if ok and applied ~= false then
+            return true
+        end
     end
 
     local fallback = fallbackFont
@@ -947,8 +1020,9 @@ function ns.SafeSetFont(target, fontPath, size, flags, fallbackFont)
         end
     end
 
-    if type(fallback) == "string" and fallback ~= "" then
-        return pcall(target.SetFont, target, fallback, size, flags or "") and true or false
+    if type(fallback) == "string" and fallback ~= "" and fallback ~= primary then
+        local ok, applied = pcall(target.SetFont, target, fallback, size, flags or "")
+        return ok and applied ~= false
     end
 
     return false

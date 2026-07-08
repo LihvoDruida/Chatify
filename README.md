@@ -28,6 +28,20 @@ The addon is split into logical modules for better maintainability:
 * `ChatVisuals.lua` — Visual tweaks (fonts, hiding elements).
 * `ChatCopy.lua` — ChatCopy 2.0 popup, shared tabbed copy/history window, safe copy cache, native selection guard, and configurable chat-window tabs.
 
+
+## Fonts
+
+Chatify registers its known chat fonts through LibSharedMedia and also keeps a built-in fallback list for clients where the LSM widget is unavailable. The settings dropdown supports Blizzard fonts plus Chatify internal font paths for Exo 2, Inter, and Inter Display variants.
+
+Supported internal filenames under `assets/Fonts/`:
+
+- `Exo2.ttf`
+- `Exo2-Regular.ttf`, `Exo2-Medium.ttf`, `Exo2-SemiBold.ttf`, `Exo2-Bold.ttf`, `Exo2-Italic.ttf`
+- `Inter-Regular.ttf`, `Inter-Medium.ttf`, `Inter-SemiBold.ttf`, `Inter-Bold.ttf`
+- `InterDisplay-Regular.ttf`, `InterDisplay-Medium.ttf`, `InterDisplay-SemiBold.ttf`, `InterDisplay-Bold.ttf`
+
+If a selected font file is absent or cannot be loaded by the current WoW client, Chatify falls back to the active Blizzard chat font instead of breaking chat rendering.
+
 ## 🚀 Installation (For Developers)
 
 1.  Navigate to your WoW AddOns folder:

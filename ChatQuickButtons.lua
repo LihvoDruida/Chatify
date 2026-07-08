@@ -23,6 +23,7 @@ local GetConfiguredTheme
 local GetConfiguredButtonYOffset
 local GetElvUIPanelColor
 local GetGW2ChatFont
+local GetConfiguredChatFontPath
 local GetAnchorFrame
 local MixColor
 local elvuiEngine
@@ -820,13 +821,12 @@ local function RefreshButtonLook(button)
         local width = math.max(1, button:GetWidth() or 26)
         local height = math.max(1, button:GetHeight() or 28)
         local fontSize = math.max(10, math.floor(math.min(width, height) * 0.56 * GetConfiguredFontScale()))
-        local fontPath = STANDARD_TEXT_FONT
-        if theme == "GW2UI" then
-            fontPath = GetGW2ChatFont() or fontPath
-        elseif ChatFontNormal and ChatFontNormal.GetFont then
-            fontPath = ChatFontNormal:GetFont() or fontPath
+        local fontPath = GetConfiguredChatFontPath(theme)
+        if type(ns.SafeSetFont) == "function" then
+            ns.SafeSetFont(button.Label, fontPath, fontSize, "OUTLINE", STANDARD_TEXT_FONT)
+        else
+            pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
         end
-        pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
         button.Label:ClearAllPoints()
         button.Label:SetPoint("CENTER", button, "CENTER", pressed and 1 or 0, pressed and -1 or 0)
 
@@ -1112,6 +1112,32 @@ GetGW2ChatFont = function()
     if GW and GW.Libs and GW.Libs.LSM and type(GW.Libs.LSM.Fetch) == "function" then
         local ok, fontPath = pcall(GW.Libs.LSM.Fetch, GW.Libs.LSM, "font", "GW2_UI_Chat")
         if ok and type(fontPath) == "string" and fontPath ~= "" then
+            return fontPath
+        end
+    end
+
+    return STANDARD_TEXT_FONT
+end
+
+GetConfiguredChatFontPath = function(theme)
+    local db = GetDB()
+    if db and type(ns.ResolveFontPath) == "function" then
+        local ok, fontPath = pcall(ns.ResolveFontPath, db.fontID)
+        if ok and type(fontPath) == "string" and fontPath ~= "" then
+            return fontPath
+        end
+    end
+
+    if theme == "GW2UI" then
+        local gw2Font = GetGW2ChatFont()
+        if type(gw2Font) == "string" and gw2Font ~= "" then
+            return gw2Font
+        end
+    end
+
+    if ChatFontNormal and ChatFontNormal.GetFont then
+        local fontPath = ChatFontNormal:GetFont()
+        if type(fontPath) == "string" and fontPath ~= "" then
             return fontPath
         end
     end
@@ -2665,12 +2691,7 @@ local function LayoutButtons()
 
     local theme = GetConfiguredTheme()
     local fontScale = GetConfiguredFontScale()
-    local fontPath = STANDARD_TEXT_FONT
-    if theme == "GW2UI" then
-        fontPath = GetGW2ChatFont() or fontPath
-    elseif ChatFontNormal and ChatFontNormal.GetFont then
-        fontPath = ChatFontNormal:GetFont() or fontPath
-    end
+    local fontPath = GetConfiguredChatFontPath(theme)
     local fontSize = math.max(10, math.floor(math.min(buttonWidth, buttonHeight) * 0.56 * fontScale))
 
     local previous
@@ -2690,7 +2711,11 @@ local function LayoutButtons()
 
         if button.Label then
             if button.__chatifyFontPath ~= fontPath or button.__chatifyFontSize ~= fontSize then
-                pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+                if type(ns.SafeSetFont) == "function" then
+                    ns.SafeSetFont(button.Label, fontPath, fontSize, "OUTLINE", STANDARD_TEXT_FONT)
+                else
+                    pcall(button.Label.SetFont, button.Label, fontPath, fontSize, "OUTLINE")
+                end
                 button.__chatifyFontPath = fontPath
                 button.__chatifyFontSize = fontSize
             end

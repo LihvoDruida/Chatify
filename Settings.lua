@@ -44,25 +44,32 @@ local function GetAddonMetadataValue(key)
 end
 
 local function GetLSMFontValues()
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
-        return AceGUIWidgetLSMlists.font
+    if type(ns.RegisterChatifyMedia) == "function" then
+        pcall(ns.RegisterChatifyMedia)
     end
 
     local values = {}
+
+    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
+        for key, value in pairs(AceGUIWidgetLSMlists.font) do
+            values[key] = value
+        end
+    end
+
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
     if LSM then
         local ok, hash = pcall(LSM.HashTable, LSM, "font")
         if ok and type(hash) == "table" then
             for name in pairs(hash) do
-                values[name] = name
+                values[name] = values[name] or name
             end
         end
     end
 
-    if next(values) == nil and ns.Lists and ns.Lists.Fonts then
+    if ns.Lists and ns.Lists.Fonts then
         for _, entry in ipairs(ns.Lists.Fonts) do
             if entry and entry.name then
-                values[entry.name] = entry.name
+                values[entry.name] = values[entry.name] or entry.name
             end
         end
     end
