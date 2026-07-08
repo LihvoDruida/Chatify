@@ -51,8 +51,15 @@ local function GetLSMFontValues()
     local values = {}
 
     if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
+        for _, name in ipairs(AceGUIWidgetLSMlists.font) do
+            if type(name) == "string" and name ~= "" then
+                values[name] = name
+            end
+        end
         for key, value in pairs(AceGUIWidgetLSMlists.font) do
-            values[key] = value
+            if type(key) == "string" and type(value) == "string" and value ~= "" then
+                values[key] = value
+            end
         end
     end
 
@@ -68,7 +75,12 @@ local function GetLSMFontValues()
 
     if ns.Lists and ns.Lists.Fonts then
         for _, entry in ipairs(ns.Lists.Fonts) do
-            if entry and entry.name then
+            local available = true
+            if type(ns.IsFontEntryAvailable) == "function" then
+                local ok, result = pcall(ns.IsFontEntryAvailable, entry)
+                available = ok and result == true
+            end
+            if available and entry and not entry.hidden and entry.register ~= false and entry.name then
                 values[entry.name] = values[entry.name] or entry.name
             end
         end

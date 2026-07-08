@@ -32,6 +32,9 @@ local function AddFont(list, name, path, opts)
         family = opts.family,
         weight = opts.weight,
         aliases = opts.aliases,
+        hidden = opts.hidden == true,
+        register = opts.register ~= false,
+        recommended = opts.recommended == true,
     }
 end
 
@@ -43,18 +46,24 @@ AddFont(ns.Lists.Fonts, "Arial Narrow (WoW)", "Fonts\\ARIALN.TTF", { family = "W
 AddFont(ns.Lists.Fonts, "Skurri (WoW)", "Fonts\\skurri.ttf", { family = "WoW" })
 AddFont(ns.Lists.Fonts, "Morpheus (Quest)", "Fonts\\MORPHEUS.TTF", { family = "WoW" })
 
--- Legacy bundled font path used by older Chatify builds.
-AddFont(ns.Lists.Fonts, "Chatify: Exo 2", ADDON_FONT_ROOT .. "Exo2.ttf", {
+-- Internal chat fonts. Only readable, chat-safe static TTF variants are exposed.
+-- Exo2.ttf is kept as a legacy file/alias path, but it is not shown as a
+-- separate dropdown row because it duplicates the Regular face.
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2", ADDON_FONT_ROOT .. "Exo2-Regular.ttf", {
     internal = true,
     family = "Exo 2",
     weight = "Regular",
-    aliases = { "Exo2", "EXO2", "Exo 2" },
+    recommended = true,
+    aliases = {
+        "Chatify: Exo 2 Regular",
+        "Exo2",
+        "EXO2",
+        "Exo 2",
+        ADDON_FONT_ROOT .. "Exo2.ttf",
+    },
 })
-
--- Optional internal font variants. They become usable when the matching files are present in assets/Fonts.
-AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Regular", ADDON_FONT_ROOT .. "Exo2-Regular.ttf", { internal = true, family = "Exo 2", weight = "Regular" })
-AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Medium", ADDON_FONT_ROOT .. "Exo2-Medium.ttf", { internal = true, family = "Exo 2", weight = "Medium" })
-AddFont(ns.Lists.Fonts, "Chatify: Exo 2 SemiBold", ADDON_FONT_ROOT .. "Exo2-SemiBold.ttf", { internal = true, family = "Exo 2", weight = "SemiBold" })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Medium", ADDON_FONT_ROOT .. "Exo2-Medium.ttf", { internal = true, family = "Exo 2", weight = "Medium", recommended = true })
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 SemiBold", ADDON_FONT_ROOT .. "Exo2-SemiBold.ttf", { internal = true, family = "Exo 2", weight = "SemiBold", recommended = true })
 AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Bold", ADDON_FONT_ROOT .. "Exo2-Bold.ttf", { internal = true, family = "Exo 2", weight = "Bold" })
 AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Italic", ADDON_FONT_ROOT .. "Exo2-Italic.ttf", { internal = true, family = "Exo 2", weight = "Italic" })
 
@@ -62,15 +71,36 @@ AddFont(ns.Lists.Fonts, "Chatify: Inter", ADDON_FONT_ROOT .. "Inter-Regular.ttf"
     internal = true,
     family = "Inter",
     weight = "Regular",
-    aliases = { "Inter", "INTER" },
+    recommended = true,
+    aliases = { "Chatify: Inter Regular", "Inter", "INTER" },
 })
-AddFont(ns.Lists.Fonts, "Chatify: Inter Medium", ADDON_FONT_ROOT .. "Inter-Medium.ttf", { internal = true, family = "Inter", weight = "Medium" })
-AddFont(ns.Lists.Fonts, "Chatify: Inter SemiBold", ADDON_FONT_ROOT .. "Inter-SemiBold.ttf", { internal = true, family = "Inter", weight = "SemiBold" })
+AddFont(ns.Lists.Fonts, "Chatify: Inter Medium", ADDON_FONT_ROOT .. "Inter-Medium.ttf", { internal = true, family = "Inter", weight = "Medium", recommended = true })
+AddFont(ns.Lists.Fonts, "Chatify: Inter SemiBold", ADDON_FONT_ROOT .. "Inter-SemiBold.ttf", { internal = true, family = "Inter", weight = "SemiBold", recommended = true })
 AddFont(ns.Lists.Fonts, "Chatify: Inter Bold", ADDON_FONT_ROOT .. "Inter-Bold.ttf", { internal = true, family = "Inter", weight = "Bold" })
-AddFont(ns.Lists.Fonts, "Chatify: Inter Display", ADDON_FONT_ROOT .. "InterDisplay-Regular.ttf", { internal = true, family = "Inter Display", weight = "Regular" })
+
+-- Inter Display is readable enough for compact buttons/headings, but less ideal
+-- than Inter for dense chat logs. Keep it available when the matching static
+-- TTF files are installed.
+AddFont(ns.Lists.Fonts, "Chatify: Inter Display", ADDON_FONT_ROOT .. "InterDisplay-Regular.ttf", {
+    internal = true,
+    family = "Inter Display",
+    weight = "Regular",
+    aliases = { "Chatify: Inter Display Regular", "Inter Display" },
+})
 AddFont(ns.Lists.Fonts, "Chatify: Inter Display Medium", ADDON_FONT_ROOT .. "InterDisplay-Medium.ttf", { internal = true, family = "Inter Display", weight = "Medium" })
 AddFont(ns.Lists.Fonts, "Chatify: Inter Display SemiBold", ADDON_FONT_ROOT .. "InterDisplay-SemiBold.ttf", { internal = true, family = "Inter Display", weight = "SemiBold" })
 AddFont(ns.Lists.Fonts, "Chatify: Inter Display Bold", ADDON_FONT_ROOT .. "InterDisplay-Bold.ttf", { internal = true, family = "Inter Display", weight = "Bold" })
+
+-- Legacy Exo2.ttf support for old profiles and manual installs. Hidden entries
+-- are never registered in LibSharedMedia, so they cannot duplicate the dropdown.
+AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Legacy", ADDON_FONT_ROOT .. "Exo2.ttf", {
+    internal = true,
+    family = "Exo 2",
+    weight = "Regular",
+    hidden = true,
+    register = false,
+    aliases = { "Exo2.ttf" },
+})
 
 -- Список форматів часу
 ns.Lists.TimeFormats = {
@@ -82,10 +112,66 @@ ns.Lists.TimeFormats = {
 }
 
 local fontAliasLookup
+local fontUsabilityCache = {}
+local fontProbeSerial = 0
+local registeredMedia = {}
+
+local function IsBuiltinWoWFontPath(path)
+    if type(path) ~= "string" or path == "" then
+        return false
+    end
+    local lower = string.lower(path)
+    return string.sub(lower, 1, 6) == "fonts\\" or string.sub(lower, 1, 6) == "fonts/"
+end
+
+local function CanUseFontAsset(path)
+    if type(path) ~= "string" or path == "" then
+        return false
+    end
+
+    if fontUsabilityCache[path] ~= nil then
+        return fontUsabilityCache[path]
+    end
+
+    -- Blizzard's built-in Fonts\*.TTF entries are safe to expose even before
+    -- a Font object is available on very early load paths.
+    if IsBuiltinWoWFontPath(path) then
+        fontUsabilityCache[path] = true
+        return true
+    end
+
+    if type(CreateFont) ~= "function" then
+        -- Do not expose optional addon fonts until the client can validate them.
+        fontUsabilityCache[path] = false
+        return false
+    end
+
+    fontProbeSerial = fontProbeSerial + 1
+    local fontName = "ChatifyFontProbe" .. tostring(fontProbeSerial)
+    local okCreate, probe = pcall(CreateFont, fontName)
+    if not okCreate or not probe or type(probe.SetFont) ~= "function" then
+        fontUsabilityCache[path] = false
+        return false
+    end
+
+    local okSet, applied = pcall(probe.SetFont, probe, path, 12, "")
+    local usable = okSet and applied ~= false
+    fontUsabilityCache[path] = usable
+    return usable
+end
+
+function ns.IsFontPathAvailable(path)
+    return CanUseFontAsset(path)
+end
+
+function ns.IsFontEntryAvailable(entry)
+    return entry and CanUseFontAsset(entry.path) or false
+end
+
 local function BuildFontAliasLookup()
     local lookup = {}
     for _, entry in ipairs(ns.Lists.Fonts or {}) do
-        if entry and type(entry.name) == "string" and type(entry.path) == "string" then
+        if entry and type(entry.name) == "string" and type(entry.path) == "string" and CanUseFontAsset(entry.path) then
             lookup[entry.name] = entry.path
             lookup[string.lower(entry.name)] = entry.path
             lookup[entry.path] = entry.path
@@ -102,16 +188,35 @@ local function BuildFontAliasLookup()
     return lookup
 end
 
+local function RegisterMediaOnce(mediaType, name, path)
+    if not (LSM and type(LSM.Register) == "function") then
+        return
+    end
+    if type(mediaType) ~= "string" or type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
+        return
+    end
+
+    local key = mediaType .. "\031" .. name .. "\031" .. path
+    if registeredMedia[key] then
+        return
+    end
+
+    local ok = pcall(LSM.Register, LSM, mediaType, name, path)
+    if ok then
+        registeredMedia[key] = true
+    end
+end
+
 local function RegisterChatifyMedia()
     if not (LSM and type(LSM.Register) == "function") then
         return
     end
 
-    pcall(LSM.Register, LSM, "sound", "Chatify Default", CHATIFY_DEFAULT_SOUND)
+    RegisterMediaOnce("sound", "Chatify Default", CHATIFY_DEFAULT_SOUND)
 
     for _, entry in ipairs(ns.Lists.Fonts or {}) do
-        if entry and type(entry.name) == "string" and type(entry.path) == "string" then
-            pcall(LSM.Register, LSM, "font", entry.name, entry.path)
+        if entry and entry.register ~= false and not entry.hidden and type(entry.name) == "string" and type(entry.path) == "string" and CanUseFontAsset(entry.path) then
+            RegisterMediaOnce("font", entry.name, entry.path)
         end
     end
 end
@@ -132,7 +237,7 @@ function ns.ResolveFontPath(fontID)
     end
 
     local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
-    if fromLSM and type(fromLSM) == "string" then
+    if fromLSM and type(fromLSM) == "string" and CanUseFontAsset(fromLSM) then
         return fromLSM
     end
 
