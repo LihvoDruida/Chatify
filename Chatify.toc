@@ -10,10 +10,11 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.11.5
+## Version: 0.11.12
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
+## AddonCompartmentFunc: Chatify_ToggleOptionsWindow
 ## SavedVariables: ChatifyDB, ChatifyHistoryDB
 ## LoadSavedVariablesFirst: true
 ## Category-enUS: Chat
@@ -21,6 +22,7 @@
 ## X-Curse-Project-ID: 1458193
 
 ## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
+## X-Compatible-With: Prat-3.0, Chattynator, ElvUI, GW2_UI
 
 Compatibility.lua
 libs\_manifest.xml

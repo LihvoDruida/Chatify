@@ -5,7 +5,40 @@
 local addonName = ...
 _G.ChatifyCompat = _G.ChatifyCompat or {}
 local compat = _G.ChatifyCompat
-compat.version = "1.0.0"
+compat.version = "1.1.0"
+
+-- Safe Addon Compartment entry point. It is declared in every TOC and must
+-- survive even if the configuration module has not finished loading yet.
+if type(_G.Chatify_ToggleOptionsWindow) ~= "function" then
+    _G.Chatify_ToggleOptionsWindow = function()
+        local addon
+        if type(_G.LibStub) == "function" then
+            local okAce, aceAddon = pcall(_G.LibStub, "AceAddon-3.0", true)
+            if okAce and aceAddon and type(aceAddon.GetAddon) == "function" then
+                local okAddon, loadedAddon = pcall(aceAddon.GetAddon, aceAddon, "Chatify", true)
+                if okAddon then
+                    addon = loadedAddon
+                end
+            end
+        end
+
+        if addon and type(addon.OpenConfig) == "function" then
+            return addon:OpenConfig()
+        end
+
+        local acd
+        if type(_G.LibStub) == "function" then
+            local okACD, loadedACD = pcall(_G.LibStub, "AceConfigDialog-3.0", true)
+            if okACD then
+                acd = loadedACD
+            end
+        end
+        if acd and type(acd.Open) == "function" then
+            pcall(acd.Open, acd, "Chatify")
+        end
+    end
+end
+
 
 if type(_G.SetDesaturation) ~= "function" then
     _G.SetDesaturation = function(texture, desaturated)

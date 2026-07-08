@@ -40,6 +40,14 @@ local lastLayoutSignature
 local lastStateSignature
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 
+local function HomePartyCategory()
+    return _G.LE_PARTY_CATEGORY_HOME or 1
+end
+
+local function InstancePartyCategory()
+    return _G.LE_PARTY_CATEGORY_INSTANCE or 2
+end
+
 local GW2_TEXTURE_PATH = "Interface\\AddOns\\Chatify\\assets\\themes\\gw2\\"
 local TRANSPARENT_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local GW2_BUTTON_NORMAL = GW2_TEXTURE_PATH .. "channel_button_normal.png"
@@ -135,6 +143,27 @@ local function HasGW2Chat()
     end
 
     return true
+end
+
+
+local function GetCompatState()
+    if type(ns.GetChatAddonCompatibilityState) == "function" then
+        return ns.GetChatAddonCompatibilityState()
+    end
+    return nil
+end
+
+local function ForceDetachedSidebarLayout()
+    local state = GetCompatState()
+    return state and state.safeQuickButtonMode == "detached" or false
+end
+
+local function InvalidateQuickButtonLayout(reason)
+    lastLayoutSignature = nil
+    lastStateSignature = nil
+    if type(ns.IncrementRuntimeCounter) == "function" then
+        ns.IncrementRuntimeCounter("quickbuttons:" .. tostring(reason or "invalidate"))
+    end
 end
 
 local delayedRefreshToken = 0
@@ -1061,8 +1090,7 @@ end
 
 
 function ns.NotifyQuickChatSettingsChanged()
-    lastLayoutSignature = nil
-    lastStateSignature = nil
+    InvalidateQuickButtonLayout("settings")
     ScheduleRefresh(0)
 end
 
@@ -1145,15 +1173,15 @@ BUTTON_DEFS = {
         altSlash = "/rw ",
         altSlashAlias = "/raidwarning",
         isAvailable = function()
-            return type(IsInRaid) == "function" and IsInRaid(LE_PARTY_CATEGORY_HOME) or false
+            return type(IsInRaid) == "function" and IsInRaid(HomePartyCategory()) or false
         end,
         altIsAvailable = function()
-            if type(IsInRaid) ~= "function" or not IsInRaid(LE_PARTY_CATEGORY_HOME) then
+            if type(IsInRaid) ~= "function" or not IsInRaid(HomePartyCategory()) then
                 return false
             end
 
-            local isLeader = type(UnitIsGroupLeader) == "function" and UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME)
-            local isAssistant = type(UnitIsGroupAssistant) == "function" and UnitIsGroupAssistant("player", LE_PARTY_CATEGORY_HOME)
+            local isLeader = type(UnitIsGroupLeader) == "function" and UnitIsGroupLeader("player", HomePartyCategory())
+            local isAssistant = type(UnitIsGroupAssistant) == "function" and UnitIsGroupAssistant("player", HomePartyCategory())
             return isLeader or isAssistant or false
         end,
     },
@@ -1168,7 +1196,7 @@ BUTTON_DEFS = {
             if type(IsInGroup) ~= "function" or type(IsInRaid) ~= "function" then
                 return false
             end
-            return IsInGroup(LE_PARTY_CATEGORY_HOME) and not IsInRaid(LE_PARTY_CATEGORY_HOME)
+            return IsInGroup(HomePartyCategory()) and not IsInRaid(HomePartyCategory())
         end,
     },
     {
@@ -1180,7 +1208,7 @@ BUTTON_DEFS = {
         slash = "/i ",
         slashAlias = "/instance",
         isAvailable = function()
-            return type(IsInGroup) == "function" and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) or false
+            return type(IsInGroup) == "function" and IsInGroup(InstancePartyCategory()) or false
         end,
     },
     {
@@ -1396,6 +1424,10 @@ local function GetSidebarButtonMetrics()
 end
 
 local function IsDetachedClassicSidebarLayout()
+    if ForceDetachedSidebarLayout() then
+        return true
+    end
+
     if type(ns.IsClassicClient) == "function" then
         local ok, classic = pcall(ns.IsClassicClient)
         if ok and classic then
@@ -1535,9 +1567,11 @@ local function GetLayoutSignature()
     local sidebarFrame, sidebarHostFrame = GetMainSidebarButtonFrame()
     local sidebarMode = IsDetachedClassicSidebarLayout() and "classic-detached" or "native-stack"
     local sidebarSide = sidebarFrame and GetClassicSidebarSide(sidebarFrame, sidebarHostFrame) or "none"
+    local compatSignature = type(ns.GetAddonCompatibilitySignature) == "function" and ns.GetAddonCompatibilitySignature() or "none"
 
     return table.concat({
         GetConfiguredTheme(),
+        compatSignature,
         sidebarMode,
         sidebarSide,
         GetFrameIdentity(frame),
@@ -1764,6 +1798,10 @@ local function ActivateChatType(def, useAlt)
         if _G.ChatFrameEditBoxMixin and type(_G.ChatFrameEditBoxMixin.ParseText) == "function" then
             parseText = function(editBox, send)
                 return _G.ChatFrameEditBoxMixin.ParseText(editBox, send)
+            end
+        elseif _G.ChatFrameEditBoxMixinBase and type(_G.ChatFrameEditBoxMixinBase.ParseText) == "function" then
+            parseText = function(editBox, send)
+                return _G.ChatFrameEditBoxMixinBase.ParseText(editBox, send)
             end
         elseif _G.ChatFrameEditBoxBaseMixin and type(_G.ChatFrameEditBoxBaseMixin.ParseText) == "function" then
             parseText = function(editBox, send)
@@ -2393,6 +2431,75 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
     return true
 end
 
+
+local function LayoutFallbackSidebarButtons(anchorFrame)
+    if not settingsContainer or not settingsButton then
+        return false
+    end
+
+    anchorFrame = anchorFrame or GetAnchorVisualFrame() or GetAnchorFrame()
+    if not anchorFrame then
+        return false
+    end
+
+    local showSettings = ShouldShowSettingsButton()
+    local showCopy = showSettings and copyButton ~= nil
+    local showHistory = showSettings and historyButton ~= nil
+    local layoutItems = {}
+
+    if showSettings then
+        AddSidebarLayoutItem(layoutItems, "settings", settingsButton, RefreshSettingsButtonLook)
+    end
+    if showCopy then
+        AddSidebarLayoutItem(layoutItems, "copy", copyButton, RefreshCopyButtonLook)
+    end
+    if showHistory then
+        AddSidebarLayoutItem(layoutItems, "history", historyButton, RefreshHistoryButtonLook)
+    end
+
+    if #layoutItems == 0 then
+        settingsContainer:Hide()
+        HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
+        return true
+    end
+
+    local parent = (anchorFrame.GetParent and anchorFrame:GetParent()) or UIParent
+    local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
+    local spacing = math.max(2, GetSidebarLayoutSpacing())
+    local width = (#layoutItems * buttonWidth) + ((#layoutItems - 1) * spacing)
+    local height = buttonHeight
+    local strata = (anchorFrame.GetFrameStrata and anchorFrame:GetFrameStrata()) or "HIGH"
+    local frameLevel = (anchorFrame.GetFrameLevel and anchorFrame:GetFrameLevel()) or 1
+
+    settingsContainer:SetParent(parent)
+    settingsContainer:ClearAllPoints()
+    settingsContainer:SetSize(width, height)
+    settingsContainer:SetFrameStrata(strata)
+    if settingsContainer.SetFrameLevel then
+        settingsContainer:SetFrameLevel(frameLevel + 20)
+    end
+    if settingsContainer.SetClampedToScreen then
+        settingsContainer:SetClampedToScreen(false)
+    end
+    if settingsContainer.SetClipsChildren then
+        settingsContainer:SetClipsChildren(false)
+    end
+
+    -- Last-resort mode for custom/replacement chat layouts that expose no
+    -- Blizzard ButtonFrame yet. Put the small row above the chat instead of
+    -- hiding Settings/Copy/History forever after /reload.
+    settingsContainer:SetPoint("BOTTOMRIGHT", anchorFrame, "TOPRIGHT", 0, spacing)
+    settingsContainer.__chatifyClassicPlacement = "fallback-row-above"
+    settingsContainer:Show()
+
+    LayoutSidebarButtonRow(settingsContainer, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
+    HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
+    if socialButton and socialButton.Hide then
+        socialButton:Hide()
+    end
+    return true
+end
+
 local function LayoutSettingsButton()
     if not settingsButton then
         return
@@ -2400,6 +2507,9 @@ local function LayoutSettingsButton()
 
     local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
     if not sidebarFrame or not hostFrame then
+        if LayoutFallbackSidebarButtons(GetAnchorVisualFrame() or GetAnchorFrame()) then
+            return
+        end
         if settingsContainer then
             settingsContainer:Hide()
         end
@@ -3212,15 +3322,25 @@ function QuickButtonsModule:OnEnable()
         end
     end)
     register("ADDON_LOADED", function(_, addon)
+        if type(ns.ResetAddonCompatibilityCache) == "function" then
+            ns.ResetAddonCompatibilityCache()
+        end
+
         if addon == "ElvUI" then
             elvuiEngine = nil
             elvuiChat = nil
             elvuiHooksInstalled = false
+            InvalidateQuickButtonLayout("elvui-loaded")
             ScheduleRefresh(0)
             ScheduleRefresh(1)
         elseif addon == "GW2_UI" then
             gw2Engine = nil
             gw2HooksInstalled = false
+            InvalidateQuickButtonLayout("gw2-loaded")
+            ScheduleRefresh(0)
+            ScheduleRefresh(1)
+        elseif addon == "Chattynator" or addon == "Prat-3.0" or addon == "Prat" or addon == "Glass" or addon == "Chatter" or addon == "BasicChatMods" then
+            InvalidateQuickButtonLayout("chat-addon-loaded")
             ScheduleRefresh(0)
             ScheduleRefresh(1)
         end

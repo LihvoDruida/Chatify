@@ -394,6 +394,85 @@ function ns.LoadAddOnCompat(name)
     return false, "missing LoadAddOn API"
 end
 
+
+local addonCompatibilityCache
+local CHATIFY_COMPAT_ADDONS = {
+    chattynator = { "Chattynator" },
+    prat = { "Prat-3.0", "Prat" },
+    elvui = { "ElvUI" },
+    gw2ui = { "GW2_UI" },
+    glass = { "Glass" },
+    chatter = { "Chatter" },
+    basicChatMods = { "BasicChatMods" },
+}
+
+function ns.ResetAddonCompatibilityCache()
+    addonCompatibilityCache = nil
+end
+
+local function IsAnyCompatAddonLoaded(names)
+    if type(names) ~= "table" then
+        return false
+    end
+    for _, name in ipairs(names) do
+        if type(name) == "string" and name ~= "" and ns.IsAddOnLoadedCompat(name) then
+            return true
+        end
+    end
+    return false
+end
+
+function ns.GetChatAddonCompatibilityState()
+    if addonCompatibilityCache then
+        return addonCompatibilityCache
+    end
+
+    local state = {
+        chattynator = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.chattynator),
+        prat = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.prat),
+        elvui = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.elvui),
+        gw2ui = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.gw2ui),
+        glass = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.glass),
+        chatter = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.chatter),
+        basicChatMods = IsAnyCompatAddonLoaded(CHATIFY_COMPAT_ADDONS.basicChatMods),
+    }
+
+    state.chatReplacement = state.chattynator or state.glass
+    state.layoutSensitive = state.chatReplacement or state.prat or state.elvui or state.gw2ui or state.chatter or state.basicChatMods
+    state.safeQuickButtonMode = state.chatReplacement and "detached" or "native"
+    state.signature = table.concat({
+        state.chattynator and "chattynator" or "-",
+        state.prat and "prat" or "-",
+        state.elvui and "elvui" or "-",
+        state.gw2ui and "gw2ui" or "-",
+        state.glass and "glass" or "-",
+        state.chatter and "chatter" or "-",
+        state.basicChatMods and "basicchatmods" or "-",
+        state.safeQuickButtonMode,
+    }, ":")
+
+    addonCompatibilityCache = state
+    return state
+end
+
+function ns.IsChatReplacementLoaded()
+    local state = ns.GetChatAddonCompatibilityState()
+    return state and state.chatReplacement or false
+end
+
+function ns.GetAddonCompatibilitySignature()
+    local state = ns.GetChatAddonCompatibilityState()
+    return state and state.signature or "none"
+end
+
+function ns.IncrementRuntimeCounter(key)
+    ns.Runtime = ns.Runtime or { errors = {}, counters = {} }
+    ns.Runtime.counters = ns.Runtime.counters or {}
+    key = tostring(key or "unknown")
+    ns.Runtime.counters[key] = (ns.Runtime.counters[key] or 0) + 1
+    return ns.Runtime.counters[key]
+end
+
 function ns.GetBuildInterface()
     if type(GetBuildInfo) ~= "function" then
         return 0

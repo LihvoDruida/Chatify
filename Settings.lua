@@ -1526,6 +1526,13 @@ function Chatify:OpenConfig()
     end
 end
 
+
+function _G.Chatify_ToggleOptionsWindow()
+    if Chatify and type(Chatify.OpenConfig) == "function" then
+        return Chatify:OpenConfig()
+    end
+end
+
 -- =========================================================
 -- 6. SAFE CHAT TABS
 -- =========================================================

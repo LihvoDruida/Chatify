@@ -2157,7 +2157,7 @@ function ns.EnterNativeChatCopyMode(chatFrame)
             end
         end
 
-        if type(ns.SafeAfter) == "function" and C_Timer and type(C_Timer.After) == "function" then
+        if type(ns.SafeAfter) == "function" then
             ns.SafeAfter(timeout, delayedRestore)
         elseif C_Timer and type(C_Timer.After) == "function" then
             pcall(C_Timer.After, timeout, delayedRestore)
