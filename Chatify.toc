@@ -1,16 +1,11 @@
-## X-Flavor: retail
-## X-Expansion: TWW
-## Interface: 120007
-## Interface-Classic: 11508
-## Interface-BCC: 20505
-## Interface-Wrath: 30405
-## Interface-Titan: 38001
-## Interface-Mists: 50504
+## Interface: 120100, 120005, 50504, 40402, 38001, 30405, 20505, 11508
+## X-Flavor: multi
+## X-Expansion: Midnight
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.11.15
+## Version: 0.11.16
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled

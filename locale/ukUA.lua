@@ -260,4 +260,6 @@ Locale:RegisterLocale("ukUA", {
     ["Below Copy Chat"] = "Нижче кнопки Copy Chat",
     ["Chat History is disabled in settings"] = "Історію чату вимкнено в налаштуваннях",
     ["Lines to keep per chat tab for the History window and reload restore."] = "Кількість рядків для збереження на кожну вкладку чату у вікні історії Chatify.",
+    ["Never modify whispers (Retail)"] = "Ніколи не змінювати шепіт (Retail)",
+    ["On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."] = "На сучасному Retail повністю залишати повідомлення шепоту та шепоту Battle.net без змін (без міток часу, посилань чи підсвічування), навіть поза боями. Chatify і так не чіпає шепіт під час боїв із босами, Mythic+ та PvP; вмикайте це, лише якщо все ще бачите порожні або продубльовані вкладки шепоту.",
 })

@@ -22,6 +22,13 @@ local string_find = string.find
 local string_format = string.format
 local string_lower = string.lower
 
+-- GetTime() is client uptime and resets to ~0 on every relog, so it MUST NOT be
+-- written into SavedVariables (db.char): a stored cooldown/pending timestamp would
+-- become larger than the fresh uptime and the "now - stored" delta goes negative,
+-- permanently blocking auto-reply and preventing stale-state pruning. Wall clock
+-- (time(), epoch seconds) is stable across sessions and is used for all persisted
+-- timestamps below. GetTime() is kept only for in-memory, same-session throttling.
+local WallClock = time
 local activityTicker = nil
 local lastGuildReplyTime = 0
 local GUILD_REPLY_COOLDOWN = 600
@@ -144,8 +151,22 @@ local function MakeStorageKey(sender, isBNet)
     return safeSender
 end
 
+local function CanSendAddonChat()
+    if type(ns.CanSendAddonChat) == "function" then
+        return ns.CanSendAddonChat()
+    end
+    return true
+end
+
 local function SendBNetMessage(accountID, message)
     if not accountID or type(message) ~= "string" or message == "" then
+        return false
+    end
+
+    -- 12.0+ blocks addon-initiated whispers during chat messaging lockdown
+    -- (encounters/M+/PvP) with ADDON_ACTION_BLOCKED. Skip silently instead of
+    -- triggering the Blizzard error popup; the pending-return path still fires later.
+    if not CanSendAddonChat() then
         return false
     end
 
@@ -166,6 +187,10 @@ end
 
 local function SendWhisper(target, message)
     if type(target) ~= "string" or target == "" or type(message) ~= "string" or message == "" then
+        return false
+    end
+
+    if not CanSendAddonChat() then
         return false
     end
 
@@ -267,12 +292,14 @@ local function GetQueueInfo()
 end
 
 
-local function PruneCharState(now)
+local function PruneCharState()
     local char = EnsureCharState()
     if not char then
         return
     end
 
+    -- Persisted timestamps are wall-clock (epoch); prune against wall clock too.
+    local now = WallClock()
     local cutoffPending = now - STALE_PENDING_SECONDS
     local cutoffReplies = now - STALE_REPLY_SECONDS
 
@@ -296,14 +323,20 @@ local function PruneCharState(now)
 end
 
 local function GetBNetPresenceID(...)
+    -- The BNet sender presence id is arg13 of the CHAT_MSG_* payload. Prefer it
+    -- explicitly; 12.1.0 appended a trailing `discordInfo` field to every
+    -- CHAT_MSG_* event, so a blind "first positive number" scan is unreliable.
     local presenceID = select(13, ...)
-    if type(presenceID) == "number" and CanAccess(presenceID) then
+    if type(presenceID) == "number" and presenceID > 0 and CanAccess(presenceID) then
         return presenceID
     end
 
-    for i = 1, select("#", ...) do
+    -- Fallback for older/edge payloads only: use the first positive number, but
+    -- ignore obviously non-id small integers used as language/flags at the front.
+    local count = select("#", ...)
+    for i = 1, count do
         local value = select(i, ...)
-        if type(value) == "number" and value > 0 and CanAccess(value) then
+        if type(value) == "number" and value > 1000 and CanAccess(value) then
             return value
         end
     end
@@ -430,7 +463,7 @@ local function TrackPending(storageKey, isGuildMention)
     local bucket = isGuildMention and char.pendingGuildMentions or char.pendingWhispers
     bucket[storageKey] = bucket[storageKey] or { count = 0, time = 0 }
     bucket[storageKey].count = (bucket[storageKey].count or 0) + 1
-    bucket[storageKey].time = GetTime()
+    bucket[storageKey].time = WallClock()
 end
 
 local function RemovePending(sender, isBNet)
@@ -498,6 +531,10 @@ local function SendGuildAutoReply(sender)
         return
     end
 
+    if not CanSendAddonChat() then
+        return
+    end
+
     if pcall(SendChatMessage, message, "GUILD") then
         lastGuildReplyTime = now
     end
@@ -523,12 +560,15 @@ local function SendAutoReply(sender, isBNet, messageBody)
         return
     end
 
-    local now = GetTime()
+    local now = WallClock()
     local cooldownSec = (tonumber(db.autoReply.cooldown) or 5) * 60
     local lastReplyTime = char.lastReplyTime or {}
     char.lastReplyTime = lastReplyTime
 
-    if lastReplyTime[storageKey] and (now - lastReplyTime[storageKey]) < cooldownSec then
+    -- A stored value that is somehow in the future (e.g. a legacy uptime-based
+    -- timestamp from before the wall-clock migration) is treated as expired.
+    local last = lastReplyTime[storageKey]
+    if last and last <= now and (now - last) < cooldownSec then
         return
     end
 
@@ -580,8 +620,7 @@ local function CheckActivityStatus()
         return
     end
 
-    local now = GetTime()
-    PruneCharState(now)
+    PruneCharState()
 
     local _, inActivity = GetCurrentActivity(true)
     if char.wasInActivity and not inActivity then
@@ -722,6 +761,9 @@ function AutoReply:OnEnable()
         activityTicker = nil
     end
 
+    -- The ticker itself runs every second, but the expensive activity recompute is
+    -- rate-limited inside GetCurrentActivity() via ACTIVITY_IDLE_INTERVAL /
+    -- ACTIVITY_ACTIVE_INTERVAL, so a fixed 1s cadence keeps state fresh cheaply.
     if C_Timer and C_Timer.NewTicker then
         local ok, ticker = pcall(C_Timer.NewTicker, 1, CheckActivityStatus)
         if ok then activityTicker = ticker end

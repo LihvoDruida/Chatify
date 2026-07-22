@@ -384,6 +384,21 @@ function Chatify:GetOptions()
                         name = GetRetailSafeDescription,
                         fontSize = "medium",
                     },
+                    retailWhisperSafeMode = {
+                        order = 0.95,
+                        name = T("Never modify whispers (Retail)"),
+                        desc = T("On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."),
+                        type = "toggle",
+                        width = "full",
+                        hidden = function()
+                            return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
+                        end,
+                        set = function(info, val)
+                            self.db.profile.retailWhisperSafeMode = val
+                            if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
+                        end,
+                        get = function(info) return self.db.profile.retailWhisperSafeMode end,
+                    },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
                     shortChannels = {
@@ -1442,9 +1457,12 @@ function Chatify:OnInitialize()
         end
     end
 
-    -- Chat Commands
+    -- Chat Commands. Keep the primary /chatify plus a short, addon-scoped alias.
+    -- /mcm is intentionally NOT registered: it is a de-facto generic "Mod
+    -- Configuration Menu" command that several addons claim, and AceConsole's
+    -- last-writer-wins registration would silently hijack it from them.
     self:RegisterChatCommand("chatify", "OpenConfig")
-    self:RegisterChatCommand("mcm", "OpenConfig")
+    self:RegisterChatCommand("cfy", "OpenConfig")
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after

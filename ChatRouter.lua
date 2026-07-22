@@ -29,9 +29,7 @@ local tooltipLinkTypes = {
 }
 
 local hookedFrames = {}
-local proxyFrames = {}
 local originalAddMessage = {}
-local hiddenFrames = {}
 local cache = {}
 local cacheIndex = 0
 local CACHE_LIMIT = 800
@@ -207,12 +205,6 @@ local function SaveVirtualLine(frameID, text, limit)
     end
 end
 
-local function RestoreVirtualHistory()
-    -- Popup-only history policy: never inject saved history into visible chat
-    -- frames, including the legacy virtual-chat route. The History window is
-    -- the only surface that displays saved lines.
-end
-
 local function ApplyTimestamp(text)
     local db = DB()
     if not db or not db.enableTimestamps then
@@ -318,27 +310,6 @@ local function ShouldSuppressForSpam(frameID, text)
     state.lastSeen = now
     state.seenFrames = { [frameID] = true }
     return false
-end
-
-local function CopyFrameSettings(source, target)
-    if not source or not target then
-        return
-    end
-
-    local font, size, flags = source:GetFont()
-    if font then
-        target:SetFont(font, size or 14, flags)
-    end
-
-    if target.SetIndentedWordWrap then target:SetIndentedWordWrap(true) end
-    if source.GetMaxLines and target.SetMaxLines then target:SetMaxLines(source:GetMaxLines() or 128) end
-    if source.GetFading and target.SetFading then target:SetFading(source:GetFading()) end
-    if source.GetTimeVisible and target.SetTimeVisible then target:SetTimeVisible(source:GetTimeVisible()) end
-    if source.GetFadeDuration and target.SetFadeDuration then target:SetFadeDuration(source:GetFadeDuration()) end
-    if source.GetSpacing and target.SetSpacing then target:SetSpacing(source:GetSpacing() or 0) end
-    if source.GetInsertMode and target.SetInsertMode then target:SetInsertMode(source:GetInsertMode()) end
-    if source.GetJustifyH and target.SetJustifyH then target:SetJustifyH(source:GetJustifyH() or "LEFT") end
-    if target.SetHyperlinksEnabled then target:SetHyperlinksEnabled(true) end
 end
 
 local function ShouldShowHoverHyperlinkTooltips()
@@ -488,37 +459,6 @@ local function EnsureFrameHyperlinks(frame)
             pcall(frame.HookScript, frame, "OnHyperlinkEnter", onEnter)
             pcall(frame.HookScript, frame, "OnHyperlinkLeave", onLeave)
         end
-    end
-end
-
-local function EnsureProxy(frame)
-    return nil
-end
-
-local function HideOriginalFrame(frame)
-    if not frame or hiddenFrames[frame] then
-        return
-    end
-
-    hiddenFrames[frame] = true
-
-    if frame.Clear then
-        pcall(frame.Clear, frame)
-    end
-
-    local tab = frame.GetName and _G[frame:GetName() .. "Tab"] or nil
-    if tab then
-        tab:SetAlpha(1)
-    end
-
-    local buttonFrame = frame.GetName and _G[frame:GetName() .. "ButtonFrame"] or nil
-    if buttonFrame then
-        buttonFrame:SetAlpha(1)
-    end
-
-    local editBox = ns.GetEditBox and ns.GetEditBox(frame)
-    if editBox then
-        editBox:SetAlpha(1)
     end
 end
 
@@ -746,17 +686,6 @@ function Router:OnEnable()
         end
         if type(FCF_SetTemporaryWindowType) == "function" then
             pcall(hooksecurefunc, "FCF_SetTemporaryWindowType", RefreshChatWindowsSoon)
-        end
-
-        if type(FCF_SetChatWindowFontSize) == "function" then
-            pcall(hooksecurefunc, "FCF_SetChatWindowFontSize", function(frame)
-                if frame then
-                    local proxy = EnsureProxy(frame)
-                    if proxy then
-                        CopyFrameSettings(frame, proxy)
-                    end
-                end
-            end)
         end
 
         routerHooksInstalled = true

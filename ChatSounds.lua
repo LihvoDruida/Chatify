@@ -302,11 +302,15 @@ function Sounds:OnEvent(event, msg, author, ...)
 end
 
 function Sounds:OnEnable()
-    for event in pairs(eventMap) do
-        if type(ns.RegisterEventIfSupported) == "function" then
-            ns.RegisterEventIfSupported(self, event, "OnEvent")
-        else
-            pcall(self.RegisterEvent, self, event, "OnEvent")
+    for event, category in pairs(eventMap) do
+        -- Entries mapped to `false` (SAY/YELL/CHANNEL) never resolve to a sound
+        -- category, so there is no reason to register for them and wake OnEvent.
+        if category ~= false then
+            if type(ns.RegisterEventIfSupported) == "function" then
+                ns.RegisterEventIfSupported(self, event, "OnEvent")
+            else
+                pcall(self.RegisterEvent, self, event, "OnEvent")
+            end
         end
     end
 

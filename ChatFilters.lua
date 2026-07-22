@@ -102,19 +102,28 @@ local BaseEvents = {
 }
 
 -- Modern Retail: use Blizzard's secure message-event filter path only.
--- These callbacks are wrapped by ChatFrameUtil's secure registry and will only
--- run when the event payload is accessible via canaccessvalue(...).
+-- These callbacks are wrapped by ChatFrameUtil's secure registry and only mutate a
+-- payload when CanMutateChatPayload() allows it. Whisper/BNet events are registered
+-- too, but RetailRestrictedProcessor passes them through untouched while the payload
+-- is secret (chat messaging lockdown) or when db.retailWhisperSafeMode is enabled,
+-- so link/keyword/mention processing works on whispers during normal play without
+-- creating blank whisper tabs during encounters.
 local RetailRestrictedEvents = {
     "CHAT_MSG_CHANNEL",
     "CHAT_MSG_SAY",
     "CHAT_MSG_YELL",
-    -- Do not register message mutating filters for whispers on modern Retail.
-    -- Blizzard routes whispers to General, temporary tabs and BNet conversations through
-    -- sensitive chat payloads; changing the payload here can create blank whisper tabs.
+    "CHAT_MSG_WHISPER",
+    "CHAT_MSG_WHISPER_INFORM",
+    "CHAT_MSG_BN_WHISPER",
+    "CHAT_MSG_BN_WHISPER_INFORM",
+    "CHAT_MSG_BN_CONVERSATION",
     "CHAT_MSG_GUILD",
     "CHAT_MSG_OFFICER",
     "CHAT_MSG_PARTY",
     "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID",
+    "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_INSTANCE_CHAT",
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
     "CHAT_MSG_COMMUNITIES_CHANNEL",
@@ -1177,10 +1186,9 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
 end
 
 local function RetailRestrictedProcessor(self, event, msg, author, ...)
-    if type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
-        return false, msg, author, ...
-    end
-
+    -- Whispers are no longer hard-skipped here: CanMutateChatPayload() below
+    -- passes them through untouched while the payload is secret (lockdown) or when
+    -- retailWhisperSafeMode is set, and processes them normally otherwise.
     local db = DB()
     if not db then
         return false, msg, author, ...

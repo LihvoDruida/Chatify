@@ -9,7 +9,6 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
 -- 1. LIBS & MEDIA REGISTRATION
 -- =========================================================
 local LSM = LibStub("LibSharedMedia-3.0", true)
-local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 -- =========================================================
 -- 2. GLOBAL LISTS (CONSTANTS)
@@ -384,6 +383,13 @@ ns.defaults = {
         copyTabFrames = {}, -- per chat-frame include/exclude overrides for ChatCopy 2.0 tabs
         language = "client", -- Мова аддона: client, enUS, ukUA
 
+        -- === RETAIL SECRET-VALUE BEHAVIOUR ===
+        -- When true, Chatify never mutates whisper/BNet payloads on modern Retail,
+        -- even outside chat messaging lockdown. Off by default: whispers behave like
+        -- any other channel during normal play and are only left untouched while the
+        -- client is actually protecting chat.
+        retailWhisperSafeMode = false,
+
         -- === SOUNDS ===
         sounds = {
             enable = true,
@@ -397,6 +403,11 @@ ns.defaults = {
         },
 
         -- === AUTO REPLY ===
+        -- Default messages are stored as stable English source strings rather than
+        -- being localized at load time. AceDB persists these literally, so wrapping
+        -- them in L() would freeze whichever locale happened to be active at first
+        -- login and never follow a later language change. These are free-text fields
+        -- the user edits directly; the options UI localizes labels, not the values.
         autoReply = {
             enabled = false,
             busyMode = false,
@@ -404,13 +415,13 @@ ns.defaults = {
             autoNotify = true,
             guildReplyEnabled = false,
             cooldown = 5,
-            afkMessage = L("I'm currently AFK. I'll be back later!"),
-            queueMessage = L("I'm in queue. Estimated wait time: %s minutes."),
-            raidMessage = L("I'm currently in a raid. I'll message you when I'm free!"),
-            dungeonMessage = L("I'm currently in a dungeon. I'll message you when I'm done!"),
-            pvpMessage = L("I'm currently in PvP. I'll message you when I'm free!"),
-            busyMessage = L("I'm currently busy. I'll get back to you soon!"),
-            returnMessage = L("I'm back now! What did you need?"),
+            afkMessage = "I'm currently AFK. I'll be back later!",
+            queueMessage = "I'm in queue. Estimated wait time: %s minutes.",
+            raidMessage = "I'm currently in a raid. I'll message you when I'm free!",
+            dungeonMessage = "I'm currently in a dungeon. I'll message you when I'm done!",
+            pvpMessage = "I'm currently in PvP. I'll message you when I'm free!",
+            busyMessage = "I'm currently busy. I'll get back to you soon!",
+            returnMessage = "I'm back now! What did you need?",
         }
     },
     char = {
@@ -424,6 +435,21 @@ ns.defaults = {
 -- =========================================================
 -- 5. BUILD / SECURITY HELPERS
 -- =========================================================
+-- Secret Values were introduced in Patch 12.0.0 (Midnight) and are, per Blizzard's
+-- own 12.0.5 notes, "entirely disabled on Classic builds". Never treat 11.x Retail
+-- or any Classic flavour as a secret-value build: doing so silently disables
+-- timestamps, history, virtual chat and auto-reply on clients that do not need it.
+local SECRET_VALUES_MIN_INTERFACE = 120000
+
+local secretApiProbed, secretApiAvailable
+function ns.HasSecretValueAPI()
+    if not secretApiProbed then
+        secretApiProbed = true
+        secretApiAvailable = type(_G.issecretvalue) == "function"
+    end
+    return secretApiAvailable
+end
+
 function ns.IsRetailSecretValueBuild()
     if WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
         return false
@@ -433,20 +459,32 @@ function ns.IsRetailSecretValueBuild()
         return false
     end
 
-    -- Modern Retail protects parts of chat payloads with secret string values.
-    -- Do not key this only to Interface >= 120000: the protection APIs can exist on
-    -- 11.x builds too, and whisper routing/temporary windows break if we mutate or
-    -- reformat those payloads outside Blizzard's own MessageEventHandler path.
-    if type(issecretvalue) == "function" or type(canaccessvalue) == "function" then
-        return true
+    if not ns.HasSecretValueAPI() then
+        return false
     end
 
-    if type(GetBuildInfo) ~= "function" then
+    return ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
+end
+
+-- Chat messaging lockdown (12.0.0+). While it is active Blizzard blocks
+-- addon-initiated SendChatMessage / BNSendWhisper with ADDON_ACTION_BLOCKED and
+-- delivers whisper payloads as secret values. Outside of it, chat behaves normally.
+function ns.InChatMessagingLockdown()
+    if C_ChatInfo and type(C_ChatInfo.InChatMessagingLockdown) == "function" then
+        local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
+        if ok then
+            return locked and true or false
+        end
+    end
+    return false
+end
+
+-- Single gate for every outgoing addon-initiated chat message.
+function ns.CanSendAddonChat()
+    if not ns.IsRetailSecretValueBuild() then
         return true
     end
-
-    local interfaceVersion = select(4, GetBuildInfo())
-    return type(interfaceVersion) == "number" and interfaceVersion >= 110000
+    return not ns.InChatMessagingLockdown()
 end
 
 local whisperSensitiveEvents = {
@@ -461,8 +499,30 @@ function ns.IsWhisperSensitiveEvent(eventName)
     return whisperSensitiveEvents[eventName] and true or false
 end
 
+local function GetProfile()
+    if ns.Chatify and ns.Chatify.db and ns.Chatify.db.profile then
+        return ns.Chatify.db.profile
+    end
+    return ns.db
+end
+
 function ns.ShouldBypassWhisperMutation(eventName)
-    return ns.IsRetailSecretValueBuild() and ns.IsWhisperSensitiveEvent(eventName)
+    if not ns.IsRetailSecretValueBuild() then
+        return false
+    end
+    if not ns.IsWhisperSensitiveEvent(eventName) then
+        return false
+    end
+
+    -- Opt-in "never touch whispers on Retail" escape hatch for users who hit
+    -- layout issues with temporary whisper windows.
+    local db = GetProfile()
+    if db and db.retailWhisperSafeMode then
+        return true
+    end
+
+    -- Otherwise only step aside while the client is actually protecting chat.
+    return ns.InChatMessagingLockdown()
 end
 
 local retailCaptureBypassEvents = {
@@ -850,9 +910,17 @@ function ns.GetRetailSafeModeStatus(db)
     }
 
     if active then
-        status.history = "limited for safety"
+        local lockdown = ns.InChatMessagingLockdown()
+        local whisperSafe = db and db.retailWhisperSafeMode
+        status.history = "public/group chat only"
         status.virtualChat = "disabled on modern Retail"
-        status.whisperAutoReply = "disabled on modern Retail whisper events"
+        if whisperSafe then
+            status.whisperAutoReply = "whispers never modified (user setting)"
+        elseif lockdown then
+            status.whisperAutoReply = "paused during chat lockdown"
+        else
+            status.whisperAutoReply = "available"
+        end
         status.nativeCopy = "recommended"
     elseif db and db.copyNativeSelection == false then
         status.nativeCopy = "optional"

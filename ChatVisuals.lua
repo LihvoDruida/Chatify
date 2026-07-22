@@ -90,16 +90,27 @@ local eventsToHandle = {
     CHAT_MSG_LOOT = true,
 }
 
+-- On modern Retail whisper/BNet events are also timestamped, but only outside of
+-- chat messaging lockdown. CanMutateChatPayload() returns false while the payload
+-- is secret (lockdown), so the filter passes those lines through untouched and
+-- avoids the 12.0.x "timestamps during lockdown" Lua error. Users who prefer the
+-- old never-touch-whispers behaviour can enable db.retailWhisperSafeMode.
 local retailTimestampEvents = {
     CHAT_MSG_CHANNEL = true,
     CHAT_MSG_SAY = true,
     CHAT_MSG_YELL = true,
     CHAT_MSG_GUILD = true,
     CHAT_MSG_OFFICER = true,
-    -- Whisper/BNet whisper events must stay untouched on modern Retail.
-    -- The client duplicates/routes them to General and temporary whisper tabs itself.
+    CHAT_MSG_WHISPER = true,
+    CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true,
+    CHAT_MSG_BN_WHISPER_INFORM = true,
+    CHAT_MSG_BN_CONVERSATION = true,
     CHAT_MSG_PARTY = true,
     CHAT_MSG_PARTY_LEADER = true,
+    CHAT_MSG_RAID = true,
+    CHAT_MSG_RAID_LEADER = true,
+    CHAT_MSG_RAID_WARNING = true,
     CHAT_MSG_INSTANCE_CHAT = true,
     CHAT_MSG_INSTANCE_CHAT_LEADER = true,
     CHAT_MSG_COMMUNITIES_CHANNEL = true,
@@ -244,6 +255,7 @@ local ShortChannelMaps = {
     CHAT_PARTY_LEADER_GET       = "|Hchannel:PARTY|h[PL]|h %s:\32",
     CHAT_RAID_GET               = "|Hchannel:RAID|h[R]|h %s:\32",
     CHAT_RAID_LEADER_GET        = "|Hchannel:RAID|h[RL]|h %s:\32",
+    CHAT_RAID_WARNING_GET       = "|Hchannel:RAID|h[RW]|h %s:\32",
     CHAT_INSTANCE_CHAT_GET      = "|Hchannel:INSTANCE|h[I]|h %s:\32",
     CHAT_INSTANCE_CHAT_LEADER_GET = "|Hchannel:INSTANCE|h[IL]|h %s:\32",
     CHAT_WHISPER_GET            = "[W] %s:\32",
@@ -291,7 +303,6 @@ end
 function ns.ApplyVisuals()
     local db = GetVisualDB()
     if not db then return end
-    local retailRestricted = IsRetailRestricted()
 
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
@@ -300,7 +311,11 @@ function ns.ApplyVisuals()
         end
     end
 
-    if db.shortChannels and not retailRestricted then
+    -- Short channel names only swap Blizzard GlobalStrings (CHAT_*_GET). These are
+    -- plain format strings, not chat payloads, so they carry no secret values and
+    -- are safe on modern Retail as well as every Classic flavour. Gate purely on
+    -- the user preference.
+    if db.shortChannels then
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
@@ -323,9 +338,8 @@ end
 -- =========================================================
 TimestampFilter = function(self, event, msg, author, ...)
     local retailRestricted = IsRetailRestricted()
-    if retailRestricted and type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
-        return false, msg, author, ...
-    end
+    -- Whispers are handled through CanMutateChatPayload() below, which bails while
+    -- the payload is secret (lockdown) or when retailWhisperSafeMode is enabled.
 
     local db = GetVisualDB()
     if not db then return false, msg, author, ... end

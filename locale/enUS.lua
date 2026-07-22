@@ -262,4 +262,6 @@ Locale:RegisterLocale("enUS", {
     ["Below Copy Chat"] = "Below Copy Chat",
     ["Chat History is disabled in settings"] = "Chat History is disabled in settings",
     ["Lines to keep per chat tab for the History window and reload restore."] = "Lines to keep per chat tab for the Chatify History window.",
+    ["Never modify whispers (Retail)"] = "Never modify whispers (Retail)",
+    ["On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."] = "On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs.",
 })
