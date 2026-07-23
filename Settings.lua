@@ -399,6 +399,20 @@ function Chatify:GetOptions()
                         end,
                         get = function(info) return self.db.profile.retailWhisperSafeMode end,
                     },
+                    retailAllowChatFilters = {
+                        order = 0.96,
+                        name = T("Re-enable chat filters (Retail, may cause errors)"),
+                        desc = T("On Midnight (12.0+) any addon chat filter taints Blizzard's chat handling, which eventually throws a 'secret string value' Lua error on unrelated messages. Chatify therefore disables spam filtering, keyword highlighting and custom link formatting on these clients, and uses the game's own timestamps instead. Turn this on to get those features back and accept the error. Requires /reload."),
+                        type = "toggle",
+                        width = "full",
+                        confirm = true,
+                        confirmText = T("This can cause repeated Lua errors on 12.0+ clients. Continue?"),
+                        hidden = function()
+                            return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
+                        end,
+                        set = function(info, val) self.db.profile.retailAllowChatFilters = val end,
+                        get = function(info) return self.db.profile.retailAllowChatFilters end,
+                    },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
                     shortChannels = {

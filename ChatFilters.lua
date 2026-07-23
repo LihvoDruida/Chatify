@@ -46,6 +46,13 @@ local function RegisterMessageFilter(eventName, callback)
         return true
     end
 
+    -- See ns.CanUseMessageEventFilters(): on 12.0+ a filter closure on Blizzard's
+    -- chat dispatch taints it and corrupts secret-value handling for every later
+    -- chat event, so no filters are installed on those clients at all.
+    if type(ns.CanUseMessageEventFilters) == "function" and not ns.CanUseMessageEventFilters() then
+        return false
+    end
+
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, callback)
@@ -101,29 +108,20 @@ local BaseEvents = {
     "CHAT_MSG_LOOT",
 }
 
--- Modern Retail: use Blizzard's secure message-event filter path only.
--- These callbacks are wrapped by ChatFrameUtil's secure registry and only mutate a
--- payload when CanMutateChatPayload() allows it. Whisper/BNet events are registered
--- too, but RetailRestrictedProcessor passes them through untouched while the payload
--- is secret (chat messaging lockdown) or when db.retailWhisperSafeMode is enabled,
--- so link/keyword/mention processing works on whispers during normal play without
--- creating blank whisper tabs during encounters.
+-- Modern Retail (12.0+ secret values): filter only public/group chat through
+-- Blizzard's secure message-event path. Whisper/BNet and boss/monster events are
+-- intentionally NOT registered: their payloads route through protected tabs and,
+-- during chat messaging lockdown, carry secret senders that must never be laundered
+-- back through addon code. RetailRestrictedProcessor's pass-through branches return
+-- nothing so Blizzard keeps its original, untainted varargs.
 local RetailRestrictedEvents = {
     "CHAT_MSG_CHANNEL",
     "CHAT_MSG_SAY",
     "CHAT_MSG_YELL",
-    "CHAT_MSG_WHISPER",
-    "CHAT_MSG_WHISPER_INFORM",
-    "CHAT_MSG_BN_WHISPER",
-    "CHAT_MSG_BN_WHISPER_INFORM",
-    "CHAT_MSG_BN_CONVERSATION",
     "CHAT_MSG_GUILD",
     "CHAT_MSG_OFFICER",
     "CHAT_MSG_PARTY",
     "CHAT_MSG_PARTY_LEADER",
-    "CHAT_MSG_RAID",
-    "CHAT_MSG_RAID_LEADER",
-    "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_INSTANCE_CHAT",
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
     "CHAT_MSG_COMMUNITIES_CHANNEL",
@@ -1186,33 +1184,41 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
 end
 
 local function RetailRestrictedProcessor(self, event, msg, author, ...)
-    -- Whispers are no longer hard-skipped here: CanMutateChatPayload() below
-    -- passes them through untouched while the payload is secret (lockdown) or when
-    -- retailWhisperSafeMode is set, and processes them normally otherwise.
+    -- Never touch whisper/BNet payloads on modern Retail: protected tab routing plus
+    -- secret senders during chat lockdown. Returning nothing keeps Blizzard's original,
+    -- untainted varargs.
+    if type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
+        return
+    end
+
     local db = DB()
     if not db then
-        return false, msg, author, ...
+        return
     end
 
     if db.hideSystemSpam and SystemEvents[event] then
         return true
     end
 
+    -- Taint safety: when the payload cannot be safely read/mutated (secret value or
+    -- inaccessible during lockdown), return NOTHING. Re-emitting `false, msg, author,
+    -- ...` would launder the secret sender through addon code and taint Blizzard's
+    -- history token conversion on this and subsequent chat events.
     if type(ns.CanMutateChatPayload) == "function" then
         if not ns.CanMutateChatPayload(event, msg, author, ...) then
-            return false, msg, author, ...
+            return
         end
     else
         if IsSecretValue(msg) or IsSecretValue(author) then
-            return false, msg, author, ...
+            return
         end
 
         if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
-            return false, msg, author, ...
+            return
         end
 
         if type(msg) ~= "string" then
-            return false, msg, author, ...
+            return
         end
     end
 

@@ -90,27 +90,21 @@ local eventsToHandle = {
     CHAT_MSG_LOOT = true,
 }
 
--- On modern Retail whisper/BNet events are also timestamped, but only outside of
--- chat messaging lockdown. CanMutateChatPayload() returns false while the payload
--- is secret (lockdown), so the filter passes those lines through untouched and
--- avoids the 12.0.x "timestamps during lockdown" Lua error. Users who prefer the
--- old never-touch-whispers behaviour can enable db.retailWhisperSafeMode.
+-- Modern Retail (12.0+ secret values): only public/group chat is timestamped, and
+-- whisper/BNet/boss events are never filtered. Two reasons: (1) Blizzard routes
+-- whispers to General and temporary tabs through protected payloads, so returning a
+-- reformatted line can blank those tabs; (2) during chat messaging lockdown the
+-- sender is a secret value, and a filter must never launder it back into Blizzard's
+-- handler. The pass-through branches below therefore return nothing (keep Blizzard's
+-- original, untainted varargs) rather than re-emitting `...`.
 local retailTimestampEvents = {
     CHAT_MSG_CHANNEL = true,
     CHAT_MSG_SAY = true,
     CHAT_MSG_YELL = true,
     CHAT_MSG_GUILD = true,
     CHAT_MSG_OFFICER = true,
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_BN_WHISPER = true,
-    CHAT_MSG_BN_WHISPER_INFORM = true,
-    CHAT_MSG_BN_CONVERSATION = true,
     CHAT_MSG_PARTY = true,
     CHAT_MSG_PARTY_LEADER = true,
-    CHAT_MSG_RAID = true,
-    CHAT_MSG_RAID_LEADER = true,
-    CHAT_MSG_RAID_WARNING = true,
     CHAT_MSG_INSTANCE_CHAT = true,
     CHAT_MSG_INSTANCE_CHAT_LEADER = true,
     CHAT_MSG_COMMUNITIES_CHANNEL = true,
@@ -275,6 +269,12 @@ local function RegisterTimestampFilter(eventName)
         return
     end
 
+    -- Never install a filter closure on Blizzard's chat dispatch on 12.0+ clients:
+    -- doing so taints the dispatch and breaks secret-value handling elsewhere.
+    if type(ns.CanUseMessageEventFilters) == "function" and not ns.CanUseMessageEventFilters() then
+        return
+    end
+
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, TimestampFilter)
@@ -300,9 +300,69 @@ local function UnregisterTimestampFilters()
     visualsFiltersInstalled = false
 end
 
+-- Taint-free timestamp path for 12.0+ clients.
+--
+-- Chatify cannot install a message-event filter on these builds (see
+-- ns.CanUseMessageEventFilters), so timestamps are delegated to Blizzard's own
+-- native rendering via the showTimestamps CVar. This runs entirely inside secure
+-- code, so it works during chat lockdown and on secret payloads alike.
+--
+-- Chatify only writes the CVar while its own timestamp option is enabled, and
+-- restores whatever the user had before as soon as the option is turned off, so a
+-- manual client setting is never silently clobbered.
+local nativeTimestampPrevious = nil
+local nativeTimestampApplied = false
+
+function ns.ApplyNativeTimestamps(db)
+    if not ns.IsRetailSecretValueBuild() then
+        return
+    end
+    if type(GetCVar) ~= "function" or type(SetCVar) ~= "function" then
+        return
+    end
+
+    db = db or GetVisualDB()
+    if not db then return end
+
+    local wanted = nil
+    if db.enableTimestamps then
+        local fmt = "%H:%M"
+        if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
+            local formatData = ns.Lists.TimeFormats[db.timestampID]
+            if formatData then
+                -- A nil format means "no timestamp" in Chatify's list.
+                if formatData.format == nil then
+                    wanted = nil
+                    fmt = nil
+                else
+                    fmt = formatData.format or fmt
+                end
+            end
+        end
+        if fmt then
+            wanted = fmt .. " "
+        end
+    end
+
+    if wanted then
+        if not nativeTimestampApplied then
+            local okGet, current = pcall(GetCVar, "showTimestamps")
+            nativeTimestampPrevious = okGet and current or nil
+            nativeTimestampApplied = true
+        end
+        pcall(SetCVar, "showTimestamps", wanted)
+    elseif nativeTimestampApplied then
+        pcall(SetCVar, "showTimestamps", nativeTimestampPrevious or "none")
+        nativeTimestampApplied = false
+        nativeTimestampPrevious = nil
+    end
+end
+
 function ns.ApplyVisuals()
     local db = GetVisualDB()
     if not db then return end
+
+    ns.ApplyNativeTimestamps(db)
 
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
@@ -311,11 +371,13 @@ function ns.ApplyVisuals()
         end
     end
 
-    -- Short channel names only swap Blizzard GlobalStrings (CHAT_*_GET). These are
-    -- plain format strings, not chat payloads, so they carry no secret values and
-    -- are safe on modern Retail as well as every Classic flavour. Gate purely on
-    -- the user preference.
-    if db.shortChannels then
+    -- Short channel names swap Blizzard GlobalStrings (CHAT_*_GET). On modern Retail
+    -- (12.0+ secret values) we must not write Blizzard's shared global environment
+    -- from addon code: those globals feed the secure chat handler, and tainting them
+    -- risks the secret-value protection erroring on unrelated events. Apply only on
+    -- pre-12 Retail and every Classic flavour, where there is no secret-value system.
+    local retailRestricted = IsRetailRestricted()
+    if db.shortChannels and not retailRestricted then
         if not next(OriginalChannelMaps) then
             for k, v in pairs(ShortChannelMaps) do
                 if _G[k] then OriginalChannelMaps[k] = _G[k] end
@@ -338,36 +400,44 @@ end
 -- =========================================================
 TimestampFilter = function(self, event, msg, author, ...)
     local retailRestricted = IsRetailRestricted()
-    -- Whispers are handled through CanMutateChatPayload() below, which bails while
-    -- the payload is secret (lockdown) or when retailWhisperSafeMode is enabled.
+    -- Never touch whisper/BNet payloads on modern Retail: they route through
+    -- protected tabs and, during chat lockdown, carry secret senders.
+    if retailRestricted and type(ns.IsWhisperSensitiveEvent) == "function" and ns.IsWhisperSensitiveEvent(event) then
+        return
+    end
 
     local db = GetVisualDB()
-    if not db then return false, msg, author, ... end
-    if not db.enableTimestamps then return false, msg, author, ... end
+    if not db then return end
+    if not db.enableTimestamps then return end
     local allowedEvents = retailRestricted and retailTimestampEvents or eventsToHandle
-    if not allowedEvents[event] then return false, msg, author, ... end
+    if not allowedEvents[event] then return end
 
+    -- Taint safety: if we cannot safely read/mutate this payload (secret value or
+    -- inaccessible during lockdown), return NOTHING so Blizzard keeps its original,
+    -- untainted varargs. Returning `false, msg, author, ...` here would re-emit the
+    -- secret sender through addon code, tainting it and breaking Blizzard's history
+    -- token conversion ("string conversion on a secret string value").
     if type(ns.CanMutateChatPayload) == "function" then
         if not ns.CanMutateChatPayload(event, msg, author, ...) then
-            return false, msg, author, ...
+            return
         end
     else
         if IsSecretValue(msg) or IsSecretValue(author) then
-            return false, msg, author, ...
+            return
         end
 
         if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
-            return false, msg, author, ...
+            return
         end
     end
 
     local safeMsg = GetSafeText(msg)
     if not safeMsg or type(safeMsg) ~= "string" then
-        return false, msg, author, ...
+        return
     end
 
     if safeMsg:find("|Hchatcopy:", 1, true) then
-        return false, msg, author, ...
+        return
     end
 
     local timestampFormat = "%H:%M"
@@ -375,7 +445,7 @@ TimestampFilter = function(self, event, msg, author, ...)
         local formatData = ns.Lists.TimeFormats[db.timestampID]
         if formatData then
             if formatData.format == nil then
-                return false, msg, author, ...
+                return
             end
             timestampFormat = formatData.format or timestampFormat
         end
@@ -412,7 +482,7 @@ TimestampFilter = function(self, event, msg, author, ...)
     end)
 
     if not okBuild or type(finalMsg) ~= "string" then
-        return false, msg, author, ...
+        return
     end
 
     return false, finalMsg, author, ...

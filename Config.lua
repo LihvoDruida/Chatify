@@ -390,6 +390,12 @@ ns.defaults = {
         -- client is actually protecting chat.
         retailWhisperSafeMode = false,
 
+        -- Off by default. On 12.0+ any addon message-event filter taints Blizzard's
+        -- chat dispatch and eventually produces "string conversion on a secret
+        -- string value" errors. Enabling this trades that error back for spam
+        -- filtering / keyword highlighting / custom link formatting.
+        retailAllowChatFilters = false,
+
         -- === SOUNDS ===
         sounds = {
             enable = true,
@@ -499,30 +505,11 @@ function ns.IsWhisperSensitiveEvent(eventName)
     return whisperSensitiveEvents[eventName] and true or false
 end
 
-local function GetProfile()
-    if ns.Chatify and ns.Chatify.db and ns.Chatify.db.profile then
-        return ns.Chatify.db.profile
-    end
-    return ns.db
-end
-
+-- On modern Retail, Chatify never mutates whisper/BNet payloads at all: they route
+-- through protected tabs and carry secret senders during chat lockdown. This is a
+-- hard, unconditional bypass.
 function ns.ShouldBypassWhisperMutation(eventName)
-    if not ns.IsRetailSecretValueBuild() then
-        return false
-    end
-    if not ns.IsWhisperSensitiveEvent(eventName) then
-        return false
-    end
-
-    -- Opt-in "never touch whispers on Retail" escape hatch for users who hit
-    -- layout issues with temporary whisper windows.
-    local db = GetProfile()
-    if db and db.retailWhisperSafeMode then
-        return true
-    end
-
-    -- Otherwise only step aside while the client is actually protecting chat.
-    return ns.InChatMessagingLockdown()
+    return ns.IsRetailSecretValueBuild() and ns.IsWhisperSensitiveEvent(eventName)
 end
 
 local retailCaptureBypassEvents = {
@@ -959,8 +946,37 @@ function ns.IsEventSupported(eventName)
     return eventSupportCache[eventName]
 end
 
+-- 12.0+ TAINT KILL-SWITCH.
+--
+-- Secret values only block operations on a *tainted execution path*; on an
+-- untainted path Blizzard converts them normally. An addon filter closure
+-- registered through ChatFrame_AddMessageEventFilter runs inside Blizzard's chat
+-- event-dispatch stack, which taints that dispatch and, worse, taints the shared
+-- state the HistoryKeeper writes into. The damage surfaces later on a completely
+-- unrelated event that happens to carry a secret sender (e.g. MONSTER_SAY),
+-- as "attempt to perform string conversion on a secret string value
+-- (execution tainted by 'Chatify')" inside ChatHistory_GetToken.
+--
+-- There is no taint-safe way to run a message-event filter on these clients, so
+-- Chatify registers none of them on 12.0+. Timestamps fall back to Blizzard's own
+-- native timestamp CVar; see ns.ApplyNativeTimestamps().
+function ns.CanUseMessageEventFilters()
+    if not ns.IsRetailSecretValueBuild() then
+        return true
+    end
+
+    -- Escape hatch: some users would rather keep spam filtering and keyword
+    -- highlighting and tolerate the periodic Lua error. Off by default.
+    local db = GetProfile()
+    return (db and db.retailAllowChatFilters) and true or false
+end
+
 function ns.AddMessageEventFilterIfSupported(eventName, callback)
     if type(ChatFrame_AddMessageEventFilter) ~= "function" or type(callback) ~= "function" then
+        return false
+    end
+
+    if not ns.CanUseMessageEventFilters() then
         return false
     end
 
