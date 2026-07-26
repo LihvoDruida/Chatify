@@ -1160,6 +1160,7 @@ BUTTON_DEFS = {
         chatType = "GUILD",
         altChatType = "OFFICER",
         label = "G",
+        altLabel = "O",
         tooltip = "Guild Chat",
         altTooltip = "Officer Chat",
         slash = "/g ",
@@ -1192,6 +1193,7 @@ BUTTON_DEFS = {
         chatType = "RAID",
         altChatType = "RAID_WARNING",
         label = "R",
+        altLabel = "RW",
         tooltip = "Raid Chat",
         altTooltip = "Raid Warning",
         slash = "/ra ",
@@ -1702,8 +1704,21 @@ local function GetCurrentChatType()
     return nil
 end
 
+-- Holding Alt previews the alternate channel on buttons that have one
+-- (Guild -> Officer, Raid -> Raid Warning), matching what Alt + Left Click does.
+local function IsAltModifierDown()
+    if type(IsAltKeyDown) ~= "function" then
+        return false
+    end
+    local ok, down = pcall(IsAltKeyDown)
+    return ok and down or false
+end
+
 local function BuildButtonStateSignature()
-    local signature = { GetCurrentChatType() or "nil" }
+    -- The Alt state must be part of the signature: MODIFIER_STATE_CHANGED queues an
+    -- update when Alt is pressed or released, and UpdateButtonState bails out early
+    -- when the signature is unchanged. Without this the preview never redraws.
+    local signature = { GetCurrentChatType() or "nil", IsAltModifierDown() and "alt" or "noalt" }
 
     for _, def in ipairs(BUTTON_DEFS) do
         local enabled = IsButtonEnabled(def) and "1" or "0"
@@ -1728,18 +1743,25 @@ UpdateButtonState = function()
     lastStateSignature = stateSignature
 
     local currentChatType = GetCurrentChatType()
+    local altDown = IsAltModifierDown()
     for _, def in ipairs(BUTTON_DEFS) do
         local button = buttons[def.key]
         if button then
             local enabled = IsButtonEnabled(def)
+            -- Alt only previews the alternate channel when it is actually usable;
+            -- a non-officer holding Alt should still see the plain Guild button.
+            local altActive = altDown and def.altChatType and IsAltButtonEnabled(def) or false
+
             button:SetEnabled(true)
             if button.EnableMouse then
                 button:EnableMouse(true)
             end
             button.__chatifyDisabled = not enabled
-            button.__chatifySelected = enabled and (currentChatType == def.chatType or (def.altChatType and currentChatType == def.altChatType))
+            button.__chatifySelected = enabled and (currentChatType == def.chatType or (def.altChatType and currentChatType == def.altChatType)) or false
+            button.__chatifyAltActive = altActive
 
             if button.Label then
+                button.Label:SetText(altActive and (def.altLabel or def.label) or def.label)
                 if enabled then
                     button.Label:SetAlpha(1)
                 else
@@ -1845,45 +1867,58 @@ local function ActivateChatType(def, useAlt)
         end
     end
 
+    -- Preserve a half-typed message, but only if the edit box is actually open.
+    -- A hidden box can still hold stale text from a previous session, and
+    -- resurrecting that would be worse than starting empty.
     local existingText = ""
     if editBox and type(editBox.GetText) == "function" then
-        local ok, text = pcall(editBox.GetText, editBox)
-        if ok and type(text) == "string" then
-            existingText = text
+        local shown = true
+        if type(editBox.IsShown) == "function" then
+            local okShown, visible = pcall(editBox.IsShown, editBox)
+            shown = okShown and visible or false
+        end
+
+        if shown then
+            local ok, text = pcall(editBox.GetText, editBox)
+            if ok and type(text) == "string" then
+                existingText = text
+            end
         end
     end
 
-    local opened = false
-    if type(openChat) == "function" and type(target.slash) == "string" then
-        local ok = pcall(openChat, target.slash, frame)
-        opened = ok and true or false
-        editBox = GetActiveEditBox() or editBox
+    local slash = type(target.slash) == "string" and target.slash or ""
+
+    -- Guard against re-prefixing when the box already holds the slash, which
+    -- happens if the same button is clicked twice before anything is typed.
+    if slash ~= "" and existingText:sub(1, #slash) == slash then
+        existingText = existingText:sub(#slash + 1)
     end
 
-    if not opened and type(openChat) == "function" then
-        pcall(openChat, "", frame)
-        editBox = GetActiveEditBox() or editBox
-    end
+    -- If the edit box is already on the requested channel there is nothing to
+    -- parse: injecting the slash would only overwrite the draft with a literal
+    -- "/g " and drop whatever was typed. Just reopen with the draft intact.
+    if GetCurrentChatType() == target.chatType then
+        if type(openChat) == "function" then
+            pcall(openChat, existingText, frame)
+            editBox = GetActiveEditBox() or editBox
+        end
+    else
+        local parseBuffer = slash .. existingText
 
-    local switched = false
-    local currentChatType = GetCurrentChatType()
-    if currentChatType == target.chatType then
-        switched = true
-    end
-
-    if not switched and editBox and type(parseText) == "function" and type(target.slash) == "string" then
-        local parseBuffer = target.slash
-        if existingText and existingText ~= "" then
-            parseBuffer = target.slash .. existingText
+        if type(openChat) == "function" then
+            pcall(openChat, parseBuffer, frame)
+            editBox = GetActiveEditBox() or editBox
         end
 
-        if editBox.SetText then
-            pcall(editBox.SetText, editBox, parseBuffer)
+        -- OpenChat only fills the box; ChatEdit_ParseText is what consumes the
+        -- slash and flips the edit box over to the new chat type.
+        if editBox and type(parseText) == "function" and slash ~= "" then
+            if editBox.SetText then
+                pcall(editBox.SetText, editBox, parseBuffer)
+            end
+            pcall(parseText, editBox, 0)
+            editBox = GetActiveEditBox() or editBox
         end
-        pcall(parseText, editBox, 0)
-        editBox = GetActiveEditBox() or editBox
-        currentChatType = GetCurrentChatType()
-        switched = currentChatType == target.chatType
     end
 
     if editBox then
@@ -3335,6 +3370,12 @@ function QuickButtonsModule:OnEnable()
     register("PLAYER_ENTERING_WORLD", "Refresh")
     register("GROUP_ROSTER_UPDATE", "Refresh")
     register("PLAYER_GUILD_UPDATE", "Refresh")
+    -- Raid Warning depends on being leader or assistant, and Officer chat on the
+    -- guild rank's permissions. Both can change without the roster size changing,
+    -- so refresh the enabled/disabled state on those events too. These only queue
+    -- a coalesced state update, not a full layout pass.
+    register("PARTY_LEADER_CHANGED", function() ScheduleButtonStateUpdate() end)
+    register("GUILD_RANKS_UPDATE", function() ScheduleButtonStateUpdate() end)
     register("UPDATE_CHAT_WINDOWS", "Refresh")
     register("UPDATE_FLOATING_CHAT_WINDOWS", "Refresh")
     register("CHANNEL_UI_UPDATE", "Refresh")
