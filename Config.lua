@@ -5,6 +5,15 @@ ns.Chatify = LibStub("AceAddon-3.0"):NewAddon("Chatify",
     "AceEvent-3.0"
 )
 
+-- Every module is written against a global `Chatify` (e.g. `if Chatify and
+-- Chatify.db then return Chatify.db.profile end`), but the addon object was only
+-- ever stored on the private namespace. AceAddon does not create a global for you,
+-- so all of those guards silently evaluated to nil and fell through to their
+-- fallback path. That quietly disabled the /chatcopy slash command, the retail
+-- safe-mode enforcement in ChatFilters/ChatHistory, and the per-character
+-- auto-reply state. Publish the object under the name the rest of the addon uses.
+_G.Chatify = ns.Chatify
+
 -- =========================================================
 -- 1. LIBS & MEDIA REGISTRATION
 -- =========================================================
@@ -972,7 +981,16 @@ function ns.CanUseMessageEventFilters()
         return true
     end
 
-    local db = GetProfile()
+    -- Resolved inline rather than through a helper: this runs during module enable,
+    -- before the saved variables are necessarily attached, so every step has to
+    -- tolerate a missing db. ns.Chatify is the AceAddon object; note that there is
+    -- no global named Chatify, so it must be reached through the namespace.
+    local db = ns.db
+    local addon = ns.Chatify
+    if addon and addon.db and addon.db.profile then
+        db = addon.db.profile
+    end
+
     if db and db.retailDisableChatFilters then
         return false
     end
