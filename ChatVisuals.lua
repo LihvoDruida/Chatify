@@ -300,28 +300,38 @@ local function UnregisterTimestampFilters()
     visualsFiltersInstalled = false
 end
 
--- Install or withdraw the timestamp filter as the lockdown gate flips.
+-- Timestamp ownership on 12.0+ depends on the filter mode.
 --
--- On 12.0+ Chatify does not use a timestamp filter at all. Its chat filters are
--- withdrawn during lockdown, so a filter-based timestamp would disappear mid-fight
--- and reappear afterwards; and running both it and the native CVar would print the
--- time twice. Blizzard's own showTimestamps rendering is secure, survives lockdown
--- and looks identical throughout, so it owns timestamps on those clients.
+-- In "lockdown" and "off" the filter is absent for at least part of the time, so a
+-- filter-based timestamp would vanish mid-encounter and reappear afterwards, and
+-- running it alongside the CVar would print the time twice. Blizzard's own
+-- showTimestamps rendering is secure, survives lockdown and looks identical
+-- throughout, so it owns timestamps there.
+--
+-- In "full" the filter is always present, so Chatify renders timestamps itself and
+-- the user gets the configured format and colour back.
 local function InstallTimestampFilters()
     local db = GetVisualDB()
     local retailRestricted = IsRetailRestricted()
+    local ownTimestamps = not retailRestricted
+        or (type(ns.GetRetailChatFilterMode) == "function" and ns.GetRetailChatFilterMode() == "full")
 
-    if retailRestricted then
+    if not ownTimestamps then
         ns.ApplyNativeTimestamps(db)
         return
     end
 
-    local virtualActive = db and db.useVirtualChat
+    if retailRestricted then
+        -- Reclaiming timestamps: make sure the native CVar is not also printing.
+        ns.ApplyNativeTimestamps(db)
+    end
+
+    local virtualActive = db and db.useVirtualChat and not retailRestricted
     if visualsFiltersInstalled or virtualActive then
         return
     end
 
-    local filterEvents = eventsToHandle
+    local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
     for evt in pairs(filterEvents) do
         RegisterTimestampFilter(evt)
     end
@@ -369,8 +379,13 @@ function ns.ApplyNativeTimestamps(db)
     db = db or GetVisualDB()
     if not db then return end
 
+    -- In "full" mode Chatify's own filter draws the timestamps, so the native CVar
+    -- must stay off or every line would carry two.
+    local chatifyOwnsTimestamps = type(ns.GetRetailChatFilterMode) == "function"
+        and ns.GetRetailChatFilterMode() == "full"
+
     local wanted = nil
-    if db.enableTimestamps then
+    if db.enableTimestamps and not chatifyOwnsTimestamps then
         local fmt = "%H:%M"
         if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
             local formatData = ns.Lists.TimeFormats[db.timestampID]

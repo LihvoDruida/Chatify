@@ -399,21 +399,32 @@ function Chatify:GetOptions()
                         end,
                         get = function(info) return self.db.profile.retailWhisperSafeMode end,
                     },
-                    retailDisableChatFilters = {
+                    retailChatFilterMode = {
                         order = 0.96,
-                        name = T("Disable chat filters entirely (Retail troubleshooting)"),
-                        desc = T("Chatify normally keeps spam filtering, keyword highlighting and custom link formatting active, and only withdraws them while the game locks down chat (boss encounters, Mythic+, rated PvP), restoring them straight afterwards. Enable this only if you still get 'secret string value' Lua errors outside of those situations: it keeps the filters off permanently and falls back to the game's own timestamps. Requires /reload."),
-                        type = "toggle",
+                        name = T("Chat filters on Midnight (12.0+)"),
+                        desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Balanced keeps every feature during normal play and steps aside only while the game locks chat down. Choose Maximum if you want filtering during encounters too and can live with the occasional 'secret string value' error, or Safest if you are still seeing those errors. Requires /reload."),
+                        type = "select",
                         width = "full",
+                        values = function()
+                            return {
+                                full = T("Maximum features (may cause errors in encounters)"),
+                                lockdown = T("Balanced - pause only during encounters (recommended)"),
+                                off = T("Safest - never filter, use the game's timestamps"),
+                            }
+                        end,
+                        sorting = function() return { "full", "lockdown", "off" } end,
                         hidden = function()
                             return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
                         end,
                         set = function(info, val)
-                            self.db.profile.retailDisableChatFilters = val
+                            self.db.profile.retailChatFilterMode = val
+                            self.db.profile.retailDisableChatFilters = nil
                             if type(ns.RefreshMessageFilters) == "function" then ns.RefreshMessageFilters() end
                             if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
                         end,
-                        get = function(info) return self.db.profile.retailDisableChatFilters end,
+                        get = function(info)
+                            return self.db.profile.retailChatFilterMode or "lockdown"
+                        end,
                     },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     

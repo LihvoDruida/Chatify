@@ -403,13 +403,18 @@ ns.defaults = {
         -- chat dispatch and eventually produces "string conversion on a secret
         -- string value" errors. Enabling this trades that error back for spam
         -- filtering / keyword highlighting / custom link formatting.
-        -- Off by default. Chatify already withdraws its chat filters for the
-        -- duration of chat messaging lockdown (encounters, Mythic+, rated PvP) and
-        -- reinstalls them afterwards, which is what prevents the tainted-dispatch
-        -- "secret string value" error. This switch is a troubleshooting escape
-        -- hatch that keeps them withdrawn permanently on 12.0+; it costs spam
-        -- filtering, keyword highlighting and custom link formatting.
-        retailDisableChatFilters = false,
+        -- How aggressively Chatify uses Blizzard's message-event filters on 12.0+.
+        --   "full"     - always filtered. Maximum features; a filter closure sits on
+        --                Blizzard's chat dispatch even while chat payloads carry
+        --                secret values, which is the condition that can produce
+        --                "string conversion on a secret string value".
+        --   "lockdown" - filtered during normal play, withdrawn for the duration of
+        --                chat messaging lockdown (encounters, Mythic+, rated PvP).
+        --                Default: keeps every feature outside the one window where
+        --                secrets actually appear.
+        --   "off"      - never filtered on 12.0+. Timestamps fall back to the game's
+        --                own rendering; spam filtering and highlighting are lost.
+        retailChatFilterMode = "lockdown",
 
         -- === SOUNDS ===
         sounds = {
@@ -471,41 +476,70 @@ function ns.HasSecretValueAPI()
     return secretApiAvailable
 end
 
+-- Session-constant like GetBuildInterface, and queried even more often: cache it.
+local cachedRetailSecretBuild
+
 function ns.IsRetailSecretValueBuild()
+    if cachedRetailSecretBuild ~= nil then
+        return cachedRetailSecretBuild
+    end
+
+    local result
     if WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
-        return false
+        result = false
+    elseif WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+        result = false
+    elseif not ns.HasSecretValueAPI() then
+        result = false
+    else
+        result = ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
     end
 
-    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
-        return false
-    end
-
-    if not ns.HasSecretValueAPI() then
-        return false
-    end
-
-    return ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
+    cachedRetailSecretBuild = result
+    return result
 end
 
 -- Chat messaging lockdown (12.0.0+). While it is active Blizzard blocks
 -- addon-initiated SendChatMessage / BNSendWhisper with ADDON_ACTION_BLOCKED and
 -- delivers whisper payloads as secret values. Outside of it, chat behaves normally.
-function ns.InChatMessagingLockdown()
+--
+-- This is polled per chat message, so the answer is cached. Unlike the build
+-- checks it does change during a session, so the cache is dropped by
+-- ns.InvalidateLockdownCache() from the same event watcher that drives
+-- RefreshMessageFilters (ADDON_RESTRICTION_STATE_CHANGED plus encounter and
+-- challenge-mode fallbacks), which is exactly when the state can flip.
+local cachedLockdown
+
+function ns.InvalidateLockdownCache()
+    cachedLockdown = nil
+end
+
+function ns.InChatMessagingLockdown(forceFresh)
+    if not forceFresh and cachedLockdown ~= nil then
+        return cachedLockdown
+    end
+
+    local result = false
     if C_ChatInfo and type(C_ChatInfo.InChatMessagingLockdown) == "function" then
         local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
         if ok then
-            return locked and true or false
+            result = locked and true or false
         end
     end
-    return false
+
+    cachedLockdown = result
+    return result
 end
 
--- Single gate for every outgoing addon-initiated chat message.
+-- Single gate for every outgoing addon-initiated chat message. Deliberately reads
+-- the lockdown state fresh rather than from cache: this runs only when something is
+-- actually about to be sent, and a stale "not locked" answer here would produce the
+-- ADDON_ACTION_BLOCKED popup this gate exists to prevent.
 function ns.CanSendAddonChat()
     if not ns.IsRetailSecretValueBuild() then
         return true
     end
-    return not ns.InChatMessagingLockdown()
+    return not ns.InChatMessagingLockdown(true)
 end
 
 local whisperSensitiveEvents = {
@@ -522,31 +556,36 @@ end
 
 -- On modern Retail, Chatify never mutates whisper/BNet payloads at all: they route
 -- through protected tabs and carry secret senders during chat lockdown. This is a
--- hard, unconditional bypass.
-function ns.ShouldBypassWhisperMutation(eventName)
-    return ns.IsRetailSecretValueBuild() and ns.IsWhisperSensitiveEvent(eventName)
-end
 
-local retailCaptureBypassEvents = {
-    CHAT_MSG_WHISPER = true,
-    CHAT_MSG_WHISPER_INFORM = true,
-    CHAT_MSG_BN_WHISPER = true,
-    CHAT_MSG_BN_WHISPER_INFORM = true,
-    CHAT_MSG_BN_CONVERSATION = true,
-    CHAT_MSG_EMOTE = true,
-    CHAT_MSG_TEXT_EMOTE = true,
-    CHAT_MSG_ACHIEVEMENT = true,
-    CHAT_MSG_GUILD_ACHIEVEMENT = true,
-}
-
+-- Chat history is captured on Chatify's own event frame, not through Blizzard's
+-- message-event filter chain, so nothing here can taint Blizzard's chat dispatch.
+-- The only real requirement is to never operate on a secret payload, and
+-- CanMutateChatPayload already enforces that per message. Blanket-skipping whole
+-- event types on retail therefore only cost features (no whisper, emote or
+-- achievement history) without buying any safety.
+--
+-- Kept as a function because modules call it, and so a specific event can be
+-- excluded again quickly if one turns out to need it.
 function ns.ShouldBypassChatCaptureEvent(eventName)
-    if not ns.IsRetailSecretValueBuild() then
-        return false
-    end
-    return retailCaptureBypassEvents[eventName] and true or false
+    return false
 end
+
+-- Blizzard exposes batch inspectors that examine an entire vararg in a single C
+-- call. They are both cheaper than looping in Lua (these run for every chat line,
+-- once per chat frame the event is registered on) and more reliable, since they
+-- also see values a per-item check can miss. Resolved once at load; on clients
+-- without them the original element-wise loop is used.
+local hasAnySecretValues = _G.hasanysecretvalues
+local canAccessAllValues = _G.canaccessallvalues
 
 function ns.HasSecretChatValue(...)
+    if hasAnySecretValues then
+        local ok, result = pcall(hasAnySecretValues, ...)
+        if ok then
+            return result and true or false
+        end
+    end
+
     local count = select("#", ...)
     for i = 1, count do
         if ns.IsSecretValue(select(i, ...)) then
@@ -554,6 +593,58 @@ function ns.HasSecretChatValue(...)
         end
     end
     return false
+end
+
+function ns.CanAccessChatValue(...)
+    local count = select("#", ...)
+    if count == 0 then
+        return true
+    end
+
+    if canAccessAllValues then
+        local ok, result = pcall(canAccessAllValues, ...)
+        if ok then
+            return result and true or false
+        end
+    end
+
+    for i = 1, count do
+        local value = select(i, ...)
+        if ns.IsProtectedChatValue(value) then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- Whether Chatify must leave a whisper/BNet payload completely untouched.
+--
+-- Referenced unguarded by CanMutateChatPayload, which runs for every chat message,
+-- so this has to exist on every client. Only whisper-family events are ever
+-- bypassed, and only on secret-value builds: either because the user asked for it
+-- via retailWhisperSafeMode, or because chat is currently locked down, which is
+-- when those payloads actually carry secret senders.
+function ns.ShouldBypassWhisperMutation(eventName)
+    if not ns.IsRetailSecretValueBuild() then
+        return false
+    end
+
+    if not ns.IsWhisperSensitiveEvent(eventName) then
+        return false
+    end
+
+    local db = ns.db
+    local addon = ns.Chatify
+    if addon and addon.db and addon.db.profile then
+        db = addon.db.profile
+    end
+
+    if db and db.retailWhisperSafeMode then
+        return true
+    end
+
+    return ns.InChatMessagingLockdown()
 end
 
 function ns.CanMutateChatPayload(eventName, msg, author, ...)
@@ -715,15 +806,25 @@ function ns.IncrementRuntimeCounter(key)
     return ns.Runtime.counters[key]
 end
 
+-- The build interface cannot change while the client is running, but this sits in
+-- the chat hot path (reached for every message, once per chat frame the event is
+-- registered on), so the pcall is done once and the answer reused.
+local cachedBuildInterface
+
 function ns.GetBuildInterface()
-    if type(GetBuildInfo) ~= "function" then
-        return 0
+    if cachedBuildInterface ~= nil then
+        return cachedBuildInterface
     end
-    local ok, _, _, _, interfaceVersion = pcall(GetBuildInfo)
-    if ok and type(interfaceVersion) == "number" then
-        return interfaceVersion
+
+    cachedBuildInterface = 0
+    if type(GetBuildInfo) == "function" then
+        local ok, _, _, _, interfaceVersion = pcall(GetBuildInfo)
+        if ok and type(interfaceVersion) == "number" then
+            cachedBuildInterface = interfaceVersion
+        end
     end
-    return 0
+
+    return cachedBuildInterface
 end
 
 function ns.GetProjectKey()
@@ -874,21 +975,6 @@ function ns.IsProtectedChatValue(value)
     return false
 end
 
-function ns.CanAccessChatValue(...)
-    local count = select("#", ...)
-    if count == 0 then
-        return true
-    end
-
-    for i = 1, count do
-        local value = select(i, ...)
-        if ns.IsProtectedChatValue(value) then
-            return false
-        end
-    end
-
-    return true
-end
 
 function ns.EnforceRetailSafeMode(db)
     if not db or not ns.IsRetailSecretValueBuild() then
@@ -976,6 +1062,33 @@ end
 -- So instead of disabling filters outright, Chatify withdraws them for the duration
 -- of the lockdown and reinstalls them the moment it ends. Spam filtering, keyword
 -- highlighting and link formatting keep working during normal play.
+-- Resolved retail filter mode: "full", "lockdown" or "off". Always "full" on
+-- clients without secret values, where none of this applies.
+function ns.GetRetailChatFilterMode()
+    if not ns.IsRetailSecretValueBuild() then
+        return "full"
+    end
+
+    local db = ns.db
+    local addon = ns.Chatify
+    if addon and addon.db and addon.db.profile then
+        db = addon.db.profile
+    end
+    if not db then
+        return "lockdown"
+    end
+
+    local mode = db.retailChatFilterMode
+    if mode == nil and db.retailDisableChatFilters ~= nil then
+        mode = db.retailDisableChatFilters and "off" or "lockdown"
+    end
+
+    if mode == "full" or mode == "off" then
+        return mode
+    end
+    return "lockdown"
+end
+
 function ns.CanUseMessageEventFilters()
     if not ns.IsRetailSecretValueBuild() then
         return true
@@ -991,8 +1104,24 @@ function ns.CanUseMessageEventFilters()
         db = addon.db.profile
     end
 
-    if db and db.retailDisableChatFilters then
+    if not db then
+        return true
+    end
+
+    local mode = db.retailChatFilterMode
+    -- Migrate the 0.11.18-0.11.20 boolean.
+    if mode == nil and db.retailDisableChatFilters ~= nil then
+        mode = db.retailDisableChatFilters and "off" or "lockdown"
+        db.retailChatFilterMode = mode
+        db.retailDisableChatFilters = nil
+    end
+
+    if mode == "off" then
         return false
+    end
+
+    if mode == "full" then
+        return true
     end
 
     return not ns.InChatMessagingLockdown()
@@ -1036,6 +1165,11 @@ do
         pcall(watcher.RegisterEvent, watcher, evt)
     end
     watcher:SetScript("OnEvent", function()
+        -- Order matters: the cached lockdown answer has to be dropped before the
+        -- gate is recomputed, or RefreshMessageFilters would re-read a stale value.
+        if type(ns.InvalidateLockdownCache) == "function" then
+            ns.InvalidateLockdownCache()
+        end
         if type(ns.RefreshMessageFilters) == "function" then
             ns.RefreshMessageFilters()
         end
