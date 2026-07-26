@@ -394,7 +394,13 @@ ns.defaults = {
         -- chat dispatch and eventually produces "string conversion on a secret
         -- string value" errors. Enabling this trades that error back for spam
         -- filtering / keyword highlighting / custom link formatting.
-        retailAllowChatFilters = false,
+        -- Off by default. Chatify already withdraws its chat filters for the
+        -- duration of chat messaging lockdown (encounters, Mythic+, rated PvP) and
+        -- reinstalls them afterwards, which is what prevents the tainted-dispatch
+        -- "secret string value" error. This switch is a troubleshooting escape
+        -- hatch that keeps them withdrawn permanently on 12.0+; it costs spam
+        -- filtering, keyword highlighting and custom link formatting.
+        retailDisableChatFilters = false,
 
         -- === SOUNDS ===
         sounds = {
@@ -946,29 +952,76 @@ function ns.IsEventSupported(eventName)
     return eventSupportCache[eventName]
 end
 
--- 12.0+ TAINT KILL-SWITCH.
+-- 12.0+ TAINT WINDOW.
 --
--- Secret values only block operations on a *tainted execution path*; on an
--- untainted path Blizzard converts them normally. An addon filter closure
--- registered through ChatFrame_AddMessageEventFilter runs inside Blizzard's chat
--- event-dispatch stack, which taints that dispatch and, worse, taints the shared
--- state the HistoryKeeper writes into. The damage surfaces later on a completely
--- unrelated event that happens to carry a secret sender (e.g. MONSTER_SAY),
--- as "attempt to perform string conversion on a secret string value
--- (execution tainted by 'Chatify')" inside ChatHistory_GetToken.
+-- Secret values only block operations on a *tainted* execution path, and chat
+-- payloads only carry secrets while chat messaging lockdown is active (encounters,
+-- Mythic+, rated PvP). Outside that window there is nothing to taint and filters
+-- behave exactly as they always have.
 --
--- There is no taint-safe way to run a message-event filter on these clients, so
--- Chatify registers none of them on 12.0+. Timestamps fall back to Blizzard's own
--- native timestamp CVar; see ns.ApplyNativeTimestamps().
+-- Inside the window a Chatify filter closure sitting on Blizzard's chat dispatch
+-- can taint it and the shared state ChatHistory_GetAccessID/GetToken writes into,
+-- which is what produces "string conversion on a secret string value" — often on a
+-- later, unrelated event such as MONSTER_SAY.
+--
+-- So instead of disabling filters outright, Chatify withdraws them for the duration
+-- of the lockdown and reinstalls them the moment it ends. Spam filtering, keyword
+-- highlighting and link formatting keep working during normal play.
 function ns.CanUseMessageEventFilters()
     if not ns.IsRetailSecretValueBuild() then
         return true
     end
 
-    -- Escape hatch: some users would rather keep spam filtering and keyword
-    -- highlighting and tolerate the periodic Lua error. Off by default.
     local db = GetProfile()
-    return (db and db.retailAllowChatFilters) and true or false
+    if db and db.retailDisableChatFilters then
+        return false
+    end
+
+    return not ns.InChatMessagingLockdown()
+end
+
+-- Modules register a callback here; it fires whenever the lockdown state flips so
+-- they can install or withdraw their filters.
+local filterRefreshHandlers = {}
+
+function ns.RegisterFilterRefreshHandler(fn)
+    if type(fn) == "function" then
+        filterRefreshHandlers[#filterRefreshHandlers + 1] = fn
+    end
+end
+
+local lastKnownFilterGate = nil
+
+function ns.RefreshMessageFilters()
+    local allowed = ns.CanUseMessageEventFilters()
+    if allowed == lastKnownFilterGate then
+        return
+    end
+    lastKnownFilterGate = allowed
+
+    for i = 1, #filterRefreshHandlers do
+        pcall(filterRefreshHandlers[i], allowed)
+    end
+end
+
+do
+    local watcher = CreateFrame("Frame")
+    -- ADDON_RESTRICTION_STATE_CHANGED is the 12.0 signal; the encounter/challenge
+    -- events are a fallback for builds that do not fire it.
+    for _, evt in ipairs({
+        "ADDON_RESTRICTION_STATE_CHANGED",
+        "ENCOUNTER_START", "ENCOUNTER_END",
+        "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET",
+        "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
+        "PLAYER_ENTERING_WORLD",
+    }) do
+        pcall(watcher.RegisterEvent, watcher, evt)
+    end
+    watcher:SetScript("OnEvent", function()
+        if type(ns.RefreshMessageFilters) == "function" then
+            ns.RefreshMessageFilters()
+        end
+    end)
 end
 
 function ns.AddMessageEventFilterIfSupported(eventName, callback)

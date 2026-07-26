@@ -46,9 +46,9 @@ local function RegisterMessageFilter(eventName, callback)
         return true
     end
 
-    -- See ns.CanUseMessageEventFilters(): on 12.0+ a filter closure on Blizzard's
-    -- chat dispatch taints it and corrupts secret-value handling for every later
-    -- chat event, so no filters are installed on those clients at all.
+    -- ns.CanUseMessageEventFilters() is false while chat messaging lockdown is
+    -- active on 12.0+, so no filter closure sits on Blizzard's chat dispatch during
+    -- encounters. They are reinstalled by RefreshFilterState once lockdown ends.
     if type(ns.CanUseMessageEventFilters) == "function" and not ns.CanUseMessageEventFilters() then
         return false
     end
@@ -1229,6 +1229,57 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
     return false, ns.FormatMessage(msg, event, author, ...), author, ...
 end
 
+-- Installs the message-event filters appropriate for the current client.
+--
+-- On 12.0+ this is deliberately re-entrant: ns.CanUseMessageEventFilters() returns
+-- false while chat messaging lockdown is active, so RegisterMessageFilter becomes a
+-- no-op and nothing is attached to Blizzard's chat dispatch for the duration of the
+-- encounter. ns.RefreshMessageFilters (driven by ADDON_RESTRICTION_STATE_CHANGED and
+-- the encounter/challenge fallbacks) calls back into RefreshFilterState below when
+-- the lockdown flips, which reinstalls or withdraws the filters accordingly.
+local function InstallMessageFilters()
+    if filtersInstalled then
+        return
+    end
+
+    if type(ns.CanUseMessageEventFilters) == "function" and not ns.CanUseMessageEventFilters() then
+        return
+    end
+
+    local retailRestricted = type(ns.IsRetailSecretValueBuild) == "function"
+        and ns.IsRetailSecretValueBuild()
+
+    local installedAny = false
+    if retailRestricted then
+        for i = 1, #RetailRestrictedEvents do
+            if RegisterMessageFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor) then
+                installedAny = true
+            end
+        end
+    else
+        for i = 1, #BaseEvents do
+            if RegisterMessageFilter(BaseEvents[i], LegacyMessageProcessor) then
+                installedAny = true
+            end
+        end
+    end
+
+    filtersInstalled = installedAny
+end
+
+-- Called by ns.RefreshMessageFilters whenever the lockdown gate flips.
+local function RefreshFilterState(allowed)
+    if allowed then
+        InstallMessageFilters()
+    else
+        UnregisterMessageFilters()
+    end
+end
+
+if type(ns.RegisterFilterRefreshHandler) == "function" then
+    ns.RegisterFilterRefreshHandler(RefreshFilterState)
+end
+
 function Filters:HookCommunities()
     if communitiesHooked or IsVirtualMode() then
         return
@@ -1307,31 +1358,7 @@ function Filters:OnEnable()
         pcall(self.RegisterEvent, self, "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED")
     end
 
-    if not filtersInstalled then
-        if IsRetailRestricted() then
-            for i = 1, #RetailRestrictedEvents do
-                RegisterMessageFilter(RetailRestrictedEvents[i], RetailRestrictedProcessor)
-            end
-
-            for eventName in pairs(SystemEvents) do
-                RegisterMessageFilter(eventName, RetailRestrictedProcessor)
-            end
-        elseif IsVirtualMode() then
-            for eventName in pairs(SystemEvents) do
-                RegisterMessageFilter(eventName, SystemOnlyFilter)
-            end
-        else
-            for i = 1, #BaseEvents do
-                RegisterMessageFilter(BaseEvents[i], LegacyMessageProcessor)
-            end
-
-            for eventName in pairs(SystemEvents) do
-                RegisterMessageFilter(eventName, LegacyMessageProcessor)
-            end
-        end
-
-        filtersInstalled = true
-    end
+    InstallMessageFilters()
 
     if type(ns.IsAddOnLoadedCompat) == "function" and ns.IsAddOnLoadedCompat("Blizzard_Communities") then
         self:HookCommunities()

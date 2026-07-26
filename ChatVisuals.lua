@@ -300,6 +300,51 @@ local function UnregisterTimestampFilters()
     visualsFiltersInstalled = false
 end
 
+-- Install or withdraw the timestamp filter as the lockdown gate flips.
+--
+-- On 12.0+ Chatify does not use a timestamp filter at all. Its chat filters are
+-- withdrawn during lockdown, so a filter-based timestamp would disappear mid-fight
+-- and reappear afterwards; and running both it and the native CVar would print the
+-- time twice. Blizzard's own showTimestamps rendering is secure, survives lockdown
+-- and looks identical throughout, so it owns timestamps on those clients.
+local function InstallTimestampFilters()
+    local db = GetVisualDB()
+    local retailRestricted = IsRetailRestricted()
+
+    if retailRestricted then
+        ns.ApplyNativeTimestamps(db)
+        return
+    end
+
+    local virtualActive = db and db.useVirtualChat
+    if visualsFiltersInstalled or virtualActive then
+        return
+    end
+
+    local filterEvents = eventsToHandle
+    for evt in pairs(filterEvents) do
+        RegisterTimestampFilter(evt)
+    end
+    visualsFiltersInstalled = true
+end
+
+function ns.RefreshTimestampFilterState(allowed)
+    if allowed then
+        InstallTimestampFilters()
+    else
+        UnregisterTimestampFilters()
+    end
+    -- Native timestamps carry the feature while the filter is withdrawn.
+    if type(ns.ApplyNativeTimestamps) == "function" then
+        ns.ApplyNativeTimestamps()
+    end
+end
+
+if type(ns.RegisterFilterRefreshHandler) == "function" then
+    ns.RegisterFilterRefreshHandler(ns.RefreshTimestampFilterState)
+end
+
+
 -- Taint-free timestamp path for 12.0+ clients.
 --
 -- Chatify cannot install a message-event filter on these builds (see
@@ -543,11 +588,9 @@ function VisualsModule:OnEnable()
     local db = GetVisualDB()
     local virtualActive = db and db.useVirtualChat and not retailRestricted
     if not visualsFiltersInstalled and not virtualActive then
-        local filterEvents = retailRestricted and retailTimestampEvents or eventsToHandle
-        for evt in pairs(filterEvents) do
-            RegisterTimestampFilter(evt)
+        if type(ns.CanUseMessageEventFilters) ~= "function" or ns.CanUseMessageEventFilters() then
+            InstallTimestampFilters()
         end
-        visualsFiltersInstalled = true
     end
 
     ns.ApplyVisuals()

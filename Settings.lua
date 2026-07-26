@@ -399,19 +399,21 @@ function Chatify:GetOptions()
                         end,
                         get = function(info) return self.db.profile.retailWhisperSafeMode end,
                     },
-                    retailAllowChatFilters = {
+                    retailDisableChatFilters = {
                         order = 0.96,
-                        name = T("Re-enable chat filters (Retail, may cause errors)"),
-                        desc = T("On Midnight (12.0+) any addon chat filter taints Blizzard's chat handling, which eventually throws a 'secret string value' Lua error on unrelated messages. Chatify therefore disables spam filtering, keyword highlighting and custom link formatting on these clients, and uses the game's own timestamps instead. Turn this on to get those features back and accept the error. Requires /reload."),
+                        name = T("Disable chat filters entirely (Retail troubleshooting)"),
+                        desc = T("Chatify normally keeps spam filtering, keyword highlighting and custom link formatting active, and only withdraws them while the game locks down chat (boss encounters, Mythic+, rated PvP), restoring them straight afterwards. Enable this only if you still get 'secret string value' Lua errors outside of those situations: it keeps the filters off permanently and falls back to the game's own timestamps. Requires /reload."),
                         type = "toggle",
                         width = "full",
-                        confirm = true,
-                        confirmText = T("This can cause repeated Lua errors on 12.0+ clients. Continue?"),
                         hidden = function()
                             return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
                         end,
-                        set = function(info, val) self.db.profile.retailAllowChatFilters = val end,
-                        get = function(info) return self.db.profile.retailAllowChatFilters end,
+                        set = function(info, val)
+                            self.db.profile.retailDisableChatFilters = val
+                            if type(ns.RefreshMessageFilters) == "function" then ns.RefreshMessageFilters() end
+                            if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
+                        end,
+                        get = function(info) return self.db.profile.retailDisableChatFilters end,
                     },
                     headerText = { order = 1, type = "header", name = "Text Formatting" },
                     
