@@ -18,6 +18,7 @@ local CachedKeywords = {}
 local NormalizeCache = {}
 local NormalizeCacheOrder = {}
 local NORMALIZE_CACHE_LIMIT = 256
+local NormalizeCacheCursor = 0
 local FriendCache = {}
 local friendCacheLastClear = 0
 local repeatCacheLastPrune = 0
@@ -265,14 +266,18 @@ function ns.NormalizeSpamText(text)
 
     if ok and type(forms) == "table" then
         if #safe <= 512 then
+            -- Ring buffer rather than table.remove(t, 1): once the cache is full
+            -- the old form shifted all 256 entries down on every single message.
             NormalizeCache[safe] = forms
-            NormalizeCacheOrder[#NormalizeCacheOrder + 1] = safe
-            if #NormalizeCacheOrder > NORMALIZE_CACHE_LIMIT then
-                local oldKey = table.remove(NormalizeCacheOrder, 1)
-                if oldKey then
-                    NormalizeCache[oldKey] = nil
-                end
+            NormalizeCacheCursor = NormalizeCacheCursor + 1
+            if NormalizeCacheCursor > NORMALIZE_CACHE_LIMIT then
+                NormalizeCacheCursor = 1
             end
+            local evicted = NormalizeCacheOrder[NormalizeCacheCursor]
+            if evicted ~= nil and evicted ~= safe then
+                NormalizeCache[evicted] = nil
+            end
+            NormalizeCacheOrder[NormalizeCacheCursor] = safe
         end
         return forms
     end
@@ -310,6 +315,7 @@ function ns.UpdateSpamCache()
     CachedKeywords = {}
     NormalizeCache = {}
     NormalizeCacheOrder = {}
+    NormalizeCacheCursor = 0
 
     if not db or type(db.spamKeywords) ~= "table" then
         return
@@ -655,6 +661,7 @@ function ns.ResetSpamFilterStats()
     repeatCacheLastPrune = 0
     NormalizeCache = {}
     NormalizeCacheOrder = {}
+    NormalizeCacheCursor = 0
     ClearFriendCache()
 end
 

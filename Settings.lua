@@ -402,14 +402,14 @@ function Chatify:GetOptions()
                     retailChatFilterMode = {
                         order = 0.96,
                         name = T("Chat filters on Midnight (12.0+)"),
-                        desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Balanced keeps every feature during normal play and steps aside only while the game locks chat down. Choose Maximum if you want filtering during encounters too and can live with the occasional 'secret string value' error, or Safest if you are still seeing those errors. Requires /reload."),
+                        desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because any chat filter can taint Blizzard's chat dispatch for the rest of the session, which shows up as player messages never appearing during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
                         type = "select",
                         width = "full",
                         values = function()
                             return {
-                                full = T("Maximum features (may cause errors in encounters)"),
-                                lockdown = T("Balanced - pause only during encounters (recommended)"),
-                                off = T("Safest - never filter, use the game's timestamps"),
+                                full = T("Maximum features (can break chat in encounters)"),
+                                lockdown = T("Balanced - pause while inside instances"),
+                                off = T("Safest - never filter, use the game's timestamps (recommended)"),
                             }
                         end,
                         sorting = function() return { "full", "lockdown", "off" } end,
@@ -418,11 +418,21 @@ function Chatify:GetOptions()
                         end,
                         set = function(info, val)
                             self.db.profile.retailChatFilterMode = val
+                            -- Marks the choice as deliberate, so GetRetailChatFilterMode
+                            -- stops downgrading "lockdown" to "off" on 12.0+ builds.
+                            self.db.profile.retailChatFilterModeUserSet = true
                             self.db.profile.retailDisableChatFilters = nil
                             if type(ns.RefreshMessageFilters) == "function" then ns.RefreshMessageFilters() end
                             if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
                         end,
                         get = function(info)
+                            -- Show the mode that is actually in force, not the raw
+                            -- stored value, or the dropdown would read "Balanced"
+                            -- while the addon is running in Safest.
+                            if type(ns.GetRetailChatFilterMode) == "function" then
+                                local ok, mode = pcall(ns.GetRetailChatFilterMode)
+                                if ok and mode then return mode end
+                            end
                             return self.db.profile.retailChatFilterMode or "lockdown"
                         end,
                     },

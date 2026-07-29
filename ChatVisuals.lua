@@ -7,7 +7,10 @@ local visualsFiltersInstalled = false
 local visualsApplyQueued = false
 local registeredTimestampFilters = {}
 local TimestampFilter
-local frameStyleCache = {}
+-- Weak keys: temporary chat windows (whisper tabs, pet battle logs) are created
+-- and thrown away constantly, and a strong key here pinned every one of them for
+-- the whole session.
+local frameStyleCache = setmetatable({}, { __mode = "k" })
 local C_Timer = C_Timer
 local GetServerTime = GetServerTime
 
@@ -367,12 +370,50 @@ end
 -- manual client setting is never silently clobbered.
 local nativeTimestampPrevious = nil
 local nativeTimestampApplied = false
+local nativeTimestampRetryQueued = false
+
+-- ns.RefreshTimestampFilterState fires on every lockdown flip, and the first of
+-- those is ENCOUNTER_START / CHALLENGE_MODE_START, i.e. mid-combat. SetCVar from
+-- addon code during combat lockdown is refused and surfaces as an
+-- ADDON_ACTION_BLOCKED popup, so the write is deferred to the end of combat.
+local function DeferNativeTimestampsUntilOutOfCombat()
+    if nativeTimestampRetryQueued then
+        return
+    end
+
+    local frame = _G.ChatifyTimestampCVarGuard
+    if not frame then
+        if type(CreateFrame) ~= "function" then
+            return
+        end
+        local okFrame, created = pcall(CreateFrame, "Frame")
+        if not okFrame or not created then
+            return
+        end
+        frame = created
+        _G.ChatifyTimestampCVarGuard = frame
+        frame:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            nativeTimestampRetryQueued = false
+            pcall(ns.ApplyNativeTimestamps)
+        end)
+    end
+
+    if pcall(frame.RegisterEvent, frame, "PLAYER_REGEN_ENABLED") then
+        nativeTimestampRetryQueued = true
+    end
+end
 
 function ns.ApplyNativeTimestamps(db)
     if not ns.IsRetailSecretValueBuild() then
         return
     end
-    if type(GetCVar) ~= "function" or type(SetCVar) ~= "function" then
+    if type(ns.GetCVarCompat) ~= "function" or type(ns.SetCVarCompat) ~= "function" then
+        return
+    end
+
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        DeferNativeTimestampsUntilOutOfCombat()
         return
     end
 
@@ -406,13 +447,12 @@ function ns.ApplyNativeTimestamps(db)
 
     if wanted then
         if not nativeTimestampApplied then
-            local okGet, current = pcall(GetCVar, "showTimestamps")
-            nativeTimestampPrevious = okGet and current or nil
+            nativeTimestampPrevious = ns.GetCVarCompat("showTimestamps")
             nativeTimestampApplied = true
         end
-        pcall(SetCVar, "showTimestamps", wanted)
+        ns.SetCVarCompat("showTimestamps", wanted)
     elseif nativeTimestampApplied then
-        pcall(SetCVar, "showTimestamps", nativeTimestampPrevious or "none")
+        ns.SetCVarCompat("showTimestamps", nativeTimestampPrevious or "none")
         nativeTimestampApplied = false
         nativeTimestampPrevious = nil
     end

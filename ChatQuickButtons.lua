@@ -1352,7 +1352,8 @@ local function GetLastActiveChatFrame()
     if _G.ChatFrameUtil then
         local util = _G.ChatFrameUtil
         if type(util.GetLastActiveWindow) == "function" then
-            local ok, result = pcall(util.GetLastActiveWindow, util)
+            -- Plain call: the namespace is a function table, not a mixin.
+            local ok, result = pcall(util.GetLastActiveWindow)
             if ok then
                 result = NormalizeChatFrame(result)
                 if result then
@@ -1362,7 +1363,8 @@ local function GetLastActiveChatFrame()
         end
 
         if type(util.GetActiveChatFrame) == "function" then
-            local ok, result = pcall(util.GetActiveChatFrame, util)
+            -- Plain call: the namespace is a function table, not a mixin.
+            local ok, result = pcall(util.GetActiveChatFrame)
             if ok then
                 result = NormalizeChatFrame(result)
                 if result then
@@ -1823,21 +1825,21 @@ local function ActivateChatType(def, useAlt)
         return
     end
 
-    local setLastActiveWindow = _G.ChatEdit_SetLastActiveWindow
-    if type(setLastActiveWindow) ~= "function" and _G.ChatFrameUtil and type(_G.ChatFrameUtil.SetLastActiveWindow) == "function" then
-        setLastActiveWindow = function(chatFrame)
-            return _G.ChatFrameUtil.SetLastActiveWindow(_G.ChatFrameUtil, chatFrame)
-        end
-    end
-
-    if type(setLastActiveWindow) == "function" then
-        pcall(setLastActiveWindow, frame)
+    -- Both of these used to build their own ChatFrameUtil fallback and pass the
+    -- namespace table through as the first argument. Blizzard's util namespaces
+    -- take no implicit self, so `text` became the table and the fallback would
+    -- have broken the moment the flat globals are removed. ns.CallChatAPI picks
+    -- the right spelling and calling convention for the running client.
+    if type(ns.CallChatAPI) == "function" then
+        ns.CallChatAPI("ChatEdit_SetLastActiveWindow", "SetLastActiveWindow", frame)
+    elseif type(_G.ChatEdit_SetLastActiveWindow) == "function" then
+        pcall(_G.ChatEdit_SetLastActiveWindow, frame)
     end
 
     local openChat = _G.ChatFrame_OpenChat
-    if type(openChat) ~= "function" and _G.ChatFrameUtil and type(_G.ChatFrameUtil.OpenChat) == "function" then
+    if type(openChat) ~= "function" and type(ns.CallChatAPI) == "function" then
         openChat = function(text, chatFrame)
-            return _G.ChatFrameUtil.OpenChat(_G.ChatFrameUtil, text, chatFrame)
+            return ns.CallChatAPI("ChatFrame_OpenChat", "OpenChat", text, chatFrame)
         end
     end
 

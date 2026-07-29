@@ -408,13 +408,17 @@ ns.defaults = {
         --                Blizzard's chat dispatch even while chat payloads carry
         --                secret values, which is the condition that can produce
         --                "string conversion on a secret string value".
-        --   "lockdown" - filtered during normal play, withdrawn for the duration of
-        --                chat messaging lockdown (encounters, Mythic+, rated PvP).
-        --                Default: keeps every feature outside the one window where
-        --                secrets actually appear.
+        --   "lockdown" - filtered during normal play, withdrawn for the whole taint
+        --                risk window (inside instanced content, and any encounter or
+        --                key within it). Opt-in on 12.0+: a filter that ran earlier
+        --                in the session can still have tainted the dispatch, which
+        --                shows up as no player chat at all during the encounter.
         --   "off"      - never filtered on 12.0+. Timestamps fall back to the game's
         --                own rendering; spam filtering and highlighting are lost.
+        --                This is the effective default on secret-value builds unless
+        --                the user picks another mode (retailChatFilterModeUserSet).
         retailChatFilterMode = "lockdown",
+        retailChatFilterModeUserSet = false,
 
         -- === SOUNDS ===
         sounds = {
@@ -531,6 +535,36 @@ function ns.InChatMessagingLockdown(forceFresh)
     return result
 end
 
+-- Taint risk window (12.0+).
+--
+-- Chat payloads only carry secret values while chat messaging lockdown is active,
+-- but taint is not symmetrical with it: a filter closure that ran BEFORE the
+-- encounter has already marked Blizzard's chat dispatch and the shared state
+-- ChatHistory_GetAccessID/GetToken write into, and that mark survives until the
+-- next /reload. Withdrawing the filter at ENCOUNTER_START is therefore too late.
+--
+-- The last moment at which withdrawal still buys anything is the instance
+-- transition, so the risk window is "lockdown OR inside instanced content".
+-- IsInInstance is a cheap C call and is not cached; only the lockdown half is.
+function ns.InChatTaintRiskWindow()
+    if not ns.IsRetailSecretValueBuild() then
+        return false
+    end
+
+    if ns.InChatMessagingLockdown() then
+        return true
+    end
+
+    if type(IsInInstance) == "function" then
+        local ok, inInstance, instanceType = pcall(IsInInstance)
+        if ok and inInstance and instanceType ~= "none" then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- Single gate for every outgoing addon-initiated chat message. Deliberately reads
 -- the lockdown state fresh rather than from cache: this runs only when something is
 -- actually about to be sent, and a stale "not locked" answer here would produce the
@@ -579,6 +613,14 @@ local hasAnySecretValues = _G.hasanysecretvalues
 local canAccessAllValues = _G.canaccessallvalues
 
 function ns.HasSecretChatValue(...)
+    -- Nothing can be secret without the API, and this is the single hottest
+    -- function in the addon (once per message, per chat frame registered for the
+    -- event). Bailing here removes the whole vararg walk on every Classic client
+    -- and on pre-12 Retail.
+    if not ns.HasSecretValueAPI() then
+        return false
+    end
+
     if hasAnySecretValues then
         local ok, result = pcall(hasAnySecretValues, ...)
         if ok then
@@ -596,6 +638,10 @@ function ns.HasSecretChatValue(...)
 end
 
 function ns.CanAccessChatValue(...)
+    if not ns.HasSecretValueAPI() then
+        return true
+    end
+
     local count = select("#", ...)
     if count == 0 then
         return true
@@ -689,6 +735,121 @@ local function SafeGlobalCall(func, ...)
         return false, nil
     end
     return pcall(func, ...)
+end
+
+-- CVars.
+--
+-- Modern Retail moved these into C_CVar and keeps the flat globals only as
+-- deprecation shims; Classic has the flat globals and no namespace at all. Call
+-- sites go through here so neither side is assumed to exist.
+function ns.GetCVarCompat(name)
+    if C_CVar and type(C_CVar.GetCVar) == "function" then
+        local ok, value = pcall(C_CVar.GetCVar, name)
+        if ok then return value end
+    end
+    if type(GetCVar) == "function" then
+        local ok, value = pcall(GetCVar, name)
+        if ok then return value end
+    end
+    return nil
+end
+
+function ns.SetCVarCompat(name, value)
+    if C_CVar and type(C_CVar.SetCVar) == "function" then
+        if pcall(C_CVar.SetCVar, name, value) then
+            return true
+        end
+    end
+    if type(SetCVar) == "function" then
+        return pcall(SetCVar, name, value) and true or false
+    end
+    return false
+end
+
+-- Chat helper resolution.
+--
+-- 12.0 is moving the loose ChatFrame_* / FCF_* / ChatEdit_* helpers into the
+-- ChatFrameUtil namespace, and during the deprecation window both spellings
+-- exist. The flat global is preferred where it is still real, because that is
+-- what ElvUI, GW2_UI and Prat hook - resolving straight to the namespace would
+-- silently bypass their hooks. The namespace is the fallback for when Blizzard
+-- finishes the removal, and on Classic only the global ever exists.
+--
+-- Only the routing decision is memoised, never the function object, so a hook
+-- installed after our first call is still picked up.
+local chatApiRoute = {}
+
+function ns.GetChatAPI(legacyName, utilName)
+    local key = tostring(legacyName) .. "/" .. tostring(utilName)
+    local route = chatApiRoute[key]
+
+    if route == nil then
+        local util = _G.ChatFrameUtil
+        if legacyName and type(_G[legacyName]) == "function" then
+            route = "global"
+        elseif utilName and type(util) == "table" and type(util[utilName]) == "function" then
+            route = "util"
+        else
+            route = false
+        end
+        chatApiRoute[key] = route
+    end
+
+    if route == "global" then
+        return _G[legacyName], nil
+    end
+
+    if route == "util" then
+        local util = _G.ChatFrameUtil
+        if type(util) == "table" then
+            return util[utilName], util
+        end
+    end
+
+    return nil, nil
+end
+
+-- Blizzard's util namespaces are plain function tables rather than mixins, so
+-- the namespace entries take no implicit self. Earlier call sites passed the
+-- table through as the first argument, which made `text` the namespace itself
+-- and would have broken every fallback path the moment the flat globals go
+-- away. Plain style is tried first and the mixin form is kept as a one-shot
+-- retry, memoised per function, so a future signature change cannot strand us.
+local chatUtilCallStyle = {}
+
+function ns.CallChatAPI(legacyName, utilName, ...)
+    local fn, owner = ns.GetChatAPI(legacyName, utilName)
+    if type(fn) ~= "function" then
+        return false
+    end
+
+    if not owner then
+        return pcall(fn, ...)
+    end
+
+    local key = tostring(utilName)
+    if chatUtilCallStyle[key] == "method" then
+        return pcall(fn, owner, ...)
+    end
+
+    local ok, result = pcall(fn, ...)
+    if ok then
+        chatUtilCallStyle[key] = "plain"
+        return true, result
+    end
+
+    local okMethod, methodResult = pcall(fn, owner, ...)
+    if okMethod then
+        chatUtilCallStyle[key] = "method"
+        return true, methodResult
+    end
+
+    return false
+end
+
+function ns.ResetChatAPICache()
+    chatApiRoute = {}
+    chatUtilCallStyle = {}
 end
 
 function ns.GetAddonMetadata(name, key)
@@ -837,7 +998,10 @@ function ns.GetProjectKey()
     if WOW_PROJECT_MISTS_CLASSIC and project == WOW_PROJECT_MISTS_CLASSIC then return "mists" end
 
     local interfaceVersion = ns.GetBuildInterface()
-    if interfaceVersion >= 120000 then return "retail" end
+    -- Any interface at or above 100000 is a mainline build. The old floor of
+    -- 120000 reported "unknown" on every pre-Midnight Retail client that did not
+    -- expose WOW_PROJECT_ID, which made IsMainlineClient false there.
+    if interfaceVersion >= 100000 then return "retail" end
     if interfaceVersion >= 50500 and interfaceVersion < 50600 then return "mists" end
     if interfaceVersion >= 38000 and interfaceVersion < 38100 then return "titan" end
     if interfaceVersion >= 30400 and interfaceVersion < 30500 then return "wrath" end
@@ -860,10 +1024,8 @@ function ns.GetSelectedChatFrame()
     if _G and _G.GeneralDockManager and _G.GeneralDockManager.selected then
         return _G.GeneralDockManager.selected
     end
-    if type(FCF_GetCurrentChatFrame) == "function" then
-        local ok, frame = pcall(FCF_GetCurrentChatFrame)
-        if ok and frame then return frame end
-    end
+    local ok, frame = ns.CallChatAPI("FCF_GetCurrentChatFrame", "GetCurrentChatFrame")
+    if ok and frame then return frame end
     return DEFAULT_CHAT_FRAME or _G.ChatFrame1
 end
 
@@ -884,12 +1046,8 @@ function ns.GetChatEditBox(chatFrame)
 end
 
 function ns.ChatFrameOpenChat(text, chatFrame)
-    local util = _G.ChatFrameUtil
-    if type(ChatFrame_OpenChat) == "function" then
-        return pcall(ChatFrame_OpenChat, text or "", chatFrame)
-    end
-    if util and type(util.OpenChat) == "function" then
-        return pcall(util.OpenChat, util, text or "", chatFrame)
+    if ns.CallChatAPI("ChatFrame_OpenChat", "OpenChat", text or "", chatFrame) then
+        return true
     end
     local editBox = ns.GetChatEditBox(chatFrame or ns.GetSelectedChatFrame())
     if editBox and type(editBox.SetText) == "function" and type(editBox.Show) == "function" then
@@ -1086,6 +1244,21 @@ function ns.GetRetailChatFilterMode()
     if mode == "full" or mode == "off" then
         return mode
     end
+
+    -- Runtime-only downgrade of the shipped default on secret-value builds.
+    --
+    -- "lockdown" cannot actually protect chat there (see ns.InChatTaintRiskWindow):
+    -- by the time the encounter starts, a filter that ran in the open world has
+    -- already tainted Blizzard's chat dispatch, and the symptom is that no player
+    -- message is rendered for the whole encounter or key. Users who explicitly pick
+    -- Balanced keep it; nobody gets it by accident.
+    --
+    -- Resolved at read time rather than written back to the profile, so the same
+    -- SavedVariables stay intact on Classic and pre-12 Retail.
+    if ns.IsRetailSecretValueBuild() and not db.retailChatFilterModeUserSet then
+        return "off"
+    end
+
     return "lockdown"
 end
 
@@ -1116,6 +1289,13 @@ function ns.CanUseMessageEventFilters()
         db.retailDisableChatFilters = nil
     end
 
+    -- Route the remaining decision through GetRetailChatFilterMode so the
+    -- secret-value downgrade of the "lockdown" default is applied in exactly one
+    -- place. Anything that is not an explicit "full" is gated on the risk window.
+    if mode ~= "full" then
+        mode = ns.GetRetailChatFilterMode()
+    end
+
     if mode == "off" then
         return false
     end
@@ -1124,7 +1304,7 @@ function ns.CanUseMessageEventFilters()
         return true
     end
 
-    return not ns.InChatMessagingLockdown()
+    return not ns.InChatTaintRiskWindow()
 end
 
 -- Modules register a callback here; it fires whenever the lockdown state flips so
@@ -1161,6 +1341,9 @@ do
         "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET",
         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
         "PLAYER_ENTERING_WORLD",
+        -- Instance transitions matter as much as the encounter itself now that the
+        -- gate is the taint risk window rather than the lockdown flag alone.
+        "ZONE_CHANGED_NEW_AREA",
     }) do
         pcall(watcher.RegisterEvent, watcher, evt)
     end
@@ -1177,7 +1360,11 @@ do
 end
 
 function ns.AddMessageEventFilterIfSupported(eventName, callback)
-    if type(ChatFrame_AddMessageEventFilter) ~= "function" or type(callback) ~= "function" then
+    if type(callback) ~= "function" then
+        return false
+    end
+
+    if type(ns.GetChatAPI("ChatFrame_AddMessageEventFilter", "AddMessageEventFilter")) ~= "function" then
         return false
     end
 
@@ -1194,7 +1381,7 @@ function ns.AddMessageEventFilterIfSupported(eventName, callback)
         return true
     end
 
-    local ok = pcall(ChatFrame_AddMessageEventFilter, eventName, callback)
+    local ok = ns.CallChatAPI("ChatFrame_AddMessageEventFilter", "AddMessageEventFilter", eventName, callback)
     if ok then
         messageFilterRegistry[eventName][callback] = true
     end
@@ -1203,7 +1390,11 @@ function ns.AddMessageEventFilterIfSupported(eventName, callback)
 end
 
 function ns.RemoveMessageEventFilterIfSupported(eventName, callback)
-    if type(ChatFrame_RemoveMessageEventFilter) ~= "function" or type(callback) ~= "function" then
+    if type(callback) ~= "function" then
+        return false
+    end
+
+    if type(ns.GetChatAPI("ChatFrame_RemoveMessageEventFilter", "RemoveMessageEventFilter")) ~= "function" then
         return false
     end
 
@@ -1211,7 +1402,7 @@ function ns.RemoveMessageEventFilterIfSupported(eventName, callback)
         return false
     end
 
-    local ok = pcall(ChatFrame_RemoveMessageEventFilter, eventName, callback)
+    local ok = ns.CallChatAPI("ChatFrame_RemoveMessageEventFilter", "RemoveMessageEventFilter", eventName, callback)
     if ok and messageFilterRegistry[eventName] then
         messageFilterRegistry[eventName][callback] = nil
     end

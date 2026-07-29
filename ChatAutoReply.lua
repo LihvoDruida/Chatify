@@ -94,9 +94,21 @@ local function SafeChatText(value)
 end
 
 local function CanAccess(...)
-    if type(ns.CanAccessChatValue) == "function" then
-        return ns.CanAccessChatValue(...)
+    -- Accessibility alone is not enough: a value can be readable and still be a
+    -- secret string, which blows up on the first concatenation or :match(). Check
+    -- both, in the same order the filter modules do.
+    if type(ns.HasSecretChatValue) == "function" then
+        local ok, hasSecret = pcall(ns.HasSecretChatValue, ...)
+        if not ok or hasSecret then
+            return false
+        end
     end
+
+    if type(ns.CanAccessChatValue) == "function" then
+        local ok, accessible = pcall(ns.CanAccessChatValue, ...)
+        return ok and accessible and true or false
+    end
+
     return true
 end
 
@@ -725,7 +737,14 @@ function AutoReply:OnEnable()
         end)
     end
 
-    RegisterEventSafe(self, "CHAT_MSG_GUILD", function(_, message, sender)
+    -- Guild chat is not whisper-sensitive, but its payload is still a secret value
+    -- during chat messaging lockdown. IsPlayerMentioned does string work on the
+    -- message, so without this guard every guild line inside an encounter threw
+    -- "string conversion on a secret string value".
+    RegisterEventSafe(self, "CHAT_MSG_GUILD", function(_, message, sender, ...)
+        if not CanAccess(message, sender, ...) then
+            return
+        end
         if IsPlayerSender(sender) then
             return
         end

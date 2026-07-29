@@ -28,8 +28,10 @@ local tooltipLinkTypes = {
     battlepet = true,
 }
 
-local hookedFrames = {}
-local originalAddMessage = {}
+-- Weak keys so a temporary chat window that Blizzard discards does not stay
+-- referenced (and its original AddMessage retained) until the next reload.
+local hookedFrames = setmetatable({}, { __mode = "k" })
+local originalAddMessage = setmetatable({}, { __mode = "k" })
 local cache = {}
 local cacheIndex = 0
 local CACHE_LIMIT = 800
@@ -253,9 +255,58 @@ local function PruneRecentLines(maxAge)
     end
 end
 
+-- Group and whisper traffic must never be dropped by the router.
+--
+-- ns.ProcessSpamMessage (the filter path) already exempts GUILD/PARTY/RAID/
+-- WHISPER/LOOT by default, but the router sees rendered lines with no event name
+-- attached and used to apply both the keyword filter and the duplicate throttle to
+-- everything. In a Mythic+ or raid that silently ate the short repeated calls the
+-- group actually depends on ("go", "kick", "stop", "pull"), which reads exactly
+-- like chat having stopped working.
+local groupChannelTokens = {
+    "|Hchannel:PARTY",
+    "|Hchannel:RAID",
+    "|Hchannel:INSTANCE",
+    "|Hchannel:GUILD",
+    "|Hchannel:OFFICER",
+    "|HBNplayer:",
+}
+
+local function IsProtectedGroupLine(text)
+    if type(text) ~= "string" then
+        return false
+    end
+
+    for i = 1, #groupChannelTokens do
+        if text:find(groupChannelTokens[i], 1, true) then
+            return true
+        end
+    end
+
+    -- Whispers carry no channel link, so match the localized templates instead.
+    for _, template in ipairs({
+        _G.CHAT_WHISPER_GET, _G.CHAT_WHISPER_INFORM_GET,
+        _G.CHAT_BN_WHISPER_GET, _G.CHAT_BN_WHISPER_INFORM_GET,
+        _G.CHAT_RAID_WARNING_GET,
+    }) do
+        if type(template) == "string" then
+            local prefix = template:match("^([^%%]+)")
+            if prefix and #prefix >= 2 and text:find(prefix, 1, true) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function ShouldSuppressForSpam(frameID, text)
     local db = DB()
     if not db then
+        return false
+    end
+
+    if IsProtectedGroupLine(text) then
         return false
     end
 
@@ -413,7 +464,7 @@ local function HideHyperlinkTooltip(owner)
     end
 end
 
-local interactiveFrames = {}
+local interactiveFrames = setmetatable({}, { __mode = "k" })
 
 local function EnsureFrameHyperlinks(frame)
     if not frame then
@@ -540,11 +591,25 @@ local function HandleVirtualAddMessage(frame, text, ...)
         return
     end
 
-    local stickToBottom = true
+    -- Only ever re-stick to the bottom when the frame positively told us it was
+    -- already there. The old default was `true`, so a missing or erroring AtBottom
+    -- yanked the view down on every incoming line and made scrollback unusable
+    -- exactly when chat is busiest (raid fights, Mythic+). Blizzard's
+    -- ScrollingMessageFrame already auto-follows when the user is at the bottom,
+    -- so doing nothing is the correct fallback.
+    local stickToBottom = false
     if frame and frame.AtBottom then
         local okBottom, atBottom = pcall(frame.AtBottom, frame)
-        if okBottom then
-            stickToBottom = atBottom and true or false
+        if okBottom and atBottom then
+            stickToBottom = true
+        end
+    end
+
+    -- A user who has scrolled up stays scrolled up, whatever AtBottom reports.
+    if stickToBottom and frame.GetScrollOffset then
+        local okOffset, offset = pcall(frame.GetScrollOffset, frame)
+        if okOffset and type(offset) == "number" and offset > 0 then
+            stickToBottom = false
         end
     end
 

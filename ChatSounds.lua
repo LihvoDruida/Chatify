@@ -238,14 +238,60 @@ local function IsIncomingWhisperEvent(event)
     return event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_BN_WHISPER"
 end
 
+-- Taint-free mention sounds.
+--
+-- Normally the mention sound is queued from ns.ApplyMentionRules, which only runs
+-- inside a chat message-event filter. On 12.0+ Chatify does not install those
+-- filters by default (a filter closure on Blizzard's chat dispatch is what breaks
+-- chat inside encounters), so mentions went silent on Retail even though the rules
+-- were still configured.
+--
+-- This path listens on Chatify's own event frame instead, which never touches
+-- Blizzard's dispatch and therefore cannot taint anything. It runs only while the
+-- filter path is not in force, so a mention is never announced twice.
+local function ShouldUseMentionFallback()
+    if type(ns.GetMentionRuleMatch) ~= "function" then
+        return false
+    end
+    if type(ns.CanUseMessageEventFilters) ~= "function" then
+        return false
+    end
+    local ok, filtersActive = pcall(ns.CanUseMessageEventFilters)
+    return ok and not filtersActive
+end
+
+local function TryMentionFallback(event, safeMsg, safeAuthor, ...)
+    if type(safeMsg) ~= "string" or safeMsg == "" then
+        return false
+    end
+    local okMatch, rule, index = pcall(ns.GetMentionRuleMatch, safeMsg, event, ...)
+    if not okMatch or not rule then
+        return false
+    end
+
+    if type(ns.CanPlayMentionRuleSound) == "function" then
+        local okCooldown, canPlay = pcall(ns.CanPlayMentionRuleSound, rule, index)
+        if not okCooldown or not canPlay then
+            return false
+        end
+    end
+
+    if type(ns.PlayMentionSound) == "function" then
+        return ns.PlayMentionSound(rule.sound) and true or false
+    end
+
+    return false
+end
+
 function Sounds:OnEvent(event, msg, author, ...)
     local profile, db = GetSoundConfig()
     local normalSoundsEnabled = db and db.enable == true
 
-    -- Mention sounds are intentionally handled from the same formatting path that
-    -- applies the highlight. This mirrors Prat's post-message sound model and
-    -- prevents the common "highlighted but no sound" split-brain bug.
-    if not normalSoundsEnabled then
+    -- Mention sounds normally ride along with the highlight, from inside the chat
+    -- message filter. Where that filter cannot run the fallback below is the only
+    -- path left, so the handler has to stay alive even with channel sounds off.
+    local mentionFallbackActive = ShouldUseMentionFallback()
+    if not normalSoundsEnabled and not mentionFallbackActive then
         return
     end
 
@@ -273,8 +319,13 @@ function Sounds:OnEvent(event, msg, author, ...)
     end
 
     local now = GetTime()
-    tinsert(messageTimes, now)
-    UpdateAdaptiveThrottle()
+    if normalSoundsEnabled then
+        -- Adaptive throttle bookkeeping only feeds the per-channel sounds. Skipping
+        -- it keeps SAY/YELL/CHANNEL cheap, which is what the mention fallback newly
+        -- registers for on secret-value builds.
+        tinsert(messageTimes, now)
+        UpdateAdaptiveThrottle()
+    end
 
     local safeMsg = GetSafeText(msg)
     if not safeMsg then
@@ -286,6 +337,13 @@ function Sounds:OnEvent(event, msg, author, ...)
 
     if not isSelf and event == "CHAT_MSG_BN_WHISPER" then
         isSelf = IsBattleNetSelf(...)
+    end
+
+    if mentionFallbackActive and not isSelf and TryMentionFallback(event, safeMsg, safeAuthor, ...) then
+        -- A mention outranks the plain channel notification, and playing both at
+        -- once is the split-brain the post-message sound model exists to avoid.
+        lastNormalSound = now
+        return
     end
 
     if not normalSoundsEnabled then
@@ -302,10 +360,16 @@ function Sounds:OnEvent(event, msg, author, ...)
 end
 
 function Sounds:OnEnable()
+    -- SAY/YELL/CHANNEL map to no sound category, so they used to be skipped
+    -- outright. They are still worth registering on secret-value builds, where the
+    -- mention fallback above is the only thing left that can announce a keyword hit
+    -- in those channels.
+    local wantMentionFallback = type(ns.IsRetailSecretValueBuild) == "function"
+        and ns.IsRetailSecretValueBuild()
+        and type(ns.GetMentionRuleMatch) == "function"
+
     for event, category in pairs(eventMap) do
-        -- Entries mapped to `false` (SAY/YELL/CHANNEL) never resolve to a sound
-        -- category, so there is no reason to register for them and wake OnEvent.
-        if category ~= false then
+        if category ~= false or wantMentionFallback then
             if type(ns.RegisterEventIfSupported) == "function" then
                 ns.RegisterEventIfSupported(self, event, "OnEvent")
             else
