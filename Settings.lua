@@ -353,861 +353,980 @@ function Chatify:GetOptions()
 
             -- TAB 1: GENERAL & APPEARANCE
             tabGeneral = {
-                name = "General & Visual",
+                name = T("General & Visual"),
                 type = "group",
                 order = 10,
                 args = {
-                    languageOverride = {
-                        order = 0.75,
-                        type = "select",
-                        name = "Addon Language",
-                        desc = "Choose the addon language. Client Default follows the game client language. The UI reloads immediately after changing this option.",
-                        width = "double",
-                        values = function()
-                            return GetLanguageChoices()
-                        end,
-                        get = function()
-                            return GetLanguageOption()
-                        end,
-                        set = function(_, value)
-                            SetLanguageOption(value)
-                        end,
-                    },
-                    languageSpacer = {
-                        order = 0.8,
-                        type = "description",
-                        name = "\n",
-                    },
-                    retailSafeStatus = {
-                        order = 0.9,
-                        type = "description",
-                        name = GetRetailSafeDescription,
-                        fontSize = "medium",
-                    },
-                    retailWhisperSafeMode = {
-                        order = 0.95,
-                        name = T("Never modify whispers (Retail)"),
-                        desc = T("On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."),
-                        type = "toggle",
-                        width = "full",
-                        hidden = function()
-                            return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
-                        end,
-                        set = function(info, val)
-                            self.db.profile.retailWhisperSafeMode = val
-                            if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
-                        end,
-                        get = function(info) return self.db.profile.retailWhisperSafeMode end,
-                    },
-                    retailChatFilterMode = {
-                        order = 0.96,
-                        name = T("Chat filters on Midnight (12.0+)"),
-                        desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because any chat filter can taint Blizzard's chat dispatch for the rest of the session, which shows up as player messages never appearing during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
-                        type = "select",
-                        width = "full",
-                        values = function()
-                            return {
-                                full = T("Maximum features (can break chat in encounters)"),
-                                lockdown = T("Balanced - pause while inside instances"),
-                                off = T("Safest - never filter, use the game's timestamps (recommended)"),
-                            }
-                        end,
-                        sorting = function() return { "full", "lockdown", "off" } end,
-                        hidden = function()
-                            return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
-                        end,
-                        set = function(info, val)
-                            self.db.profile.retailChatFilterMode = val
-                            -- Marks the choice as deliberate, so GetRetailChatFilterMode
-                            -- stops downgrading "lockdown" to "off" on 12.0+ builds.
-                            self.db.profile.retailChatFilterModeUserSet = true
-                            self.db.profile.retailDisableChatFilters = nil
-                            if type(ns.RefreshMessageFilters) == "function" then ns.RefreshMessageFilters() end
-                            if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
-                        end,
-                        get = function(info)
-                            -- Show the mode that is actually in force, not the raw
-                            -- stored value, or the dropdown would read "Balanced"
-                            -- while the addon is running in Safest.
-                            if type(ns.GetRetailChatFilterMode) == "function" then
-                                local ok, mode = pcall(ns.GetRetailChatFilterMode)
-                                if ok and mode then return mode end
-                            end
-                            return self.db.profile.retailChatFilterMode or "lockdown"
-                        end,
-                    },
-                    headerText = { order = 1, type = "header", name = "Text Formatting" },
-                    
-                    shortChannels = {
-                        order = 2,
-                        name = "Shorten Channel Names",
-                        desc = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: applied through the safe formatting path.|r",
-                        type = "toggle",
-                        width = "full", 
-                        set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.shortChannels end,
-                    },
-
-                    frameBehaviourHeader = {
-                        order = 2.1,
-                        type = "header",
-                        name = T("Window Behaviour"),
-                    },
-
-                    frameBehaviourNote = {
-                        order = 2.11,
-                        type = "description",
-                        name = T("These use only the chat window's own API, so they keep working on Midnight (12.0+) even when message filtering is switched off."),
-                    },
-
-                    scrollbackLines = {
-                        order = 2.12,
-                        name = T("Scrollback Depth"),
-                        desc = T("How many lines each chat window keeps. The game keeps 128, which is usually why scrollback runs out during a busy fight.\n\nChanging this clears the affected window once, because the game reallocates the buffer."),
-                        type = "select",
-                        width = "double",
-                        values = function()
-                            return {
-                                [0] = T("Game default"),
-                                [256] = "256",
-                                [500] = "500",
-                                [1000] = "1000",
-                                [2500] = "2500",
-                                [5000] = T("5000 (uses more memory)"),
-                            }
-                        end,
-                        set = function(info, val) self.db.profile.scrollbackLines = tonumber(val) or 0; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.scrollbackLines or 0 end,
-                    },
-
-                    disableChatFade = {
-                        order = 2.13,
-                        name = T("Never Fade Messages"),
-                        desc = T("Keeps messages on screen instead of fading them out after a while."),
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.disableChatFade = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.disableChatFade end,
-                    },
-
-                    chatFadeTime = {
-                        order = 2.14,
-                        name = T("Fade After (seconds)"),
-                        desc = T("How long a message stays fully visible before it fades."),
-                        type = "range",
-                        min = 5, max = 600, step = 5, bigStep = 15,
-                        disabled = function() return self.db.profile.disableChatFade end,
-                        set = function(info, val) self.db.profile.chatFadeTime = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.chatFadeTime or 120 end,
-                    },
-
-                    scrollLinesPerNotch = {
-                        order = 2.15,
-                        name = T("Scroll Speed (lines per notch)"),
-                        desc = T("Lines moved per mouse wheel notch. Shift still jumps to the top or bottom, and Ctrl scrolls a full page."),
-                        type = "range",
-                        min = 1, max = 10, step = 1,
-                        disabled = function() return self.db.profile.enableScrollTweaks == false end,
-                        set = function(info, val) self.db.profile.scrollLinesPerNotch = val end,
-                        get = function(info) return self.db.profile.scrollLinesPerNotch or 3 end,
-                    },
-
-                    enableScrollTweaks = {
-                        order = 2.16,
-                        name = T("Custom Scroll Speed"),
-                        desc = T("Turn off to leave mouse wheel scrolling entirely to the game. Automatically inactive while a chat replacement addon such as ElvUI is loaded."),
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.enableScrollTweaks = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.enableScrollTweaks ~= false end,
-                    },
-
-                    lineSpacing = {
-                        order = 2.17,
-                        name = T("Line Spacing"),
-                        desc = T("Extra pixels between lines."),
-                        type = "range",
-                        min = 0, max = 10, step = 1,
-                        set = function(info, val) self.db.profile.lineSpacing = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.lineSpacing or 0 end,
-                    },
-
-                    indentWrappedLines = {
-                        order = 2.18,
-                        name = T("Indent Wrapped Lines"),
-                        desc = T("Indents the continuation of a long message so it lines up under the first line instead of starting at the left edge."),
-                        type = "toggle",
-                        hidden = function()
-                            local frame = _G.ChatFrame1
-                            return not (frame and type(frame.SetIndentedWordWrap) == "function")
-                        end,
-                        set = function(info, val) self.db.profile.indentWrappedLines = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.indentWrappedLines end,
-                    },
-
-                    hideBlizzardChatButtons = {
-                        order = 2.19,
-                        name = T("Hide Game Chat Buttons"),
-                        desc = T("Hides the chat menu button and the Quick Join notification button."),
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.hideBlizzardChatButtons = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.hideBlizzardChatButtons end,
-                    },
-
-                    appearanceHeader = {
-                        order = 2.2,
-                        type = "header",
-                        name = T("Appearance"),
-                    },
-
-                    fontID = {
-                        order = 3,
-                        name = "Chat Font",
-                        desc = "Select the typeface used for chat messages.",
-                        type = "select",
-                        width = "double",
-                        dialogControl = GetLSMFontControl(),
-                        values = GetLSMFontValues(),
-                        set = function(info, val) self.db.profile.fontID = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.fontID end,
-                    },
-
-                    hoverHyperlinkTooltips = {
-                        order = 4,
-                        name = "Show Link Tooltips on Hover",
-                        desc = "When enabled, item/spell/achievement links in chat show their tooltip on mouseover.\n" ..
-                               "Disable this if hover-tooltips keep getting in your way.",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.hoverHyperlinkTooltips = val end,
-                        get = function(info)
-                            if self.db.profile.hoverHyperlinkTooltips == nil then
-                                return true
-                            end
-                            return self.db.profile.hoverHyperlinkTooltips
-                        end,
-                    },
-
-                    headerQuickChat = { order = 5, type = "header", name = "Quick Chat Buttons" },
-
-                    quickChatButtons = {
-                        order = 6,
-                        name = "Enable Quick Chat Buttons",
-                        desc = "Show quick channel buttons on the right side of the chat frame, anchored from the bottom.",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.quickChatButtons = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            if self.db.profile.quickChatButtons == nil then
-                                return true
-                            end
-                            return self.db.profile.quickChatButtons
-                        end,
-                    },
-
-                    quickChatSettingsButton = {
-                        order = 6.5,
-                        name = "Show Left Settings Button",
-                        desc = "Show a dedicated settings button on the left side of the active chat frame. It opens Chatify settings without replacing the default chat behavior.",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.quickChatSettingsButton = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            if self.db.profile.quickChatSettingsButton == nil then
-                                return true
-                            end
-                            return self.db.profile.quickChatSettingsButton
-                        end,
-                    },
-
-                    quickChatButtonTheme = {
-                        order = 6.75,
-                        name = "Quick Button Theme",
-                        desc = "Choose the appearance for the quick chat buttons. Automatic follows supported chat UI addons when they are loaded; Standard keeps the Blizzard-style text buttons and matches the Chatify settings button style.",
-                        type = "select",
-                        width = "normal",
-                        values = {
-                            AUTO = "Automatic",
-                            STANDARD = "Standard",
-                            ELVUI = "ElvUI Style",
-                            GW2UI = "GW2 Style",
+                    groupLanguage = {
+                        name = T("Language"),
+                        type = "group",
+                        inline = true,
+                        order = 1,
+                        args = {
+                            languageOverride = {
+                                order = 1,
+                                type = "select",
+                                name = T("Addon Language"),
+                                desc = T("Choose the addon language. Client Default follows the game client language. The UI reloads immediately after changing this option."),
+                                width = "double",
+                                values = function()
+                                    return GetLanguageChoices()
+                                end,
+                                get = function()
+                                    return GetLanguageOption()
+                                end,
+                                set = function(_, value)
+                                    SetLanguageOption(value)
+                                end,
+                            },
                         },
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonTheme or "AUTO"
-                        end,
-                    },
-                    quickChatPanelAlpha = {
-                        order = 7,
-                        name = "Quick Panel Background Opacity",
-                        desc = "Adjust the background opacity of the quick chat panel container across all quick button themes. The default value is fully transparent.",
-                        type = "range",
-                        min = 0,
-                        max = 1,
-                        step = 0.05,
-                        isPercent = true,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatPanelAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatPanelAlpha or 0
-                        end,
                     },
 
-                    quickChatButtonSize = {
-                        order = 8,
-                        name = "Quick Button Size",
-                        desc = "Adjust the base width of the quick chat buttons. By default they match the standard Blizzard sidebar button proportions and still resize down automatically when the chat frame becomes smaller.",
-                        type = "range",
-                        min = 16,
-                        max = 40,
-                        step = 1,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonSize or 26
-                        end,
+                    groupSafety = {
+                        name = T("Compatibility & Safety"),
+                        type = "group",
+                        inline = true,
+                        order = 2,
+                        args = {
+                                groupSafetyNote = {
+                                    order = 1,
+                                    type = "description",
+                                    name = T("How much Chatify is allowed to touch chat text. These only matter on Midnight (12.0+), where the game protects chat payloads."),
+                                },
+                            retailSafeStatus = {
+                                order = 2,
+                                type = "description",
+                                name = GetRetailSafeDescription,
+                                fontSize = "medium",
+                            },
+                            retailWhisperSafeMode = {
+                                order = 3,
+                                name = T("Never modify whispers (Retail)"),
+                                desc = T("On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."),
+                                type = "toggle",
+                                width = "full",
+                                hidden = function()
+                                    return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
+                                end,
+                                set = function(info, val)
+                                    self.db.profile.retailWhisperSafeMode = val
+                                    if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
+                                end,
+                                get = function(info) return self.db.profile.retailWhisperSafeMode end,
+                            },
+                            retailChatFilterMode = {
+                                order = 4,
+                                name = T("Chat filters on Midnight (12.0+)"),
+                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because any chat filter can taint Blizzard's chat dispatch for the rest of the session, which shows up as player messages never appearing during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
+                                type = "select",
+                                width = "full",
+                                values = function()
+                                    return {
+                                        full = T("Maximum features (can break chat in encounters)"),
+                                        lockdown = T("Balanced - pause while inside instances"),
+                                        off = T("Safest - never filter, use the game's timestamps (recommended)"),
+                                    }
+                                end,
+                                sorting = function() return { "full", "lockdown", "off" } end,
+                                hidden = function()
+                                    return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
+                                end,
+                                set = function(info, val)
+                                    self.db.profile.retailChatFilterMode = val
+                                    -- Marks the choice as deliberate, so GetRetailChatFilterMode
+                                    -- stops downgrading "lockdown" to "off" on 12.0+ builds.
+                                    self.db.profile.retailChatFilterModeUserSet = true
+                                    self.db.profile.retailDisableChatFilters = nil
+                                    if type(ns.RefreshMessageFilters) == "function" then ns.RefreshMessageFilters() end
+                                    if type(ns.ApplyVisuals) == "function" then ns.ApplyVisuals() end
+                                end,
+                                get = function(info)
+                                    -- Show the mode that is actually in force, not the raw
+                                    -- stored value, or the dropdown would read "Balanced"
+                                    -- while the addon is running in Safest.
+                                    if type(ns.GetRetailChatFilterMode) == "function" then
+                                        local ok, mode = pcall(ns.GetRetailChatFilterMode)
+                                        if ok and mode then return mode end
+                                    end
+                                    return self.db.profile.retailChatFilterMode or "lockdown"
+                                end,
+                            },
+                        },
                     },
 
-                    quickChatButtonSpacing = {
-                        order = 9,
-                        name = "Quick Button Spacing",
-                        desc = "Adjust the vertical spacing between quick chat buttons.",
-                        type = "range",
-                        min = 2,
-                        max = 10,
-                        step = 1,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonSpacing = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonSpacing or 4
-                        end,
+                    groupText = {
+                        name = T("Text & Appearance"),
+                        type = "group",
+                        inline = true,
+                        order = 3,
+                        args = {
+                            fontID = {
+                                order = 1,
+                                name = T("Chat Font"),
+                                desc = T("Select the typeface used for chat messages."),
+                                type = "select",
+                                width = "double",
+                                dialogControl = GetLSMFontControl(),
+                                values = GetLSMFontValues(),
+                                set = function(info, val) self.db.profile.fontID = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.fontID end,
+                            },
+                            lineSpacing = {
+                                order = 2,
+                                name = T("Line Spacing"),
+                                desc = T("Extra pixels between lines."),
+                                type = "range",
+                                min = 0, max = 10, step = 1,
+                                set = function(info, val) self.db.profile.lineSpacing = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.lineSpacing or 0 end,
+                            },
+                            indentWrappedLines = {
+                                order = 3,
+                                name = T("Indent Wrapped Lines"),
+                                desc = T("Indents the continuation of a long message so it lines up under the first line instead of starting at the left edge."),
+                                type = "toggle",
+                                hidden = function()
+                                    local frame = _G.ChatFrame1
+                                    return not (frame and type(frame.SetIndentedWordWrap) == "function")
+                                end,
+                                set = function(info, val) self.db.profile.indentWrappedLines = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.indentWrappedLines end,
+                            },
+                            shortChannels = {
+                                order = 4,
+                                name = T("Shorten Channel Names"),
+                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: applied through the safe formatting path.|r"),
+                                type = "toggle",
+                                width = "full", 
+                                set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.shortChannels end,
+                            },
+                            urlColor = {
+                                order = 5,
+                                name = T("Link Colour"),
+                                desc = T("Six hex digits used for the web links Chatify makes clickable, for example 0099FF."),
+                                type = "input",
+                                width = "half",
+                                validate = function(info, val)
+                                    val = tostring(val or ""):gsub("^#", "")
+                                    if val:match("^%x%x%x%x%x%x$") then return true end
+                                    return T("Enter six hex digits, for example 0099FF.")
+                                end,
+                                set = function(info, val)
+                                    self.db.profile.urlColor = (tostring(val or ""):gsub("^#", ""))
+                                end,
+                                get = function(info) return self.db.profile.urlColor or "0099FF" end,
+                            },
+
+                            hoverHyperlinkTooltips = {
+                                order = 6,
+                                name = T("Show Link Tooltips on Hover"),
+                                desc = T("When enabled, item/spell/achievement links in chat show their tooltip on mouseover.\nDisable this if hover-tooltips keep getting in your way."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.hoverHyperlinkTooltips = val end,
+                                get = function(info)
+                                    if self.db.profile.hoverHyperlinkTooltips == nil then
+                                        return true
+                                    end
+                                    return self.db.profile.hoverHyperlinkTooltips
+                                end,
+                            },
+                        },
                     },
 
-                    quickChatButtonFontScale = {
-                        order = 10,
-                        name = "Quick Button Label Scale",
-                        desc = "Adjust the text scale inside the quick chat buttons.",
-                        type = "range",
-                        min = 0.8,
-                        max = 1.3,
-                        step = 0.05,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonFontScale = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonFontScale or 1
-                        end,
+                    groupTimestamps = {
+                        name = T("Timestamps"),
+                        type = "group",
+                        inline = true,
+                        order = 4,
+                        args = {
+                            enableTimestamps = {
+                                order = 1,
+                                name = T("Show Timestamps"),
+                                desc = T("Adds the time in front of each chat line.\n\nOn Midnight (12.0+) with filtering set to Safest this is handed to the game's own timestamp setting, so only the formats the game supports will take effect."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val)
+                                    self.db.profile.enableTimestamps = val
+                                    ns.ApplyVisuals()
+                                    if type(ns.RefreshTimestampFilterState) == "function" then
+                                        ns.RefreshTimestampFilterState()
+                                    end
+                                end,
+                                get = function(info) return self.db.profile.enableTimestamps end,
+                            },
+
+                            timestampColor = {
+                                order = 2,
+                                name = T("Timestamp Colour"),
+                                desc = T("Six hex digits, for example 68ccef.\n\nOnly applies while Chatify draws the timestamps itself. Where the game's own timestamps are used, the game controls the colour."),
+                                type = "input",
+                                width = "half",
+                                disabled = function() return not self.db.profile.enableTimestamps end,
+                                validate = function(info, val)
+                                    val = tostring(val or ""):gsub("^#", "")
+                                    if val:match("^%x%x%x%x%x%x$") then return true end
+                                    return T("Enter six hex digits, for example 68ccef.")
+                                end,
+                                set = function(info, val)
+                                    self.db.profile.timestampColor = (tostring(val or ""):gsub("^#", ""))
+                                    ns.ApplyVisuals()
+                                end,
+                                get = function(info) return self.db.profile.timestampColor or "68ccef" end,
+                            },
+
+                            timestampID = {
+                                order = 3,
+                                name = T("Time Format"),
+                                type = "select",
+                                width = "normal",
+                                values = function()
+                                    local t = {}
+                                    if ns.Lists and ns.Lists.TimeFormats then
+                                        for i, v in ipairs(ns.Lists.TimeFormats) do t[i] = v.name end
+                                    else
+                                        t[1] = "None"
+                                    end
+                                    return t
+                                end,
+                                set = function(info, val) self.db.profile.timestampID = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.timestampID end,
+                            },
+                            useServerTime = {
+                                order = 4,
+                                name = T("Use Server Time"),
+                                desc = T("If checked, uses Realm time.\nIf unchecked, uses Local Computer time."),
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.useServerTime = val end,
+                                get = function(info) return self.db.profile.useServerTime end,
+                            },
+                            timestampPost = {
+                                order = 5,
+                                name = T("Show at End"),
+                                desc = T("Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only where Blizzard allows safe formatting.|r"),
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.timestampPost = val end,
+                                get = function(info) return self.db.profile.timestampPost end,
+                            },
+                        },
                     },
 
-                    quickChatButtonGap = {
-                        order = 11,
-                        name = "Quick Button Offset",
-                        desc = "Adjust how far the quick chat buttons sit from the right side of the chat frame.",
-                        type = "range",
-                        min = 8,
-                        max = 36,
-                        step = 1,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonGap or 18
-                        end,
+                    groupWindow = {
+                        name = T("Chat Window"),
+                        type = "group",
+                        inline = true,
+                        order = 5,
+                        args = {
+                                groupWindowNote = {
+                                    order = 1,
+                                    type = "description",
+                                    name = T("These use only the chat window's own API, so they keep working on Midnight (12.0+) even when message filtering is switched off."),
+                                },
+                            scrollbackLines = {
+                                order = 2,
+                                name = T("Scrollback Depth"),
+                                desc = T("How many lines each chat window keeps. The game keeps 128, which is usually why scrollback runs out during a busy fight.\n\nChanging this clears the affected window once, because the game reallocates the buffer."),
+                                type = "select",
+                                width = "double",
+                                values = function()
+                                    return {
+                                        [0] = T("Game default"),
+                                        [256] = "256",
+                                        [500] = "500",
+                                        [1000] = "1000",
+                                        [2500] = "2500",
+                                        [5000] = T("5000 (uses more memory)"),
+                                    }
+                                end,
+                                set = function(info, val) self.db.profile.scrollbackLines = tonumber(val) or 0; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.scrollbackLines or 0 end,
+                            },
+                            disableChatFade = {
+                                order = 3,
+                                name = T("Never Fade Messages"),
+                                desc = T("Keeps messages on screen instead of fading them out after a while."),
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.disableChatFade = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.disableChatFade end,
+                            },
+                            chatFadeTime = {
+                                order = 4,
+                                name = T("Fade After (seconds)"),
+                                desc = T("How long a message stays fully visible before it fades."),
+                                type = "range",
+                                min = 5, max = 600, step = 5, bigStep = 15,
+                                disabled = function() return self.db.profile.disableChatFade end,
+                                set = function(info, val) self.db.profile.chatFadeTime = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.chatFadeTime or 120 end,
+                            },
+                            enableScrollTweaks = {
+                                order = 5,
+                                name = T("Custom Scroll Speed"),
+                                desc = T("Turn off to leave mouse wheel scrolling entirely to the game. Automatically inactive while a chat replacement addon such as ElvUI is loaded."),
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.enableScrollTweaks = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.enableScrollTweaks ~= false end,
+                            },
+                            scrollLinesPerNotch = {
+                                order = 6,
+                                name = T("Scroll Speed (lines per notch)"),
+                                desc = T("Lines moved per mouse wheel notch. Shift still jumps to the top or bottom, and Ctrl scrolls a full page."),
+                                type = "range",
+                                min = 1, max = 10, step = 1,
+                                disabled = function() return self.db.profile.enableScrollTweaks == false end,
+                                set = function(info, val) self.db.profile.scrollLinesPerNotch = val end,
+                                get = function(info) return self.db.profile.scrollLinesPerNotch or 3 end,
+                            },
+                            hideBlizzardChatButtons = {
+                                order = 7,
+                                name = T("Hide Game Chat Buttons"),
+                                desc = T("Hides the chat menu button and the Quick Join notification button."),
+                                type = "toggle",
+                                set = function(info, val) self.db.profile.hideBlizzardChatButtons = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.hideBlizzardChatButtons end,
+                            },
+                        },
                     },
 
-                    quickChatButtonYOffset = {
-                        order = 11.5,
-                        name = "Quick Button Vertical Offset",
-                        desc = "Move the quick chat stack a little higher or lower while keeping it anchored from the bottom edge of the chat frame.",
-                        type = "range",
-                        min = -24,
-                        max = 16,
-                        step = 1,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonYOffset = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            if self.db.profile.quickChatButtonYOffset == nil then
-                                return -4
-                            end
-                            return self.db.profile.quickChatButtonYOffset
-                        end,
+                    groupQuickButtons = {
+                        name = T("Quick Chat Buttons"),
+                        type = "group",
+                        inline = true,
+                        order = 6,
+                        args = {
+                            quickChatButtons = {
+                                order = 1,
+                                name = T("Enable Quick Chat Buttons"),
+                                desc = T("Show quick channel buttons on the right side of the chat frame, anchored from the bottom."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.quickChatButtons = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    if self.db.profile.quickChatButtons == nil then
+                                        return true
+                                    end
+                                    return self.db.profile.quickChatButtons
+                                end,
+                            },
+                            quickChatSettingsButton = {
+                                order = 2,
+                                name = T("Show Left Settings Button"),
+                                desc = T("Show a dedicated settings button on the left side of the active chat frame. It opens Chatify settings without replacing the default chat behavior."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.quickChatSettingsButton = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    if self.db.profile.quickChatSettingsButton == nil then
+                                        return true
+                                    end
+                                    return self.db.profile.quickChatSettingsButton
+                                end,
+                            },
+                            quickChatButtonTheme = {
+                                order = 3,
+                                name = T("Quick Button Theme"),
+                                desc = T("Choose the appearance for the quick chat buttons. Automatic follows supported chat UI addons when they are loaded; Standard keeps the Blizzard-style text buttons and matches the Chatify settings button style."),
+                                type = "select",
+                                width = "normal",
+                                values = {
+                                    AUTO = "Automatic",
+                                    STANDARD = "Standard",
+                                    ELVUI = "ElvUI Style",
+                                    GW2UI = "GW2 Style",
+                                },
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonTheme = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonTheme or "AUTO"
+                                end,
+                            },
+                            quickChatPanelAlpha = {
+                                order = 4,
+                                name = T("Quick Panel Background Opacity"),
+                                desc = T("Adjust the background opacity of the quick chat panel container across all quick button themes. The default value is fully transparent."),
+                                type = "range",
+                                min = 0,
+                                max = 1,
+                                step = 0.05,
+                                isPercent = true,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatPanelAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatPanelAlpha or 0
+                                end,
+                            },
+                            quickChatButtonSize = {
+                                order = 5,
+                                name = T("Quick Button Size"),
+                                desc = T("Adjust the base width of the quick chat buttons. By default they match the standard Blizzard sidebar button proportions and still resize down automatically when the chat frame becomes smaller."),
+                                type = "range",
+                                min = 16,
+                                max = 40,
+                                step = 1,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonSize = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonSize or 26
+                                end,
+                            },
+                            quickChatButtonSpacing = {
+                                order = 6,
+                                name = T("Quick Button Spacing"),
+                                desc = T("Adjust the vertical spacing between quick chat buttons."),
+                                type = "range",
+                                min = 2,
+                                max = 10,
+                                step = 1,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonSpacing = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonSpacing or 4
+                                end,
+                            },
+                            quickChatButtonFontScale = {
+                                order = 7,
+                                name = T("Quick Button Label Scale"),
+                                desc = T("Adjust the text scale inside the quick chat buttons."),
+                                type = "range",
+                                min = 0.8,
+                                max = 1.3,
+                                step = 0.05,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonFontScale = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonFontScale or 1
+                                end,
+                            },
+                            quickChatButtonGap = {
+                                order = 8,
+                                name = T("Quick Button Offset"),
+                                desc = T("Adjust how far the quick chat buttons sit from the right side of the chat frame."),
+                                type = "range",
+                                min = 8,
+                                max = 36,
+                                step = 1,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonGap or 18
+                                end,
+                            },
+                            quickChatButtonYOffset = {
+                                order = 9,
+                                name = T("Quick Button Vertical Offset"),
+                                desc = T("Move the quick chat stack a little higher or lower while keeping it anchored from the bottom edge of the chat frame."),
+                                type = "range",
+                                min = -24,
+                                max = 16,
+                                step = 1,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonYOffset = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    if self.db.profile.quickChatButtonYOffset == nil then
+                                        return -4
+                                    end
+                                    return self.db.profile.quickChatButtonYOffset
+                                end,
+                            },
+                            quickChatButtonAlpha = {
+                                order = 10,
+                                name = T("Quick Button Opacity"),
+                                desc = T("Adjust the opacity of the quick chat buttons."),
+                                type = "range",
+                                min = 0.25,
+                                max = 1,
+                                step = 0.05,
+                                isPercent = true,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonAlpha or 0.92
+                                end,
+                            },
+                        },
                     },
 
-                    quickChatButtonAlpha = {
-                        order = 12,
-                        name = "Quick Button Opacity",
-                        desc = "Adjust the opacity of the quick chat buttons.",
-                        type = "range",
-                        min = 0.25,
-                        max = 1,
-                        step = 0.05,
-                        isPercent = true,
-                        disabled = function() return self.db.profile.quickChatButtons == false end,
-                        set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
-                        get = function(info)
-                            return self.db.profile.quickChatButtonAlpha or 0.92
-                        end,
-                    },
-
-                    headerTime = { order = 13, type = "header", name = "Timestamps" },
-
-                    timestampID = {
-                        order = 16,
-                        name = "Time Format",
-                        type = "select",
-                        width = "normal",
-                        values = function()
-                            local t = {}
-                            if ns.Lists and ns.Lists.TimeFormats then
-                                for i, v in ipairs(ns.Lists.TimeFormats) do t[i] = v.name end
-                            else
-                                t[1] = "None"
-                            end
-                            return t
-                        end,
-                        set = function(info, val) self.db.profile.timestampID = val; ns.ApplyVisuals() end,
-                        get = function(info) return self.db.profile.timestampID end,
-                    },
-                    
-                    useServerTime = {
-                        order = 15,
-                        name = "Use Server Time",
-                        desc = "If checked, uses Realm time.\nIf unchecked, uses Local Computer time.",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.useServerTime = val end,
-                        get = function(info) return self.db.profile.useServerTime end,
-                    },
-                    
-                    timestampPost = {
-                        order = 13,
-                        name = "Show at End",
-                        desc = "Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only where Blizzard allows safe formatting.|r",
-                        type = "toggle",
-                        set = function(info, val) self.db.profile.timestampPost = val end,
-                        get = function(info) return self.db.profile.timestampPost end,
-                    }
                 }
             },
 
             -- TAB 2: SOUNDS
             tabSounds = {
-                name = "Sounds",
+                name = T("Sounds"),
                 type = "group",
                 order = 20,
                 args = {
-                    headerMaster = { order = 1, type = "header", name = "Master Settings" },
-                    
-                    enable = {
+                    groupSoundMaster = {
+                        name = T("Master Settings"),
+                        type = "group",
+                        inline = true,
+                        order = 1,
+                        args = {
+                            enable = {
+                                order = 1,
+                                name = T("Enable Chat Sounds"),
+                                desc = T("Toggle channel notification sounds."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.sounds.enable = val end,
+                                get = function(info) return self.db.profile.sounds.enable end,
+                            },
+                            masterChannel = {
+                                order = 2,
+                                name = T("Use Master Channel"),
+                                desc = T("Play channel notifications through Master. Mention alerts always use Master."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return not self.db.profile.sounds.enable end,
+                                set = function(info, val) self.db.profile.sounds.masterVolume = val end,
+                                get = function(info) return self.db.profile.sounds.masterVolume end,
+                            },
+                        },
+                    },
+
+                    groupSoundChannels = {
+                        name = T("Channel Notifications"),
+                        type = "group",
+                        inline = true,
                         order = 2,
-                        name = "Enable Chat Sounds",
-                        desc = "Toggle channel notification sounds.",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.sounds.enable = val end,
-                        get = function(info) return self.db.profile.sounds.enable end,
-                    },
-                    masterChannel = {
-                        order = 3,
-                        name = "Use Master Channel",
-                        desc = "Play channel notifications through Master. Mention alerts always use Master.",
-                        type = "toggle",
-                        width = "full",
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.masterVolume = val end,
-                        get = function(info) return self.db.profile.sounds.masterVolume end,
+                        args = {
+                            mentionRoutingNotice = {
+                                order = 1,
+                                type = "description",
+                                name = T("Channel notification sounds. Mention alerts are configured in Mention Manager."),
+                            },
+                            soundWhisper = {
+                                order = 2,
+                                type = "select",
+                                dialogControl = GetLSMSoundControl(),
+                                name = T("Whisper Received"),
+                                values = GetLSMSoundValues(),
+                                disabled = function() return not self.db.profile.sounds.enable end,
+                                set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
+                                get = function(info) return self.db.profile.sounds.events["WHISPER"] end,
+                            },
+                            soundGuild = {
+                                order = 3,
+                                type = "select",
+                                dialogControl = GetLSMSoundControl(),
+                                name = T("Guild Chat"),
+                                values = GetLSMSoundValues(),
+                                disabled = function() return not self.db.profile.sounds.enable end,
+                                set = function(info, val) self.db.profile.sounds.events["GUILD"] = val end,
+                                get = function(info) return self.db.profile.sounds.events["GUILD"] end,
+                            },
+                            soundParty = {
+                                order = 4,
+                                type = "select",
+                                dialogControl = GetLSMSoundControl(),
+                                name = T("Party Chat"),
+                                values = GetLSMSoundValues(),
+                                disabled = function() return not self.db.profile.sounds.enable end,
+                                set = function(info, val) self.db.profile.sounds.events["PARTY"] = val end,
+                                get = function(info) return self.db.profile.sounds.events["PARTY"] end,
+                            },
+                            soundRaid = {
+                                order = 5,
+                                type = "select",
+                                dialogControl = GetLSMSoundControl(),
+                                name = T("Raid Chat"),
+                                values = GetLSMSoundValues(),
+                                disabled = function() return not self.db.profile.sounds.enable end,
+                                set = function(info, val) self.db.profile.sounds.events["RAID"] = val end,
+                                get = function(info) return self.db.profile.sounds.events["RAID"] end,
+                            },
+                        },
                     },
 
-                    headerEvents = { order = 10, type = "header", name = "Channel Notifications" },
-                    mentionRoutingNotice = {
-                        order = 10.5,
-                        type = "description",
-                        name = "Channel notification sounds. Mention alerts are configured in Mention Manager.",
-                    },
-
-                    soundWhisper = {
-                        order = 11,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Whisper Received",
-                        values = GetLSMSoundValues(),
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.events["WHISPER"] = val end,
-                        get = function(info) return self.db.profile.sounds.events["WHISPER"] end,
-                    },
-
-                    soundGuild = {
-                        order = 13,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Guild Chat",
-                        values = GetLSMSoundValues(),
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.events["GUILD"] = val end,
-                        get = function(info) return self.db.profile.sounds.events["GUILD"] end,
-                    },
-                    soundParty = {
-                        order = 14,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Party Chat",
-                        values = GetLSMSoundValues(),
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.events["PARTY"] = val end,
-                        get = function(info) return self.db.profile.sounds.events["PARTY"] end,
-                    },
-                    soundRaid = {
-                        order = 15,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Raid Chat",
-                        values = GetLSMSoundValues(),
-                        disabled = function() return not self.db.profile.sounds.enable end,
-                        set = function(info, val) self.db.profile.sounds.events["RAID"] = val end,
-                        get = function(info) return self.db.profile.sounds.events["RAID"] end,
-                    },
                 }
             },
 
             -- TAB 3: FILTERS & HISTORY
             tabTools = {
-                name = "Filters & History",
+                name = T("Filters & History"),
                 type = "group",
                 order = 30,
+                -- Three large, unrelated feature areas. As inline groups they made one
+                -- very long scroll; as child tabs each one is a page of its own.
+                childGroups = "tab",
                 args = {
                     -- 1. SPAM FILTER GROUP
                     groupSpam = {
-                        name = "Spam & System Filters",
+                        name = T("Spam & System Filters"),
                         type = "group",
-                        inline = true, 
                         order = 1,
                         args = {
-                            enableSpamFilter = {
-                                order = 1,
-                                name = "Enable Keyword Blocking",
-                                type = "toggle",
-                                width = "full",
-                                set = function(info, val) self.db.profile.enableSpamFilter = val; if ns.UpdateSpamCache then ns.UpdateSpamCache() end end,
-                                get = function(info) return self.db.profile.enableSpamFilter end,
-                            },
-                            
-                            spamFilterMode = {
-                                order = 1.5,
-                                name = "Spam Filter Mode",
-                                desc = "Block removes matched messages. Log Only keeps chat visible but records debug entries for tuning rules.",
-                                type = "select",
-                                values = { block = "Block", log = "Log Only" },
-                                set = function(info, val) self.db.profile.spamFilterMode = val end,
-                                get = function(info) return self.db.profile.spamFilterMode or "block" end,
-                            },
+                                spamCore = {
+                                    name = T("Keyword Blocking"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 1,
+                                    args = {
+                                        enableSpamFilter = {
+                                            order = 1,
+                                            name = T("Enable Keyword Blocking"),
+                                            type = "toggle",
+                                            width = "full",
+                                            set = function(info, val) self.db.profile.enableSpamFilter = val; if ns.UpdateSpamCache then ns.UpdateSpamCache() end end,
+                                            get = function(info) return self.db.profile.enableSpamFilter end,
+                                        },
+                                        spamFilterMode = {
+                                            order = 2,
+                                            name = T("Spam Filter Mode"),
+                                            desc = T("Block removes matched messages. Log Only keeps chat visible but records debug entries for tuning rules."),
+                                            type = "select",
+                                            values = { block = "Block", log = "Log Only" },
+                                            set = function(info, val) self.db.profile.spamFilterMode = val end,
+                                            get = function(info) return self.db.profile.spamFilterMode or "block" end,
+                                        },
+                                        hideSystemSpam = {
+                                            order = 3,
+                                            name = T("Hide Join/Leave Messages"),
+                                            desc = T("Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the secure message filter path.|r"),
+                                            type = "toggle",
+                                            set = function(info, val) self.db.profile.hideSystemSpam = val end,
+                                            get = function(info) return self.db.profile.hideSystemSpam end,
+                                        },
+                                    },
+                                },
 
-                            -- Anti-Flood & System Cleaners
-                            enableThrottle = {
-                                order = 2,
-                                name = "Block Repeated Messages (Anti-Flood)",
-                                desc = "Prevents the same author from repeating the same normalized message within the selected cooldown.",
-                                type = "toggle",
-                                set = function(info, val) self.db.profile.enableThrottle = val end,
-                                get = function(info) return self.db.profile.enableThrottle end,
-                            },
-                            throttleTime = {
-                                order = 2.1,
-                                name = "Repeat Cooldown",
-                                desc = "Seconds before the same normalized message can appear again from the same sender/channel.",
-                                type = "range",
-                                min = 5, max = 300, step = 5,
-                                disabled = function() return not self.db.profile.enableThrottle end,
-                                set = function(info, val) self.db.profile.throttleTime = val end,
-                                get = function(info) return tonumber(self.db.profile.throttleTime) or 60 end,
-                            },
-                            throttleMinLength = {
-                                order = 2.2,
-                                name = "Minimum Repeat Length",
-                                desc = "Short common messages are ignored by anti-flood to avoid false positives.",
-                                type = "range",
-                                min = 8, max = 80, step = 1,
-                                disabled = function() return not self.db.profile.enableThrottle end,
-                                set = function(info, val) self.db.profile.throttleMinLength = val end,
-                                get = function(info) return tonumber(self.db.profile.throttleMinLength) or 20 end,
-                            },
-                            hideSystemSpam = {
-                                order = 3,
-                                name = "Hide Join/Leave Messages",
-                                desc = "Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the secure message filter path.|r",
-                                type = "toggle",
-                                set = function(info, val) self.db.profile.hideSystemSpam = val end,
-                                get = function(info) return self.db.profile.hideSystemSpam end,
-                            },
+                                spamThrottle = {
+                                    name = T("Anti-Flood"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 2,
+                                    args = {
+                                        enableThrottle = {
+                                            order = 1,
+                                            name = T("Block Repeated Messages (Anti-Flood)"),
+                                            desc = T("Prevents the same author from repeating the same normalized message within the selected cooldown."),
+                                            type = "toggle",
+                                            set = function(info, val) self.db.profile.enableThrottle = val end,
+                                            get = function(info) return self.db.profile.enableThrottle end,
+                                        },
+                                        throttleTime = {
+                                            order = 2,
+                                            name = T("Repeat Cooldown"),
+                                            desc = T("Seconds before the same normalized message can appear again from the same sender/channel."),
+                                            type = "range",
+                                            min = 5, max = 300, step = 5,
+                                            disabled = function() return not self.db.profile.enableThrottle end,
+                                            set = function(info, val) self.db.profile.throttleTime = val end,
+                                            get = function(info) return tonumber(self.db.profile.throttleTime) or 60 end,
+                                        },
+                                        throttleMinLength = {
+                                            order = 3,
+                                            name = T("Minimum Repeat Length"),
+                                            desc = T("Short common messages are ignored by anti-flood to avoid false positives."),
+                                            type = "range",
+                                            min = 8, max = 80, step = 1,
+                                            disabled = function() return not self.db.profile.enableThrottle end,
+                                            set = function(info, val) self.db.profile.throttleMinLength = val end,
+                                            get = function(info) return tonumber(self.db.profile.throttleMinLength) or 20 end,
+                                        },
+                                    },
+                                },
 
-                            headerWhitelist = { order = 3.2, type = "header", name = "Whitelist" },
-                            whitelistGuild = {
-                                order = 3.3, name = "Guild / Officer", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.guild = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.guild ~= false end,
-                            },
-                            whitelistFriends = {
-                                order = 3.4, name = "Friends", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.friends = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.friends ~= false end,
-                            },
-                            whitelistParty = {
-                                order = 3.5, name = "Party", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.party = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.party ~= false end,
-                            },
-                            whitelistRaid = {
-                                order = 3.6, name = "Raid / Instance", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.raid = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.raid ~= false end,
-                            },
+                                spamWhitelist = {
+                                    name = T("Whitelist"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 3,
+                                    args = {
+                                        whitelistGuild = {
+                                            order = 3.3, name = "Guild / Officer", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.guild = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.guild ~= false end,
+                                        },
+                                        whitelistFriends = {
+                                            order = 3.4, name = "Friends", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.friends = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.friends ~= false end,
+                                        },
+                                        whitelistParty = {
+                                            order = 3.5, name = "Party", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.party = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.party ~= false end,
+                                        },
+                                        whitelistRaid = {
+                                            order = 3.6, name = "Raid / Instance", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamWhitelist.raid = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamWhitelist.raid ~= false end,
+                                        },
+                                    },
+                                },
 
-                            headerChannels = { order = 3.8, type = "header", name = "Channel Rules" },
-                            scanTrade = { order = 3.9, name = "Trade", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.TRADE = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.TRADE ~= false end },
-                            scanServices = { order = 4.0, name = "Services", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SERVICES = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SERVICES ~= false end },
-                            scanGeneral = { order = 4.1, name = "General", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GENERAL = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GENERAL ~= false end },
-                            scanGuild = { order = 4.15, name = "Guild / Officer", desc = "Only used when the guild whitelist is disabled.", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GUILD = val; self.db.profile.spamChannelRules.OFFICER = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GUILD == true or self.db.profile.spamChannelRules.OFFICER == true end },
-                            scanSayYell = { order = 4.2, name = "Say / Yell", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SAY = val; self.db.profile.spamChannelRules.YELL = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SAY ~= false or self.db.profile.spamChannelRules.YELL ~= false end },
-                            scanCommunity = { order = 4.3, name = "Communities", type = "toggle",
-                                set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.COMMUNITY = val end,
-                                get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.COMMUNITY ~= false end },
+                                spamChannels = {
+                                    name = T("Channel Rules"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 4,
+                                    args = {
+                                        scanTrade = { order = 3.9, name = "Trade", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.TRADE = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.TRADE ~= false end },
+                                        scanServices = { order = 4.0, name = "Services", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SERVICES = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SERVICES ~= false end },
+                                        scanGeneral = { order = 4.1, name = "General", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GENERAL = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GENERAL ~= false end },
+                                        scanGuild = { order = 4.15, name = "Guild / Officer", desc = "Only used when the guild whitelist is disabled.", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.GUILD = val; self.db.profile.spamChannelRules.OFFICER = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.GUILD == true or self.db.profile.spamChannelRules.OFFICER == true end },
+                                        scanSayYell = { order = 4.2, name = "Say / Yell", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.SAY = val; self.db.profile.spamChannelRules.YELL = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.SAY ~= false or self.db.profile.spamChannelRules.YELL ~= false end },
+                                        scanCommunity = { order = 4.3, name = "Communities", type = "toggle",
+                                            set = function(info, val) EnsureProfileTables(self.db.profile); self.db.profile.spamChannelRules.COMMUNITY = val end,
+                                            get = function(info) EnsureProfileTables(self.db.profile); return self.db.profile.spamChannelRules.COMMUNITY ~= false end },
+                                    },
+                                },
 
-                            headerKeywords = { order = 5, type = "header", name = "Blocklist Management" },
+                                spamKeywordList = {
+                                    name = T("Blocklist Management"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 5,
+                                    args = {
+                                        addKeyword = {
+                                            order = 1,
+                                            name = T("Add Keyword"),
+                                            desc = T("Type a word to block (e.g., 'boost', 'WTS') and press Enter."),
+                                            type = "input",
+                                            width = "full",
+                                            set = function(info, val)
+                                                local keyword = TrimInput(val)
+                                                if keyword ~= "" then
+                                                    self.db.profile.spamKeywords = self.db.profile.spamKeywords or {}
+                                                    local normalized = NormalizeKeywordKey(keyword)
+                                                    local exists = false
+                                                    for _, current in ipairs(self.db.profile.spamKeywords) do
+                                                        if NormalizeKeywordKey(current) == normalized then
+                                                            exists = true
+                                                            break
+                                                        end
+                                                    end
 
-                            addKeyword = {
-                                order = 5,
-                                name = "Add Keyword",
-                                desc = "Type a word to block (e.g., 'boost', 'WTS') and press Enter.",
-                                type = "input",
-                                width = "full",
-                                set = function(info, val)
-                                    local keyword = TrimInput(val)
-                                    if keyword ~= "" then
-                                        self.db.profile.spamKeywords = self.db.profile.spamKeywords or {}
-                                        local normalized = NormalizeKeywordKey(keyword)
-                                        local exists = false
-                                        for _, current in ipairs(self.db.profile.spamKeywords) do
-                                            if NormalizeKeywordKey(current) == normalized then
-                                                exists = true
-                                                break
-                                            end
-                                        end
+                                                    if not exists then
+                                                        table.insert(self.db.profile.spamKeywords, keyword)
+                                                    end
 
-                                        if not exists then
-                                            table.insert(self.db.profile.spamKeywords, keyword)
-                                        end
+                                                    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
+                                                end
+                                            end,
+                                            get = function(info) return "" end,
+                                        },
+                                        removeKeyword = {
+                                            order = 2,
+                                            name = T("Remove Keyword"),
+                                            type = "select",
+                                            style = "dropdown",
+                                            width = "full",
+                                            values = function()
+                                                local t = {}
+                                                for i, word in ipairs(self.db.profile.spamKeywords or {}) do t[i] = word end
+                                                return t
+                                            end,
+                                            set = function(info, key) 
+                                                if self.db.profile.spamKeywords then
+                                                    table.remove(self.db.profile.spamKeywords, key)
+                                                end
+                                                if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
+                                            end,
+                                            get = function(info) return nil end,
+                                            confirm = true,
+                                            confirmText = "Remove this keyword?",
+                                        },
+                                        curList = {
+                                            order = 3,
+                                            type = "description",
+                                            name = function() 
+                                                local keywords = self.db.profile.spamKeywords or {}
+                                                if #keywords == 0 then return "\n|cff888888" .. T("(Blocklist is empty)") .. "|r" end
+                                                return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ") 
+                                            end,
+                                        },
+                                    },
+                                },
 
-                                        if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
-                                    end
-                                end,
-                                get = function(info) return "" end,
-                            },
-                            removeKeyword = {
-                                order = 6,
-                                name = "Remove Keyword",
-                                type = "select",
-                                style = "dropdown",
-                                width = "full",
-                                values = function()
-                                    local t = {}
-                                    for i, word in ipairs(self.db.profile.spamKeywords or {}) do t[i] = word end
-                                    return t
-                                end,
-                                set = function(info, key) 
-                                    if self.db.profile.spamKeywords then
-                                        table.remove(self.db.profile.spamKeywords, key)
-                                    end
-                                    if ns.UpdateSpamCache then ns.UpdateSpamCache() end -- Update Cache immediately
-                                end,
-                                get = function(info) return nil end,
-                                confirm = true,
-                                confirmText = "Remove this keyword?",
-                            },
-                            curList = {
-                                order = 7,
-                                type = "description",
-                                name = function() 
-                                    local keywords = self.db.profile.spamKeywords or {}
-                                    if #keywords == 0 then return "\n|cff888888" .. T("(Blocklist is empty)") .. "|r" end
-                                    return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ") 
-                                end,
-                            },
-                            headerSpamDebug = { order = 8, type = "header", name = "Runtime Debug" },
-                            spamDebugLog = {
-                                order = 9,
-                                type = "description",
-                                name = GetSpamLogDescription,
-                                fontSize = "medium",
-                            },
-                            resetSpamDebug = {
-                                order = 10,
-                                type = "execute",
-                                name = "Reset Spam Debug Counters",
-                                func = function() if ns.ResetSpamFilterStats then ns.ResetSpamFilterStats() end end,
-                                width = "full",
-                            }
+                                spamDebug = {
+                                    name = T("Runtime Debug"),
+                                    type = "group",
+                                    inline = true,
+                                    order = 6,
+                                    args = {
+                                        spamDebugLog = {
+                                            order = 1,
+                                            type = "description",
+                                            name = GetSpamLogDescription,
+                                            fontSize = "medium",
+                                        },
+                                        resetSpamDebug = {
+                                            order = 2,
+                                            type = "execute",
+                                            name = T("Reset Spam Debug Counters"),
+                                            func = function() if ns.ResetSpamFilterStats then ns.ResetSpamFilterStats() end end,
+                                            width = "full",
+                                        },
+                                    },
+                                },
+
                         }
                     },
 
                     -- 2. HISTORY GROUP
                     groupHistory = {
-                        name = "Chat History",
+                        name = T("Chat History"),
                         type = "group",
-                        inline = true,
                         order = 2,
                         args = {
-                            enableHistory = {
-                                order = 1,
-                                name = "Enable History",
-                                desc = "Saves messages for the Chatify History window only. History is never replayed into the live chat frame.\n\n|cff999999Retail 12.x: stores only messages captured through the safe event path.|r",
-                                type = "toggle",
-                                set = function(info, val) self.db.profile.enableHistory = val end,
-                                get = function(info) return self.db.profile.enableHistory end,
-                            },
-                            historyLimit = {
-                                order = 2,
-                                name = "History Size",
-                                desc = "Lines to keep per chat tab for the Chatify History window.",
-                                type = "range",
-                                min = 25, max = 500, step = 25,
-                                disabled = function() return not self.db.profile.enableHistory end,
-                                set = function(info, val) self.db.profile.historyLimit = val end,
-                                get = function(info) return self.db.profile.historyLimit end,
-                            }
+                                enableHistory = {
+                                    order = 1,
+                                    name = T("Enable History"),
+                                    desc = T("Saves messages for the Chatify History window only. History is never replayed into the live chat frame.\n\n|cff999999Retail 12.x: stores only messages captured through the safe event path.|r"),
+                                    type = "toggle",
+                                    set = function(info, val) self.db.profile.enableHistory = val end,
+                                    get = function(info) return self.db.profile.enableHistory end,
+                                },
+                                historyLimit = {
+                                    order = 2,
+                                    name = T("History Size"),
+                                    desc = T("Lines to keep per chat tab for the Chatify History window."),
+                                    type = "range",
+                                    min = 25, max = 500, step = 25,
+                                    disabled = function() return not self.db.profile.enableHistory end,
+                                    set = function(info, val) self.db.profile.historyLimit = val end,
+                                    get = function(info) return self.db.profile.historyLimit end,
+                                }
                         }
                     },
 
                     -- 3. COPY CHAT GROUP
                     groupCopy = {
-                        name = "Copy Chat",
+                        name = T("Copy Chat"),
                         type = "group",
-                        inline = true,
                         order = 3,
                         args = {
-                            copyNativeSelection = {
-                                order = 1,
-                                name = "Enable Direct Chat Selection",
-                                desc = "Shift + Left Click the Copy Chat button toggles Blizzard direct selection inside the chat frame. Select text in chat, then press Ctrl+C. WoW addons cannot write to the system clipboard automatically.",
-                                type = "toggle",
-                                width = "full",
-                                set = function(info, val) self.db.profile.copyNativeSelection = val end,
-                                get = function(info) return self.db.profile.copyNativeSelection ~= false end,
-                            },
-                            copyNativeUseVisibleFrames = {
-                                order = 2,
-                                name = "Compatibility Mode for Custom Chat Layouts",
-                                desc = "Enable direct selection on all visible chat frames instead of only the best detected frame. Use this only if ElvUI/Prat/custom chat layouts prevent Shift + Left Click from selecting text. Keeping this off is safer.",
-                                type = "toggle",
-                                width = "full",
-                                disabled = function() return self.db.profile.copyNativeSelection == false end,
-                                set = function(info, val) self.db.profile.copyNativeUseVisibleFrames = val end,
-                                get = function(info) return self.db.profile.copyNativeUseVisibleFrames == true end,
-                            },
-                            copyNativeTimeout = {
-                                order = 3,
-                                name = "Auto-disable Direct Selection",
-                                desc = "Seconds before Chatify turns direct selection off automatically. Use 0 only if you want to turn it off manually with Shift + Left Click.",
-                                type = "range",
-                                min = 0, max = 120, step = 5,
-                                width = "full",
-                                disabled = function() return self.db.profile.copyNativeSelection == false end,
-                                set = function(info, val) self.db.profile.copyNativeTimeout = val end,
-                                get = function(info) return tonumber(self.db.profile.copyNativeTimeout) or 30 end,
-                            },
-                            copyNativeAnnounce = {
-                                order = 4,
-                                name = "Show Direct Selection Hint",
-                                desc = "Print a short Chatify message when Shift + Left Click toggles direct chat selection.",
-                                type = "toggle",
-                                width = "full",
-                                disabled = function() return self.db.profile.copyNativeSelection == false end,
-                                set = function(info, val) self.db.profile.copyNativeAnnounce = val end,
-                                get = function(info) return self.db.profile.copyNativeAnnounce ~= false end,
-                            },
-                            copyNativeHelp = {
-                                order = 5,
-                                type = "description",
-                                name = "\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r",
-                            },
-                            copyTabsHeader = {
-                                order = 10,
-                                type = "header",
-                                name = T("Copy Window Tabs"),
-                            },
-                            copyTabMode = {
-                                order = 11,
-                                name = T("Tabs shown in copy window"),
-                                desc = T("Controls which Blizzard chat windows appear as tabs in the ChatCopy 2.0 popup. Combat Log and Voice are always excluded. Hidden windows are disabled by default."),
-                                type = "select",
-                                width = "full",
-                                values = {
-                                    ALL = T("All usable chat tabs"),
-                                    VISIBLE = T("Visible or docked tabs only"),
-                                    PINNED = T("Manual selection only"),
-                                    SELECTED = T("Selected chat only"),
+                                copyNativeSelection = {
+                                    order = 1,
+                                    name = T("Enable Direct Chat Selection"),
+                                    desc = T("Shift + Left Click the Copy Chat button toggles Blizzard direct selection inside the chat frame. Select text in chat, then press Ctrl+C. WoW addons cannot write to the system clipboard automatically."),
+                                    type = "toggle",
+                                    width = "full",
+                                    set = function(info, val) self.db.profile.copyNativeSelection = val end,
+                                    get = function(info) return self.db.profile.copyNativeSelection ~= false end,
                                 },
-                                set = function(info, val)
-                                    EnsureProfileTables(self.db.profile)
-                                    self.db.profile.copyTabMode = val or "VISIBLE"
-                                    if type(ns.RefreshCopyChatTabs) == "function" then ns.RefreshCopyChatTabs() end
-                                end,
-                                get = function(info)
-                                    EnsureProfileTables(self.db.profile)
-                                    return self.db.profile.copyTabMode or "VISIBLE"
-                                end,
-                            },
-                            copyTabFrames = {
-                                order = 12,
-                                name = T("Chat tabs available for copy"),
-                                desc = T("Enable or disable individual chat windows in the ChatCopy tab strip. Names are read from the current Blizzard chat windows, so renamed tabs are supported. Combat Log and Voice are intentionally not listed."),
-                                type = "multiselect",
-                                width = "full",
-                                values = function()
-                                    if type(ns.GetCopyChatFrameOptionValues) == "function" then
-                                        return ns.GetCopyChatFrameOptionValues()
-                                    end
-                                    return { __none = T("No chat windows detected.") }
-                                end,
-                                set = function(info, key, val)
-                                    EnsureProfileTables(self.db.profile)
-                                    if type(ns.SetCopyChatFrameIncluded) == "function" then
-                                        ns.SetCopyChatFrameIncluded(key, val)
-                                    else
-                                        self.db.profile.copyTabFrames[key] = val and true or false
-                                    end
-                                end,
-                                get = function(info, key)
-                                    EnsureProfileTables(self.db.profile)
-                                    if type(ns.GetCopyChatFrameIncluded) == "function" then
-                                        return ns.GetCopyChatFrameIncluded(key)
-                                    end
-                                    local saved = self.db.profile.copyTabFrames[key]
-                                    if saved ~= nil then return saved == true end
-                                    return self.db.profile.copyTabMode ~= "PINNED"
-                                end,
-                            },
-                            resetCopyTabFrames = {
-                                order = 13,
-                                name = T("Reset copy tab selection"),
-                                desc = T("Clears manual include/exclude choices for ChatCopy tabs."),
-                                type = "execute",
-                                width = "full",
-                                func = function()
-                                    EnsureProfileTables(self.db.profile)
-                                    if type(ns.ResetCopyChatFrameFilter) == "function" then
-                                        ns.ResetCopyChatFrameFilter()
-                                    else
-                                        self.db.profile.copyTabFrames = {}
-                                    end
-                                end,
-                                confirm = true,
-                                confirmText = T("Reset copy tab selection?"),
-                            },
+                                copyNativeUseVisibleFrames = {
+                                    order = 2,
+                                    name = T("Compatibility Mode for Custom Chat Layouts"),
+                                    desc = T("Enable direct selection on all visible chat frames instead of only the best detected frame. Use this only if ElvUI/Prat/custom chat layouts prevent Shift + Left Click from selecting text. Keeping this off is safer."),
+                                    type = "toggle",
+                                    width = "full",
+                                    disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                    set = function(info, val) self.db.profile.copyNativeUseVisibleFrames = val end,
+                                    get = function(info) return self.db.profile.copyNativeUseVisibleFrames == true end,
+                                },
+                                copyNativeTimeout = {
+                                    order = 3,
+                                    name = T("Auto-disable Direct Selection"),
+                                    desc = T("Seconds before Chatify turns direct selection off automatically. Use 0 only if you want to turn it off manually with Shift + Left Click."),
+                                    type = "range",
+                                    min = 0, max = 120, step = 5,
+                                    width = "full",
+                                    disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                    set = function(info, val) self.db.profile.copyNativeTimeout = val end,
+                                    get = function(info) return tonumber(self.db.profile.copyNativeTimeout) or 30 end,
+                                },
+                                copyNativeAnnounce = {
+                                    order = 4,
+                                    name = T("Show Direct Selection Hint"),
+                                    desc = T("Print a short Chatify message when Shift + Left Click toggles direct chat selection."),
+                                    type = "toggle",
+                                    width = "full",
+                                    disabled = function() return self.db.profile.copyNativeSelection == false end,
+                                    set = function(info, val) self.db.profile.copyNativeAnnounce = val end,
+                                    get = function(info) return self.db.profile.copyNativeAnnounce ~= false end,
+                                },
+                                copyNativeHelp = {
+                                    order = 5,
+                                    type = "description",
+                                    name = T("\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r"),
+                                },
+                                copyTabsHeader = {
+                                    order = 10,
+                                    type = "header",
+                                    name = T("Copy Window Tabs"),
+                                },
+                                copyTabMode = {
+                                    order = 11,
+                                    name = T("Tabs shown in copy window"),
+                                    desc = T("Controls which Blizzard chat windows appear as tabs in the ChatCopy 2.0 popup. Combat Log and Voice are always excluded. Hidden windows are disabled by default."),
+                                    type = "select",
+                                    width = "full",
+                                    values = {
+                                        ALL = T("All usable chat tabs"),
+                                        VISIBLE = T("Visible or docked tabs only"),
+                                        PINNED = T("Manual selection only"),
+                                        SELECTED = T("Selected chat only"),
+                                    },
+                                    set = function(info, val)
+                                        EnsureProfileTables(self.db.profile)
+                                        self.db.profile.copyTabMode = val or "VISIBLE"
+                                        if type(ns.RefreshCopyChatTabs) == "function" then ns.RefreshCopyChatTabs() end
+                                    end,
+                                    get = function(info)
+                                        EnsureProfileTables(self.db.profile)
+                                        return self.db.profile.copyTabMode or "VISIBLE"
+                                    end,
+                                },
+                                copyTabFrames = {
+                                    order = 12,
+                                    name = T("Chat tabs available for copy"),
+                                    desc = T("Enable or disable individual chat windows in the ChatCopy tab strip. Names are read from the current Blizzard chat windows, so renamed tabs are supported. Combat Log and Voice are intentionally not listed."),
+                                    type = "multiselect",
+                                    width = "full",
+                                    values = function()
+                                        if type(ns.GetCopyChatFrameOptionValues) == "function" then
+                                            return ns.GetCopyChatFrameOptionValues()
+                                        end
+                                        return { __none = T("No chat windows detected.") }
+                                    end,
+                                    set = function(info, key, val)
+                                        EnsureProfileTables(self.db.profile)
+                                        if type(ns.SetCopyChatFrameIncluded) == "function" then
+                                            ns.SetCopyChatFrameIncluded(key, val)
+                                        else
+                                            self.db.profile.copyTabFrames[key] = val and true or false
+                                        end
+                                    end,
+                                    get = function(info, key)
+                                        EnsureProfileTables(self.db.profile)
+                                        if type(ns.GetCopyChatFrameIncluded) == "function" then
+                                            return ns.GetCopyChatFrameIncluded(key)
+                                        end
+                                        local saved = self.db.profile.copyTabFrames[key]
+                                        if saved ~= nil then return saved == true end
+                                        return self.db.profile.copyTabMode ~= "PINNED"
+                                    end,
+                                },
+                                resetCopyTabFrames = {
+                                    order = 13,
+                                    name = T("Reset copy tab selection"),
+                                    desc = T("Clears manual include/exclude choices for ChatCopy tabs."),
+                                    type = "execute",
+                                    width = "full",
+                                    func = function()
+                                        EnsureProfileTables(self.db.profile)
+                                        if type(ns.ResetCopyChatFrameFilter) == "function" then
+                                            ns.ResetCopyChatFrameFilter()
+                                        else
+                                            self.db.profile.copyTabFrames = {}
+                                        end
+                                    end,
+                                    confirm = true,
+                                    confirmText = T("Reset copy tab selection?"),
+                                },
                         },
                     }
                 }
@@ -1215,345 +1334,394 @@ function Chatify:GetOptions()
 
             -- TAB 4: MENTION MANAGER
             tabMentions = {
-                name = "Mention Manager",
+                name = T("Mention Manager"),
                 type = "group",
                 order = 35,
                 args = {
-                    headerMentions = {
+                    groupMentionRules = {
+                        name = T("Rules"),
+                        type = "group",
+                        inline = true,
                         order = 1,
-                        type = "description",
-                        name = "Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown.",
-                        fontSize = "medium",
+                        args = {
+                            headerMentions = {
+                                order = 1,
+                                type = "description",
+                                name = T("Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown."),
+                                fontSize = "medium",
+                            },
+                            enableMentionManager = {
+                                order = 2,
+                                name = T("Enable Mention Manager"),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.enableMentionManager = val end,
+                                get = function(info) return self.db.profile.enableMentionManager ~= false end,
+                            },
+                            addMentionRule = {
+                                order = 3,
+                                name = T("Add Word / Phrase"),
+                                desc = T("Example: Sebas, RL, Ключ"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) AddMentionRule(self.db.profile, val) end,
+                                get = function(info) return "" end,
+                            },
+                            selectedMentionRule = {
+                                order = 4,
+                                name = T("Selected Rule"),
+                                type = "select",
+                                width = "double",
+                                values = function() return GetMentionRuleValues(self.db.profile) end,
+                                set = function(info, val) selectedMentionRuleIndex = tonumber(val) or 1 end,
+                                get = function(info)
+                                    GetSelectedMentionRule(self.db.profile)
+                                    return selectedMentionRuleIndex
+                                end,
+                            },
+                            removeMentionRule = {
+                                order = 5,
+                                name = T("Remove Selected Rule"),
+                                type = "execute",
+                                width = "full",
+                                confirm = true,
+                                confirmText = "Remove selected mention rule?",
+                                func = function()
+                                    EnsureProfileTables(self.db.profile)
+                                    if selectedMentionRuleIndex >= 1 and selectedMentionRuleIndex <= #self.db.profile.mentionRules then
+                                        table.remove(self.db.profile.mentionRules, selectedMentionRuleIndex)
+                                        if selectedMentionRuleIndex > #self.db.profile.mentionRules then selectedMentionRuleIndex = #self.db.profile.mentionRules end
+                                        if selectedMentionRuleIndex < 1 then selectedMentionRuleIndex = 1 end
+                                    end
+                                end,
+                            },
+                        },
                     },
-                    enableMentionManager = {
+
+                    groupMentionEdit = {
+                        name = T("Edit Selected Rule"),
+                        type = "group",
+                        inline = true,
                         order = 2,
-                        name = "Enable Mention Manager",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.enableMentionManager = val end,
-                        get = function(info) return self.db.profile.enableMentionManager ~= false end,
+                        args = {
+                            mentionEnabled = {
+                                order = 1,
+                                name = T("Enabled"),
+                                type = "toggle",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.enabled = val end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.enabled ~= false or false end,
+                            },
+                            mentionText = {
+                                order = 2,
+                                name = T("Word / Phrase"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.text or "" end,
+                            },
+                            mentionColor = {
+                                order = 3,
+                                name = T("Color Hex"),
+                                desc = T("Use 6-digit RGB hex without #. Example: ffd700, ff4040, 68ccef."),
+                                type = "input",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.color = TrimInput(val):gsub("#", "") end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.color or "ffd700" end,
+                            },
+                            mentionSound = {
+                                order = 4,
+                                type = "select",
+                                dialogControl = GetLSMSoundControl(),
+                                name = T("Sound"),
+                                desc = T("Sound for this mention rule. Choose None for highlight only."),
+                                values = GetLSMSoundValues(),
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.sound = val end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.sound or "None" end,
+                            },
+                            testMentionSound = {
+                                order = 5,
+                                name = T("Test Selected Sound"),
+                                type = "execute",
+                                func = function() PlaySelectedMentionRuleSound(self.db.profile) end,
+                            },
+                            mentionChannels = {
+                                order = 6,
+                                name = T("Channels"),
+                                desc = T("Comma-separated. Supported: GUILD, PARTY, RAID, INSTANCE, WHISPER, CHANNEL, TRADE, SERVICES, GENERAL, COMMUNITY, SAY, YELL, ALL."),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.channels = TrimInput(val) end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.channels or "ALL" end,
+                            },
+                            mentionIgnoreCase = {
+                                order = 7,
+                                name = T("Ignore Case"),
+                                type = "toggle",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.ignoreCase = val end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.ignoreCase ~= false or false end,
+                            },
+                            mentionWholeWord = {
+                                order = 8,
+                                name = T("Whole Word Only"),
+                                desc = T("Match the whole word instead of a part of another word. For non-Latin text, Chatify uses safe phrase matching."),
+                                type = "toggle",
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.wholeWord = val end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.wholeWord ~= false or false end,
+                            },
+                            mentionCooldown = {
+                                order = 9,
+                                name = T("Sound Cooldown"),
+                                type = "range",
+                                min = 0, max = 60, step = 1,
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.cooldown = val end end,
+                                get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and tonumber(rule.cooldown) or 2 end,
+                            },
+                        },
                     },
-                    addMentionRule = {
-                        order = 3,
-                        name = "Add Word / Phrase",
-                        desc = "Example: Sebas, RL, Ключ",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) AddMentionRule(self.db.profile, val) end,
-                        get = function(info) return "" end,
-                    },
-                    selectedMentionRule = {
-                        order = 4,
-                        name = "Selected Rule",
-                        type = "select",
-                        width = "double",
-                        values = function() return GetMentionRuleValues(self.db.profile) end,
-                        set = function(info, val) selectedMentionRuleIndex = tonumber(val) or 1 end,
-                        get = function(info)
-                            GetSelectedMentionRule(self.db.profile)
-                            return selectedMentionRuleIndex
-                        end,
-                    },
-                    removeMentionRule = {
-                        order = 5,
-                        name = "Remove Selected Rule",
-                        type = "execute",
-                        width = "full",
-                        confirm = true,
-                        confirmText = "Remove selected mention rule?",
-                        func = function()
-                            EnsureProfileTables(self.db.profile)
-                            if selectedMentionRuleIndex >= 1 and selectedMentionRuleIndex <= #self.db.profile.mentionRules then
-                                table.remove(self.db.profile.mentionRules, selectedMentionRuleIndex)
-                                if selectedMentionRuleIndex > #self.db.profile.mentionRules then selectedMentionRuleIndex = #self.db.profile.mentionRules end
-                                if selectedMentionRuleIndex < 1 then selectedMentionRuleIndex = 1 end
-                            end
-                        end,
-                    },
-                    headerEditMention = { order = 10, type = "header", name = "Edit Selected Rule" },
-                    mentionEnabled = {
-                        order = 11,
-                        name = "Enabled",
-                        type = "toggle",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.enabled = val end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.enabled ~= false or false end,
-                    },
-                    mentionText = {
-                        order = 12,
-                        name = "Word / Phrase",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.text or "" end,
-                    },
-                    mentionColor = {
-                        order = 13,
-                        name = "Color Hex",
-                        desc = "Use 6-digit RGB hex without #. Example: ffd700, ff4040, 68ccef.",
-                        type = "input",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.color = TrimInput(val):gsub("#", "") end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.color or "ffd700" end,
-                    },
-                    mentionSound = {
-                        order = 14,
-                        type = "select",
-                        dialogControl = GetLSMSoundControl(),
-                        name = "Sound",
-                        desc = "Sound for this mention rule. Choose None for highlight only.",
-                        values = GetLSMSoundValues(),
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.sound = val end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.sound or "None" end,
-                    },
-                    testMentionSound = {
-                        order = 14.5,
-                        name = "Test Selected Sound",
-                        type = "execute",
-                        func = function() PlaySelectedMentionRuleSound(self.db.profile) end,
-                    },
-                    mentionChannels = {
-                        order = 15,
-                        name = "Channels",
-                        desc = "Comma-separated. Supported: GUILD, PARTY, RAID, INSTANCE, WHISPER, CHANNEL, TRADE, SERVICES, GENERAL, COMMUNITY, SAY, YELL, ALL.",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.channels = TrimInput(val) end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.channels or "ALL" end,
-                    },
-                    mentionIgnoreCase = {
-                        order = 16,
-                        name = "Ignore Case",
-                        type = "toggle",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.ignoreCase = val end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.ignoreCase ~= false or false end,
-                    },
-                    mentionWholeWord = {
-                        order = 17,
-                        name = "Whole Word Only",
-                        desc = "Match the whole word instead of a part of another word. For non-Latin text, Chatify uses safe phrase matching.",
-                        type = "toggle",
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.wholeWord = val end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.wholeWord ~= false or false end,
-                    },
-                    mentionCooldown = {
-                        order = 18,
-                        name = "Sound Cooldown",
-                        type = "range",
-                        min = 0, max = 60, step = 1,
-                        set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.cooldown = val end end,
-                        get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and tonumber(rule.cooldown) or 2 end,
-                    },
+
                 },
             },
 
             -- TAB 5: AUTO REPLY
             tabAutoReply = {
-                name = "Auto Reply",
+                name = T("Auto Reply"),
                 type = "group",
                 order = 40,
                 args = {
-                    headerAutoReply = {
+                    groupReplyBehaviour = {
+                        name = T("Behaviour"),
+                        type = "group",
+                        inline = true,
                         order = 1,
-                        type = "description",
-                        name = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on modern Retail; guild mention replies can still work when available.|r",
-                        fontSize = "medium",
+                        args = {
+                            headerAutoReply = {
+                                order = 1,
+                                type = "description",
+                                name = T("Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on modern Retail; guild mention replies can still work when available.|r"),
+                                fontSize = "medium",
+                            },
+                            enableAutoReply = {
+                                order = 2,
+                                name = T("Enable Auto Reply"),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.enabled = val end,
+                                get = function(info) return self.db.profile.autoReply.enabled end,
+                            },
+                            busyMode = {
+                                order = 3,
+                                name = T("Busy Mode"),
+                                desc = T("Force the busy message even when you are not AFK or inside an activity."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return not self.db.profile.autoReply.enabled end,
+                                set = function(info, val) self.db.profile.autoReply.busyMode = val end,
+                                get = function(info) return self.db.profile.autoReply.busyMode end,
+                            },
+                            onlyFriends = {
+                                order = 4,
+                                name = T("Only Friends / Guild"),
+                                desc = T("Reply only to Battle.net friends, regular friends, or guild members."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return not self.db.profile.autoReply.enabled end,
+                                set = function(info, val) self.db.profile.autoReply.onlyFriends = val end,
+                                get = function(info) return self.db.profile.autoReply.onlyFriends end,
+                            },
+                            autoNotify = {
+                                order = 5,
+                                name = T("Send Return Message"),
+                                desc = T("When you are back, whisper everyone who contacted you while you were busy."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return not self.db.profile.autoReply.enabled end,
+                                set = function(info, val) self.db.profile.autoReply.autoNotify = val end,
+                                get = function(info) return self.db.profile.autoReply.autoNotify end,
+                            },
+                            guildReplyEnabled = {
+                                order = 6,
+                                name = T("Reply to Guild Mentions"),
+                                desc = T("When your name is mentioned in guild chat during activity, send one throttled guild response and remember that player for the return whisper."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return not self.db.profile.autoReply.enabled end,
+                                set = function(info, val) self.db.profile.autoReply.guildReplyEnabled = val end,
+                                get = function(info) return self.db.profile.autoReply.guildReplyEnabled end,
+                            },
+                            cooldown = {
+                                order = 7,
+                                name = T("Reply Cooldown (minutes)"),
+                                desc = T("How often Chatify may auto-reply to the same player."),
+                                type = "range",
+                                min = 1, max = 60, step = 1,
+                                disabled = function() return not self.db.profile.autoReply.enabled end,
+                                set = function(info, val) self.db.profile.autoReply.cooldown = val end,
+                                get = function(info) return self.db.profile.autoReply.cooldown end,
+                            },
+                        },
                     },
-                    enableAutoReply = {
+
+                    groupReplyMessages = {
+                        name = T("Messages"),
+                        type = "group",
+                        inline = true,
                         order = 2,
-                        name = "Enable Auto Reply",
-                        type = "toggle",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.enabled = val end,
-                        get = function(info) return self.db.profile.autoReply.enabled end,
+                        args = {
+                            afkMessage = {
+                                order = 1,
+                                name = T("AFK Message"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.afkMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.afkMessage end,
+                            },
+                            queueMessage = {
+                                order = 2,
+                                name = T("Queue Message"),
+                                desc = T("Use %s to inject the wait time in minutes."),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.queueMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.queueMessage end,
+                            },
+                            dungeonMessage = {
+                                order = 3,
+                                name = T("Dungeon Message"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.dungeonMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.dungeonMessage end,
+                            },
+                            raidMessage = {
+                                order = 4,
+                                name = T("Raid Message"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.raidMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.raidMessage end,
+                            },
+                            pvpMessage = {
+                                order = 5,
+                                name = T("PvP Message"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.pvpMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.pvpMessage end,
+                            },
+                            busyMessage = {
+                                order = 6,
+                                name = T("Busy Message"),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.busyMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.busyMessage end,
+                            },
+                            returnMessage = {
+                                order = 7,
+                                name = T("Return Message"),
+                                desc = T("Sent automatically when you become available again."),
+                                type = "input",
+                                width = "full",
+                                set = function(info, val) self.db.profile.autoReply.returnMessage = val end,
+                                get = function(info) return self.db.profile.autoReply.returnMessage end,
+                            },
+                        },
                     },
-                    busyMode = {
-                        order = 3,
-                        name = "Busy Mode",
-                        desc = "Force the busy message even when you are not AFK or inside an activity.",
-                        type = "toggle",
-                        width = "full",
-                        disabled = function() return not self.db.profile.autoReply.enabled end,
-                        set = function(info, val) self.db.profile.autoReply.busyMode = val end,
-                        get = function(info) return self.db.profile.autoReply.busyMode end,
-                    },
-                    onlyFriends = {
-                        order = 4,
-                        name = "Only Friends / Guild",
-                        desc = "Reply only to Battle.net friends, regular friends, or guild members.",
-                        type = "toggle",
-                        width = "full",
-                        disabled = function() return not self.db.profile.autoReply.enabled end,
-                        set = function(info, val) self.db.profile.autoReply.onlyFriends = val end,
-                        get = function(info) return self.db.profile.autoReply.onlyFriends end,
-                    },
-                    autoNotify = {
-                        order = 5,
-                        name = "Send Return Message",
-                        desc = "When you are back, whisper everyone who contacted you while you were busy.",
-                        type = "toggle",
-                        width = "full",
-                        disabled = function() return not self.db.profile.autoReply.enabled end,
-                        set = function(info, val) self.db.profile.autoReply.autoNotify = val end,
-                        get = function(info) return self.db.profile.autoReply.autoNotify end,
-                    },
-                    guildReplyEnabled = {
-                        order = 6,
-                        name = "Reply to Guild Mentions",
-                        desc = "When your name is mentioned in guild chat during activity, send one throttled guild response and remember that player for the return whisper.",
-                        type = "toggle",
-                        width = "full",
-                        disabled = function() return not self.db.profile.autoReply.enabled end,
-                        set = function(info, val) self.db.profile.autoReply.guildReplyEnabled = val end,
-                        get = function(info) return self.db.profile.autoReply.guildReplyEnabled end,
-                    },
-                    cooldown = {
-                        order = 7,
-                        name = "Reply Cooldown (minutes)",
-                        desc = "How often Chatify may auto-reply to the same player.",
-                        type = "range",
-                        min = 1, max = 60, step = 1,
-                        disabled = function() return not self.db.profile.autoReply.enabled end,
-                        set = function(info, val) self.db.profile.autoReply.cooldown = val end,
-                        get = function(info) return self.db.profile.autoReply.cooldown end,
-                    },
-                    headerMessages = { order = 10, type = "header", name = "Messages" },
-                    afkMessage = {
-                        order = 11,
-                        name = "AFK Message",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.afkMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.afkMessage end,
-                    },
-                    queueMessage = {
-                        order = 12,
-                        name = "Queue Message",
-                        desc = "Use %s to inject the wait time in minutes.",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.queueMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.queueMessage end,
-                    },
-                    dungeonMessage = {
-                        order = 13,
-                        name = "Dungeon Message",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.dungeonMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.dungeonMessage end,
-                    },
-                    raidMessage = {
-                        order = 14,
-                        name = "Raid Message",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.raidMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.raidMessage end,
-                    },
-                    pvpMessage = {
-                        order = 15,
-                        name = "PvP Message",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.pvpMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.pvpMessage end,
-                    },
-                    busyMessage = {
-                        order = 16,
-                        name = "Busy Message",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.busyMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.busyMessage end,
-                    },
-                    returnMessage = {
-                        order = 17,
-                        name = "Return Message",
-                        desc = "Sent automatically when you become available again.",
-                        type = "input",
-                        width = "full",
-                        set = function(info, val) self.db.profile.autoReply.returnMessage = val end,
-                        get = function(info) return self.db.profile.autoReply.returnMessage end,
-                    },
+
                 }
             },
 
             -- TAB 5: SETUP / MAINTENANCE
             tabSetup = {
-                name = "Setup & Reset",
+                name = T("Setup & Reset"),
                 type = "group",
                 order = 99, 
                 args = {
-                    headerSetup = { order = 1, type = "header", name = "Chat Tabs Setup" },
-                    descSetup = {
-                        order = 2,
-                        type = "description",
-                        name = "Safely create or update chat tabs without duplicates. The selected template controls which tabs are created.\n|cffffcc00Warning: Modifies chat window layout, but does not run in combat.|r",
-                        fontSize = "medium",
-                    },
-                    chatTabsTemplate = {
-                        order = 3,
-                        name = "Template",
-                        type = "select",
-                        values = { PM = "PM", GUILD = "Guild", RAID = "Raid / Guild / PM" },
-                        set = function(info, val) self.db.profile.chatTabsTemplate = val end,
-                        get = function(info) return self.db.profile.chatTabsTemplate or "RAID" end,
-                    },
-                    chatTabsPreview = {
-                        order = 4,
-                        type = "description",
-                        name = GetChatTabsPreview,
-                        fontSize = "medium",
-                    },
-                    btnSetup = {
-                        order = 5,
-                        name = "Apply Safe Tab Setup",
-                        type = "execute",
-                        func = "SetupDefaultTabs", 
-                        width = "full",
-                        confirm = true,
-                        confirmText = "Create or update chat tabs for the selected template?",
-                    },
-                    btnRestoreDefaultTabs = {
-                        order = 6,
-                        name = "Restore Main Chat Groups",
-                        desc = "Restores common message groups on the main General chat frame. It does not delete custom windows.",
-                        type = "execute",
-                        func = "RestoreDefaultChatTabs",
-                        width = "full",
-                        confirm = true,
-                        confirmText = "Restore common message groups on the main chat frame?",
+                    groupTabSetup = {
+                        name = T("Chat Tabs Setup"),
+                        type = "group",
+                        inline = true,
+                        order = 1,
+                        args = {
+                            descSetup = {
+                                order = 1,
+                                type = "description",
+                                name = T("Safely create or update chat tabs without duplicates. The selected template controls which tabs are created.\n|cffffcc00Warning: Modifies chat window layout, but does not run in combat.|r"),
+                                fontSize = "medium",
+                            },
+                            chatTabsTemplate = {
+                                order = 2,
+                                name = T("Template"),
+                                type = "select",
+                                values = { PM = "PM", GUILD = "Guild", RAID = "Raid / Guild / PM" },
+                                set = function(info, val) self.db.profile.chatTabsTemplate = val end,
+                                get = function(info) return self.db.profile.chatTabsTemplate or "RAID" end,
+                            },
+                            chatTabsPreview = {
+                                order = 3,
+                                type = "description",
+                                name = GetChatTabsPreview,
+                                fontSize = "medium",
+                            },
+                            btnSetup = {
+                                order = 4,
+                                name = T("Apply Safe Tab Setup"),
+                                type = "execute",
+                                func = "SetupDefaultTabs", 
+                                width = "full",
+                                confirm = true,
+                                confirmText = "Create or update chat tabs for the selected template?",
+                            },
+                            btnRestoreDefaultTabs = {
+                                order = 5,
+                                name = T("Restore Main Chat Groups"),
+                                desc = T("Restores common message groups on the main General chat frame. It does not delete custom windows."),
+                                type = "execute",
+                                func = "RestoreDefaultChatTabs",
+                                width = "full",
+                                confirm = true,
+                                confirmText = "Restore common message groups on the main chat frame?",
+                            },
+                        },
                     },
 
-                    headerMaintenance = { order = 10, type = "header", name = "Maintenance" },
-                    runtimeDebug = {
-                        order = 10.5,
-                        type = "description",
-                        name = GetRuntimeDebugDescription,
-                        fontSize = "medium",
+                    groupMaintenance = {
+                        name = T("Maintenance"),
+                        type = "group",
+                        inline = true,
+                        order = 2,
+                        args = {
+                            runtimeDebug = {
+                                order = 1,
+                                type = "description",
+                                name = GetRuntimeDebugDescription,
+                                fontSize = "medium",
+                            },
+                            btnReset = {
+                                order = 2,
+                                name = T("Reset All Settings"),
+                                desc = T("|cffff0000Cannot be undone!|r"),
+                                type = "execute",
+                                func = function() 
+                                    self.db:ResetProfile()
+                                    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
+                                    self:Print(T("Configuration reset."))
+                                end,
+                                width = "full",
+                                confirm = true,
+                                confirmText = "|cffff0000WARNING:|r Reset all settings?",
+                            },
+                            btnReload = {
+                                order = 3,
+                                name = T("Reload UI"),
+                                type = "execute",
+                                func = function() ReloadUI() end,
+                                width = "full",
+                                confirm = true,
+                                confirmText = "Reload UI now?",
+                            },
+                        },
                     },
-                    btnReset = {
-                        order = 12,
-                        name = "Reset All Settings",
-                        desc = "|cffff0000Cannot be undone!|r",
-                        type = "execute",
-                        func = function() 
-                            self.db:ResetProfile()
-                            if ns.UpdateSpamCache then ns.UpdateSpamCache() end
-                            self:Print(T("Configuration reset."))
-                        end,
-                        width = "full",
-                        confirm = true,
-                        confirmText = "|cffff0000WARNING:|r Reset all settings?",
-                    },
-                    btnReload = {
-                        order = 13,
-                        name = "Reload UI",
-                        type = "execute",
-                        func = function() ReloadUI() end,
-                        width = "full",
-                        confirm = true,
-                        confirmText = "Reload UI now?",
-                    },
+
                 }
             }
         }
