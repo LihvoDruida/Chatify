@@ -1,11 +1,15 @@
-## Interface: 11508
+# GENERATED FILE - do not edit.
+# Produced from Chatify.toc by tools/generate_tocs.py.
+# Edit Chatify.toc and re-run the script instead.
+
+## Interface: 30405
 ## X-Flavor: classic
-## X-Expansion: Vanilla
+## X-Expansion: Wrath
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 0.11.15
+## Version: 0.11.24
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
