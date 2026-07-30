@@ -243,6 +243,215 @@ local function StyleFrame(frame)
 end
 
 -- =========================================================
+-- 2b. FRAME BEHAVIOUR (TAINT-FREE)
+-- =========================================================
+-- Everything below is plain ScrollingMessageFrame API. None of it registers a
+-- message-event filter, rewrites a GlobalString or otherwise runs on Blizzard's
+-- chat dispatch, so none of it can taint anything - which makes it the only class
+-- of feature that still works on 12.0+ while the text-mutating features stand
+-- down. Prat's Scroll, Fading, Paragraph and OriginalButtons modules cover the
+-- same ground the same way; the notes below record where the behaviour differs.
+--
+-- Not all of these methods exist on every flavour, so each one is probed rather
+-- than assumed. On Classic the missing ones simply do nothing.
+
+local behaviourCache = setmetatable({}, { __mode = "k" })
+
+local function IsCombatLogFrame(frame)
+    if not frame then return false end
+    if frame == _G.ChatFrame2 then return true end
+
+    local id = type(frame.GetID) == "function" and select(2, pcall(frame.GetID, frame)) or nil
+    if type(id) == "number" then
+        local ok, isCombatLog = ns.CallChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog", id)
+        if ok and isCombatLog then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Chat replacement addons own the chat frames outright. Prat has the same carve
+-- out for WIM; ours covers ElvUI, GW2_UI and friends via the shared detector.
+local function ChatFramesAreForeignOwned()
+    if type(ns.IsChatReplacementLoaded) ~= "function" then
+        return false
+    end
+    local ok, loaded = pcall(ns.IsChatReplacementLoaded)
+    return ok and loaded and true or false
+end
+
+local function ScrollByLines(frame, up, lines)
+    for _ = 1, lines do
+        if up then
+            if type(frame.ScrollUp) == "function" then pcall(frame.ScrollUp, frame) end
+        else
+            if type(frame.ScrollDown) == "function" then pcall(frame.ScrollDown, frame) end
+        end
+    end
+end
+
+-- Scroll speed.
+--
+-- Prat replaces the frame's OnMouseWheel script outright. This hooks it instead
+-- and only adds the extra notches on top, which matters for three reasons:
+-- Blizzard's own handler keeps running (so the scroll-to-bottom button and the
+-- chatMouseScroll CVar still behave), ElvUI's replacement is not clobbered, and
+-- turning the feature off needs no script restore because the hook simply stops
+-- doing anything. Shift is left entirely to Blizzard, which already jumps to the
+-- far end; ctrl adds page scrolling, which Blizzard has no binding for.
+local function OnChatMouseWheelExtra(frame, delta)
+    local db = GetVisualDB()
+    if not db or db.enableScrollTweaks == false then
+        return
+    end
+    if ChatFramesAreForeignOwned() then
+        return
+    end
+    if IsShiftKeyDown and IsShiftKeyDown() then
+        return
+    end
+
+    local up = (delta or 0) > 0
+
+    if IsControlKeyDown and IsControlKeyDown() then
+        local pager = up and frame.PageUp or frame.PageDown
+        if type(pager) == "function" then
+            pcall(pager, frame)
+            return
+        end
+    end
+
+    -- Blizzard already moved one line, so only the remainder is ours.
+    local extra = (tonumber(db.scrollLinesPerNotch) or 3) - 1
+    if extra > 9 then extra = 9 end
+    if extra > 0 then
+        ScrollByLines(frame, up, extra)
+    end
+end
+
+local function ApplyScrollTweaks(frame)
+    if type(ns.SafeHookScript) == "function" then
+        ns.SafeHookScript(frame, "OnMouseWheel", OnChatMouseWheelExtra, "ChatifyScrollSpeed")
+    end
+
+    -- Blizzard leaves the wheel enabled on chat frames, but a temporary window
+    -- created by another addon might not.
+    if type(frame.EnableMouseWheel) == "function" then
+        pcall(frame.EnableMouseWheel, frame, true)
+    end
+end
+
+local function ApplyFrameBehaviour(frame)
+    local db = GetVisualDB()
+    if not frame or not db then return end
+
+    local signature = table.concat({
+        tostring(db.scrollbackLines or 0),
+        tostring(db.disableChatFade and 1 or 0),
+        tostring(db.chatFadeTime or 120),
+        tostring(db.lineSpacing or 0),
+        tostring(db.indentWrappedLines and 1 or 0),
+    }, "|")
+
+    ApplyScrollTweaks(frame)
+
+    if behaviourCache[frame] == signature then
+        return
+    end
+    behaviourCache[frame] = signature
+
+    -- Scrollback depth.
+    --
+    -- SetMaxLines reallocates the frame's buffer and therefore wipes whatever is
+    -- currently displayed - Prat's Scroll module relies on exactly that as a reset
+    -- trick. So it is only ever called when the value genuinely differs, which
+    -- makes the whole path idempotent and keeps repeat ApplyVisuals passes from
+    -- clearing anyone's chat.
+    local wanted = tonumber(db.scrollbackLines) or 0
+    if wanted > 0 and type(frame.SetMaxLines) == "function" then
+        if wanted < 128 then wanted = 128 end
+        if wanted > 10000 then wanted = 10000 end
+
+        local current
+        if type(frame.GetMaxLines) == "function" then
+            local ok, value = pcall(frame.GetMaxLines, frame)
+            current = ok and value or nil
+        end
+
+        if current ~= wanted then
+            pcall(frame.SetMaxLines, frame, wanted)
+        end
+    end
+
+    -- Fading. The combat log is left alone: it is a log, and Blizzard ships it
+    -- with fading off already.
+    if not IsCombatLogFrame(frame) then
+        if type(frame.SetFading) == "function" then
+            pcall(frame.SetFading, frame, not db.disableChatFade)
+        end
+        if not db.disableChatFade and type(frame.SetTimeVisible) == "function" then
+            local visible = tonumber(db.chatFadeTime) or 120
+            if visible < 5 then visible = 5 end
+            if visible > 3600 then visible = 3600 end
+            pcall(frame.SetTimeVisible, frame, visible)
+        end
+    end
+
+    -- Line spacing and hanging indent for wrapped lines. SetIndentedWordWrap is
+    -- Retail-only, hence the probe rather than a flavour check - if Blizzard ever
+    -- backports it, Classic picks it up for free.
+    if type(frame.SetSpacing) == "function" then
+        local spacing = tonumber(db.lineSpacing) or 0
+        if spacing < 0 then spacing = 0 end
+        if spacing > 10 then spacing = 10 end
+        pcall(frame.SetSpacing, frame, spacing)
+    end
+
+    if type(frame.SetIndentedWordWrap) == "function" then
+        pcall(frame.SetIndentedWordWrap, frame, db.indentWrappedLines and true or false)
+    end
+
+end
+
+-- Blizzard's own chat buttons.
+--
+-- Hiding is not enough on its own: Blizzard shows them again on various UI
+-- updates, so the OnShow handler has to push back. Same technique as Prat's
+-- OriginalButtons module. The original handler is kept so the toggle is reversible
+-- without a reload.
+local blizzardButtonState = {}
+
+local function ApplyBlizzardButtonVisibility()
+    local db = GetVisualDB()
+    if not db then return end
+
+    local hide = db.hideBlizzardChatButtons and true or false
+
+    for _, name in ipairs({ "ChatFrameMenuButton", "QuickJoinToastButton" }) do
+        local button = _G[name]
+        if button and type(button.Hide) == "function" then
+            if hide then
+                if blizzardButtonState[name] == nil then
+                    local ok, original = pcall(button.GetScript, button, "OnShow")
+                    blizzardButtonState[name] = (ok and original) or false
+                end
+                pcall(button.SetScript, button, "OnShow", function(self)
+                    pcall(self.Hide, self)
+                end)
+                pcall(button.Hide, button)
+            elseif blizzardButtonState[name] ~= nil then
+                local original = blizzardButtonState[name]
+                pcall(button.SetScript, button, "OnShow", original or nil)
+                pcall(button.Show, button)
+                blizzardButtonState[name] = nil
+            end
+        end
+    end
+end
+
+-- =========================================================
 -- 3. CHANNEL SHORTENING
 -- =========================================================
 local ShortChannelMaps = {
@@ -466,10 +675,13 @@ function ns.ApplyVisuals()
 
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
-        if frame then 
-            StyleFrame(frame) 
+        if frame then
+            StyleFrame(frame)
+            ApplyFrameBehaviour(frame)
         end
     end
+
+    ApplyBlizzardButtonVisibility()
 
     -- Short channel names swap Blizzard GlobalStrings (CHAT_*_GET). On modern Retail
     -- (12.0+ secret values) we must not write Blizzard's shared global environment

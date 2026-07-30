@@ -448,6 +448,116 @@ function Chatify:GetOptions()
                         get = function(info) return self.db.profile.shortChannels end,
                     },
 
+                    frameBehaviourHeader = {
+                        order = 2.1,
+                        type = "header",
+                        name = T("Window Behaviour"),
+                    },
+
+                    frameBehaviourNote = {
+                        order = 2.11,
+                        type = "description",
+                        name = T("These use only the chat window's own API, so they keep working on Midnight (12.0+) even when message filtering is switched off."),
+                    },
+
+                    scrollbackLines = {
+                        order = 2.12,
+                        name = T("Scrollback Depth"),
+                        desc = T("How many lines each chat window keeps. The game keeps 128, which is usually why scrollback runs out during a busy fight.\n\nChanging this clears the affected window once, because the game reallocates the buffer."),
+                        type = "select",
+                        width = "double",
+                        values = function()
+                            return {
+                                [0] = T("Game default"),
+                                [256] = "256",
+                                [500] = "500",
+                                [1000] = "1000",
+                                [2500] = "2500",
+                                [5000] = T("5000 (uses more memory)"),
+                            }
+                        end,
+                        set = function(info, val) self.db.profile.scrollbackLines = tonumber(val) or 0; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.scrollbackLines or 0 end,
+                    },
+
+                    disableChatFade = {
+                        order = 2.13,
+                        name = T("Never Fade Messages"),
+                        desc = T("Keeps messages on screen instead of fading them out after a while."),
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.disableChatFade = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.disableChatFade end,
+                    },
+
+                    chatFadeTime = {
+                        order = 2.14,
+                        name = T("Fade After (seconds)"),
+                        desc = T("How long a message stays fully visible before it fades."),
+                        type = "range",
+                        min = 5, max = 600, step = 5, bigStep = 15,
+                        disabled = function() return self.db.profile.disableChatFade end,
+                        set = function(info, val) self.db.profile.chatFadeTime = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.chatFadeTime or 120 end,
+                    },
+
+                    scrollLinesPerNotch = {
+                        order = 2.15,
+                        name = T("Scroll Speed (lines per notch)"),
+                        desc = T("Lines moved per mouse wheel notch. Shift still jumps to the top or bottom, and Ctrl scrolls a full page."),
+                        type = "range",
+                        min = 1, max = 10, step = 1,
+                        disabled = function() return self.db.profile.enableScrollTweaks == false end,
+                        set = function(info, val) self.db.profile.scrollLinesPerNotch = val end,
+                        get = function(info) return self.db.profile.scrollLinesPerNotch or 3 end,
+                    },
+
+                    enableScrollTweaks = {
+                        order = 2.16,
+                        name = T("Custom Scroll Speed"),
+                        desc = T("Turn off to leave mouse wheel scrolling entirely to the game. Automatically inactive while a chat replacement addon such as ElvUI is loaded."),
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.enableScrollTweaks = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.enableScrollTweaks ~= false end,
+                    },
+
+                    lineSpacing = {
+                        order = 2.17,
+                        name = T("Line Spacing"),
+                        desc = T("Extra pixels between lines."),
+                        type = "range",
+                        min = 0, max = 10, step = 1,
+                        set = function(info, val) self.db.profile.lineSpacing = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.lineSpacing or 0 end,
+                    },
+
+                    indentWrappedLines = {
+                        order = 2.18,
+                        name = T("Indent Wrapped Lines"),
+                        desc = T("Indents the continuation of a long message so it lines up under the first line instead of starting at the left edge."),
+                        type = "toggle",
+                        hidden = function()
+                            local frame = _G.ChatFrame1
+                            return not (frame and type(frame.SetIndentedWordWrap) == "function")
+                        end,
+                        set = function(info, val) self.db.profile.indentWrappedLines = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.indentWrappedLines end,
+                    },
+
+                    hideBlizzardChatButtons = {
+                        order = 2.19,
+                        name = T("Hide Game Chat Buttons"),
+                        desc = T("Hides the chat menu button and the Quick Join notification button."),
+                        type = "toggle",
+                        set = function(info, val) self.db.profile.hideBlizzardChatButtons = val; ns.ApplyVisuals() end,
+                        get = function(info) return self.db.profile.hideBlizzardChatButtons end,
+                    },
+
+                    appearanceHeader = {
+                        order = 2.2,
+                        type = "header",
+                        name = T("Appearance"),
+                    },
+
                     fontID = {
                         order = 3,
                         name = "Chat Font",

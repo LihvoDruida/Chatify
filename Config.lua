@@ -369,6 +369,26 @@ ns.defaults = {
         chatTabsTemplate = "RAID", -- PM, GUILD або RAID
 
         -- === FORMATTING ===
+        -- Frame behaviour.
+        --
+        -- Everything in this group is pure ScrollingMessageFrame API - no chat
+        -- message filter, no GlobalStrings, nothing on Blizzard's chat dispatch -
+        -- so it is taint-free and keeps working on 12.0+ where the text-mutating
+        -- features have to stand down. Compare Prat's Scroll, Fading, Paragraph
+        -- and OriginalButtons modules, which take the same approach.
+        --
+        -- scrollbackLines: Blizzard keeps only 128 lines per window, which is the
+        -- real reason scrollback runs out mid-fight. 0 leaves the client's value
+        -- alone. Changing it clears the affected window once, because SetMaxLines
+        -- reallocates the frame's buffer.
+        scrollbackLines = 500,
+        disableChatFade = false,
+        chatFadeTime = 120,
+        lineSpacing = 0,
+        indentWrappedLines = false,
+        enableScrollTweaks = true,
+        scrollLinesPerNotch = 3,
+        hideBlizzardChatButtons = false,
         shortChannels = true,       -- [Party] -> [P]
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
