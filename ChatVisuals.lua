@@ -475,7 +475,7 @@ local channelLabelSignature
 
 local function BuildChannelLabelMap(db)
     local signature = tostring(db.shortChannels and 1 or 0)
-    local labels, numbered = db.channelLabels, db.channelLabelsNumbered
+    local labels, named = db.channelLabels, db.channelLabelsNamed
 
     if type(labels) == "table" then
         for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
@@ -485,8 +485,8 @@ local function BuildChannelLabelMap(db)
             end
         end
     end
-    if type(numbered) == "table" then
-        for key, value in pairs(numbered) do
+    if type(named) == "table" then
+        for key, value in pairs(named) do
             if type(value) == "string" and value ~= "" then
                 signature = signature .. "|#" .. tostring(key) .. "=" .. value
             end
@@ -497,7 +497,7 @@ local function BuildChannelLabelMap(db)
         return channelLabelCache
     end
 
-    local map = { byToken = {}, byNumber = {}, active = false }
+    local map = { byToken = {}, byName = {}, shortNumbered = false, active = false }
 
     for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
         local custom = type(labels) == "table" and labels[entry.token] or nil
@@ -510,19 +510,49 @@ local function BuildChannelLabelMap(db)
         end
     end
 
-    if type(numbered) == "table" then
-        for key, value in pairs(numbered) do
-            local index = tonumber(key)
-            if index and type(value) == "string" and value ~= "" then
-                map.byNumber[index] = value
+    if type(named) == "table" then
+        for key, value in pairs(named) do
+            if type(value) == "string" and value ~= "" then
+                map.byName[key] = value
                 map.active = true
             end
         end
     end
 
+    -- With no custom label, a numbered channel shortens to its number alone:
+    -- [1. General] becomes [1]. Same convention Prat uses, and the only
+    -- abbreviation that is correct in every locale without a name table.
+    if db.shortChannels then
+        map.shortNumbered = true
+        map.active = true
+    end
+
     channelLabelCache = map
     channelLabelSignature = signature
     return map
+end
+
+-- Resolves the numbered channel in a rendered line to a stable name key.
+--
+-- The authoritative source is GetChannelList, keyed by the id in the hyperlink.
+-- When that misses - the channel was left, or the list has not refreshed yet -
+-- the visible label is parsed instead ("1. General - Elwynn Forest"), which needs
+-- no API at all and is what keeps labels working during zone transitions.
+local function ResolveNumberedChannelKey(id, label)
+    local _, byId = ns.GetJoinedChannels()
+    local entry = byId and byId[tonumber(id) or -1]
+    if entry and entry.key then
+        return entry.key
+    end
+
+    if type(label) == "string" then
+        local name = label:match("^%s*%d+%.%s*(.+)$")
+        if name then
+            return ns.ChannelNameKey(name)
+        end
+    end
+
+    return nil
 end
 
 -- Pure string transform. Takes and returns a plain string; no globals are touched
@@ -563,7 +593,14 @@ function ns.ApplyChannelLabels(text)
         -- Numbered channels: |Hchannel:CHANNEL:1|h[1. General]|h
         value = value:gsub("(|Hchannel:[Cc][Hh][Aa][Nn][Nn][Ee][Ll]:)(%d+)(|h%[)(.-)(%]|h)",
             function(open, index, mid, label, close)
-                local replacement = map.byNumber[tonumber(index)]
+                local replacement
+                local key = ResolveNumberedChannelKey(index, label)
+                if key then
+                    replacement = map.byName[key]
+                end
+                if not replacement and map.shortNumbered then
+                    replacement = index
+                end
                 if not replacement then
                     return nil
                 end
@@ -1011,11 +1048,19 @@ function VisualsModule:OnEnable()
         ns.RegisterEventIfSupported(self, "PLAYER_ENTERING_WORLD", "ApplyStyle")
         ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", "ApplyStyle")
         ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+        -- Channel numbers and membership change without any chat window change,
+        -- so the joined-channel cache needs its own triggers.
+        ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", "ChannelListChanged")
+        ns.RegisterEventIfSupported(self, "CHANNEL_COUNT_UPDATE", "ChannelListChanged")
+        ns.RegisterEventIfSupported(self, "CHAT_MSG_CHANNEL_NOTICE", "ChannelListChanged")
     else
         self:RegisterEvent("PLAYER_LOGIN")
         self:RegisterEvent("PLAYER_ENTERING_WORLD", "ApplyStyle")
         self:RegisterEvent("UPDATE_CHAT_WINDOWS", "ApplyStyle")
         self:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS", "ApplyStyle")
+        self:RegisterEvent("CHANNEL_UI_UPDATE", "ChannelListChanged")
+        self:RegisterEvent("CHANNEL_COUNT_UPDATE", "ChannelListChanged")
+        self:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE", "ChannelListChanged")
     end
 
     if type(FCF_OpenTemporaryWindow) == "function" then
@@ -1059,7 +1104,33 @@ function VisualsModule:OnEnable()
     ns.ApplyVisuals()
 end
 
+function VisualsModule:ChannelListChanged()
+    ns.InvalidateChannelListCache()
+    ns.InvalidateChannelLabelCache()
+
+    -- The options panel lists joined channels by name, so it has to be told the
+    -- list moved; without this a channel joined while the panel is open never
+    -- appears in it.
+    local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
+    if registry and type(registry.NotifyChange) == "function" then
+        pcall(registry.NotifyChange, registry, "Chatify")
+    end
+end
+
 function VisualsModule:PLAYER_LOGIN()
+    -- Deferred, not run at OnEnable: GetChannelList is empty until the channels
+    -- are actually joined, and a number that resolves to nothing is dropped.
+    if type(ns.SafeAfter) == "function" then
+        ns.SafeAfter(5, function()
+            local db = GetVisualDB()
+            if db then
+                ns.InvalidateChannelListCache()
+                ns.MigrateChannelLabels(db)
+                ns.InvalidateChannelLabelCache()
+            end
+        end)
+    end
+
     QueueApplyVisuals(0)
     if type(ns.SafeAfter) == "function" then
         ns.SafeAfter(1, function() ns.ApplyVisuals() end)

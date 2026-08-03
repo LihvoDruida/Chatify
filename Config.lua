@@ -111,6 +111,114 @@ AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Legacy", ADDON_FONT_ROOT .. "Exo2.ttf", 
 })
 
 -- Список форматів часу
+-- Joined channel discovery.
+--
+-- GetChannelList returns a flat id, name, disabled triplet run and exists on
+-- every flavour. The name it hands back for zone channels carries a suffix
+-- ("General - Elwynn Forest"), which has to come off before the name can be used
+-- as a stable key - otherwise a label set in Elwynn would not apply in Durotar.
+--
+-- Cached, because the options panel asks for this on every redraw. Invalidated by
+-- ns.InvalidateChannelListCache, wired to the channel events in ChatVisuals.
+local joinedChannelCache
+local joinedChannelById
+
+function ns.NormalizeChannelName(name)
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+
+    -- Strip the zone suffix. Blizzard's separator is " - " in every locale that
+    -- uses one; a name with no separator is returned unchanged.
+    local base = name:match("^(.-)%s+%-%s+.+$") or name
+    base = base:gsub("^%s+", ""):gsub("%s+$", "")
+    if base == "" then
+        return nil
+    end
+
+    return base
+end
+
+function ns.ChannelNameKey(name)
+    local base = ns.NormalizeChannelName(name)
+    if not base then
+        return nil
+    end
+    -- Upper-cased and stripped of spaces and punctuation so "LookingForGroup",
+    -- "Looking For Group" and "lookingforgroup" all resolve to one key.
+    return (base:upper():gsub("[%s%p]", ""))
+end
+
+function ns.GetJoinedChannels()
+    if joinedChannelCache then
+        return joinedChannelCache, joinedChannelById
+    end
+
+    local list, byId = {}, {}
+
+    if type(GetChannelList) == "function" then
+        local ok, results = pcall(function()
+            return { GetChannelList() }
+        end)
+
+        if ok and type(results) == "table" then
+            for i = 1, #results, 3 do
+                local id = tonumber(results[i])
+                local name = results[i + 1]
+                if id and type(name) == "string" and name ~= "" then
+                    local base = ns.NormalizeChannelName(name) or name
+                    local entry = {
+                        id = id,
+                        name = base,
+                        fullName = name,
+                        key = ns.ChannelNameKey(name),
+                    }
+                    list[#list + 1] = entry
+                    byId[id] = entry
+                end
+            end
+        end
+    end
+
+    joinedChannelCache = list
+    joinedChannelById = byId
+    return list, byId
+end
+
+function ns.InvalidateChannelListCache()
+    joinedChannelCache = nil
+    joinedChannelById = nil
+end
+
+-- One-time move of labels that were keyed by number in 0.11.26. A number can only
+-- be resolved to a name while that channel is joined, so anything that cannot be
+-- matched is dropped rather than guessed at.
+function ns.MigrateChannelLabels(db)
+    if type(db) ~= "table" then
+        return
+    end
+
+    local numbered = db.channelLabelsNumbered
+    if type(numbered) ~= "table" or not next(numbered) then
+        return
+    end
+
+    db.channelLabelsNamed = db.channelLabelsNamed or {}
+
+    local _, byId = ns.GetJoinedChannels()
+    for key, value in pairs(numbered) do
+        local id = tonumber(key)
+        local entry = id and byId and byId[id]
+        if entry and entry.key and type(value) == "string" and value ~= "" then
+            if db.channelLabelsNamed[entry.key] == nil then
+                db.channelLabelsNamed[entry.key] = value
+            end
+        end
+    end
+
+    db.channelLabelsNumbered = {}
+end
+
 -- Channel label tokens.
 --
 -- `token` is what appears inside the chat hyperlink, which is locale-independent
@@ -414,6 +522,16 @@ ns.defaults = {
         -- (channelLabelsNumbered["1"] = "Gen"). Empty or absent means "leave the
         -- game's label alone"; shortChannels supplies the fallback.
         channelLabels = {},
+
+        -- Numbered channels are keyed by NAME, not by the number shown in chat.
+        -- The number is just the join order and changes when you leave a channel
+        -- or move between zones, so a label pinned to "3" would follow whatever
+        -- happened to land in slot 3. Keys are the uppercased base name with any
+        -- " - Zone" suffix removed, e.g. GENERAL, TRADE, LOOKINGFORGROUP.
+        channelLabelsNamed = {},
+
+        -- Legacy, kept only so ns.MigrateChannelLabels can move existing entries
+        -- across on first load. Not read anywhere else.
         channelLabelsNumbered = {},
         shortChannels = true,       -- [Party] -> [P]
         urlColor = "0099FF",        -- Колір посилань

@@ -492,97 +492,6 @@ function Chatify:GetOptions()
                                 set = function(info, val) self.db.profile.indentWrappedLines = val; ns.ApplyVisuals() end,
                                 get = function(info) return self.db.profile.indentWrappedLines end,
                             },
-                            channelLabels = {
-                                order = 4.5,
-                                name = T("Channel Labels"),
-                                desc = T("Rename the bracketed channel tag in front of each message. Leave a field empty to use the game's own label, or the short form when \"Shorten Channel Names\" is on."),
-                                type = "group",
-                                inline = false,
-                                args = (function()
-                                    local args = {
-                                        labelNote = {
-                                            order = 1,
-                                            type = "description",
-                                            name = T("Numbered channels are matched by their number, so a label set for 1 follows General wherever it sits in your list."),
-                                        },
-                                    }
-
-                                    -- Built from the shared token list rather than
-                                    -- written out per channel, so adding a channel
-                                    -- in Config.lua is enough to expose it here.
-                                    for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
-                                        args["label_" .. entry.token] = {
-                                            order = 10 + index,
-                                            type = "input",
-                                            width = "half",
-                                            name = T(entry.name),
-                                            desc = function()
-                                                return T("Default:") .. " " .. entry.short
-                                            end,
-                                            validate = function(info, val)
-                                                if type(val) == "string" and #val > 12 then
-                                                    return T("Keep labels to 12 characters or fewer.")
-                                                end
-                                                return true
-                                            end,
-                                            set = function(info, val)
-                                                local profile = self.db.profile
-                                                profile.channelLabels = profile.channelLabels or {}
-                                                val = tostring(val or ""):gsub("^%s+", ""):gsub("%s+$", "")
-                                                profile.channelLabels[entry.token] = (val ~= "") and val or nil
-                                                ns.ApplyVisuals()
-                                            end,
-                                            get = function(info)
-                                                local labels = self.db.profile.channelLabels
-                                                return labels and labels[entry.token] or ""
-                                            end,
-                                        }
-                                    end
-
-                                    for number = 1, 10 do
-                                        args["labelNum_" .. number] = {
-                                            order = 40 + number,
-                                            type = "input",
-                                            width = "half",
-                                            name = T("Channel") .. " " .. number,
-                                            set = function(info, val)
-                                                local profile = self.db.profile
-                                                profile.channelLabelsNumbered = profile.channelLabelsNumbered or {}
-                                                val = tostring(val or ""):gsub("^%s+", ""):gsub("%s+$", "")
-                                                profile.channelLabelsNumbered[tostring(number)] = (val ~= "") and val or nil
-                                                ns.ApplyVisuals()
-                                            end,
-                                            get = function(info)
-                                                local labels = self.db.profile.channelLabelsNumbered
-                                                return labels and labels[tostring(number)] or ""
-                                            end,
-                                        }
-                                    end
-
-                                    args.clearLabels = {
-                                        order = 90,
-                                        type = "execute",
-                                        name = T("Clear All Labels"),
-                                        func = function()
-                                            self.db.profile.channelLabels = {}
-                                            self.db.profile.channelLabelsNumbered = {}
-                                            ns.ApplyVisuals()
-                                        end,
-                                    }
-
-                                    return args
-                                end)(),
-                            },
-
-                            shortChannels = {
-                                order = 4,
-                                name = T("Shorten Channel Names"),
-                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\nSet your own text under Channel Labels to override any of these."),
-                                type = "toggle",
-                                width = "full", 
-                                set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
-                                get = function(info) return self.db.profile.shortChannels end,
-                            },
                             urlColor = {
                                 order = 5,
                                 name = T("Link Colour"),
@@ -932,7 +841,232 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- TAB 2: SOUNDS
+            -- TAB 2: CHANNELS
+            tabChannels = {
+                name = T("Channels"),
+                type = "group",
+                order = 15,
+                args = {
+                    groupChannelShorten = {
+                        name = T("Shorten Channel Names"),
+                        type = "group",
+                        inline = true,
+                        order = 1,
+                        args = {
+                            shortChannels = {
+                                order = 1,
+                                name = T("Shorten Channel Names"),
+                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r, and |cffaaaaaa[1. General]|r becomes |cffaaaaaa[1]|r.\n\nAny label you set below overrides the short form."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.shortChannels end,
+                            },
+                        },
+                    },
+
+                    groupChannelBuiltin = {
+                        name = T("Built-in Channels"),
+                        type = "group",
+                        inline = true,
+                        order = 2,
+                        args = (function()
+                            local args = {
+                                builtinNote = {
+                                    order = 1,
+                                    type = "description",
+                                    name = T("Leave a field empty to use the game's own label, or the short form when shortening is on."),
+                                },
+                            }
+
+                            -- Generated from the shared token list, so adding a
+                            -- channel in Config.lua is enough to expose it here.
+                            for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
+                                args["label_" .. entry.token] = {
+                                    order = 10 + index,
+                                    type = "input",
+                                    width = "normal",
+                                    name = T(entry.name),
+                                    desc = function()
+                                        return T("Short form:") .. " " .. entry.short
+                                    end,
+                                    validate = function(info, val)
+                                        if type(val) == "string" and #val > 12 then
+                                            return T("Keep labels to 12 characters or fewer.")
+                                        end
+                                        return true
+                                    end,
+                                    set = function(info, val)
+                                        local profile = self.db.profile
+                                        profile.channelLabels = profile.channelLabels or {}
+                                        val = TrimInput(val)
+                                        profile.channelLabels[entry.token] = (val ~= "") and val or nil
+                                        ns.ApplyVisuals()
+                                    end,
+                                    get = function(info)
+                                        local labels = self.db.profile.channelLabels
+                                        return labels and labels[entry.token] or ""
+                                    end,
+                                }
+                            end
+
+                            return args
+                        end)(),
+                    },
+
+                    groupChannelJoined = {
+                        name = T("Numbered Channels"),
+                        type = "group",
+                        inline = true,
+                        order = 3,
+                        args = (function()
+                            local joined = (type(ns.GetJoinedChannels) == "function")
+                                and ns.GetJoinedChannels() or {}
+
+                            local args = {
+                                joinedNote = {
+                                    order = 1,
+                                    type = "description",
+                                    name = T("Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone."),
+                                },
+                            }
+
+                            if #joined == 0 then
+                                args.joinedEmpty = {
+                                    order = 2,
+                                    type = "description",
+                                    name = T("|cff999999No numbered channels joined yet. This list fills in once you are in one.|r"),
+                                }
+                                return args
+                            end
+
+                            for index, entry in ipairs(joined) do
+                                local key = entry.key
+                                if key then
+                                    args["joined_" .. key] = {
+                                        order = 10 + index,
+                                        type = "input",
+                                        width = "normal",
+                                        -- The number is shown for orientation only;
+                                        -- the name is what the label is stored under.
+                                        name = entry.id .. ". " .. entry.name,
+                                        validate = function(info, val)
+                                            if type(val) == "string" and #val > 12 then
+                                                return T("Keep labels to 12 characters or fewer.")
+                                            end
+                                            return true
+                                        end,
+                                        set = function(info, val)
+                                            local profile = self.db.profile
+                                            profile.channelLabelsNamed = profile.channelLabelsNamed or {}
+                                            val = TrimInput(val)
+                                            profile.channelLabelsNamed[key] = (val ~= "") and val or nil
+                                            ns.ApplyVisuals()
+                                        end,
+                                        get = function(info)
+                                            local labels = self.db.profile.channelLabelsNamed
+                                            return labels and labels[key] or ""
+                                        end,
+                                    }
+                                end
+                            end
+
+                            return args
+                        end)(),
+                    },
+
+                    groupChannelSaved = {
+                        name = T("Saved Labels"),
+                        type = "group",
+                        inline = true,
+                        order = 4,
+                        hidden = function()
+                            local named = self.db.profile.channelLabelsNamed
+                            if type(named) ~= "table" then return true end
+                            -- Only worth showing when a label exists for a channel
+                            -- that is not currently joined, since anything joined
+                            -- already has a field above.
+                            local joined = (type(ns.GetJoinedChannels) == "function")
+                                and ns.GetJoinedChannels() or {}
+                            local present = {}
+                            for _, entry in ipairs(joined) do
+                                if entry.key then present[entry.key] = true end
+                            end
+                            for key, value in pairs(named) do
+                                if type(value) == "string" and value ~= "" and not present[key] then
+                                    return false
+                                end
+                            end
+                            return true
+                        end,
+                        args = {
+                            savedList = {
+                                order = 1,
+                                type = "description",
+                                name = function()
+                                    local named = self.db.profile.channelLabelsNamed or {}
+                                    local joined = (type(ns.GetJoinedChannels) == "function")
+                                        and ns.GetJoinedChannels() or {}
+                                    local present = {}
+                                    for _, entry in ipairs(joined) do
+                                        if entry.key then present[entry.key] = true end
+                                    end
+
+                                    local rows = {}
+                                    for key, value in pairs(named) do
+                                        if type(value) == "string" and value ~= "" and not present[key] then
+                                            rows[#rows + 1] = "|cff999999" .. key .. "|r  ->  " .. value
+                                        end
+                                    end
+                                    table.sort(rows)
+
+                                    if #rows == 0 then
+                                        return ""
+                                    end
+
+                                    return T("Kept for channels you are not currently in:")
+                                        .. "\n" .. table.concat(rows, "\n")
+                                end,
+                            },
+                            clearUnused = {
+                                order = 2,
+                                type = "execute",
+                                name = T("Forget These"),
+                                func = function()
+                                    local named = self.db.profile.channelLabelsNamed or {}
+                                    local joined = (type(ns.GetJoinedChannels) == "function")
+                                        and ns.GetJoinedChannels() or {}
+                                    local present = {}
+                                    for _, entry in ipairs(joined) do
+                                        if entry.key then present[entry.key] = true end
+                                    end
+                                    for key in pairs(named) do
+                                        if not present[key] then
+                                            named[key] = nil
+                                        end
+                                    end
+                                    ns.ApplyVisuals()
+                                end,
+                            },
+                        },
+                    },
+
+                    clearLabels = {
+                        order = 90,
+                        type = "execute",
+                        name = T("Clear All Labels"),
+                        confirm = true,
+                        confirmText = T("Remove every custom channel label?"),
+                        func = function()
+                            self.db.profile.channelLabels = {}
+                            self.db.profile.channelLabelsNamed = {}
+                            ns.ApplyVisuals()
+                        end,
+                    },
+                },
+            },
+
+            -- TAB 3: SOUNDS
             tabSounds = {
                 name = T("Sounds"),
                 type = "group",
@@ -1841,7 +1975,18 @@ function Chatify:OnInitialize()
     -- loading or refreshing chat.
     local aceConfig = LibStub("AceConfig-3.0", true)
     if aceConfig and type(aceConfig.RegisterOptionsTable) == "function" then
-        pcall(aceConfig.RegisterOptionsTable, aceConfig, "Chatify", self:GetOptions())
+        -- Registered as a function rather than a built table. The Channels tab
+        -- lists the channels you are actually in, and that list changes at
+        -- runtime; a table built once at load would show whatever was joined
+        -- during login and never update.
+        pcall(aceConfig.RegisterOptionsTable, aceConfig, "Chatify", function()
+            local ok, options = pcall(self.GetOptions, self)
+            if ok and type(options) == "table" then
+                return options
+            end
+            -- Never let a build error take the whole options panel away.
+            return { name = "Chatify", type = "group", args = {} }
+        end)
     end
 
     if ACD and type(ACD.AddToBlizOptions) == "function" then
