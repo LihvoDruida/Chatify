@@ -185,6 +185,102 @@ function ns.GetJoinedChannels()
     return list, byId
 end
 
+-- Records the readable name for every joined channel, so labels stay identifiable
+-- in the options panel after you leave the channel. Cheap and idempotent; called
+-- from the options build and from the label refresh.
+function ns.RememberChannelNames(db)
+    if type(db) ~= "table" then
+        return
+    end
+
+    local joined = ns.GetJoinedChannels()
+    if #joined == 0 then
+        return
+    end
+
+    db.channelLabelNames = db.channelLabelNames or {}
+    for _, entry in ipairs(joined) do
+        if entry.key and entry.name then
+            db.channelLabelNames[entry.key] = entry.name
+        end
+    end
+end
+
+-- Resolves a key back to something a person recognises. Falls back to the key
+-- itself, which is at least the channel name upper-cased.
+function ns.GetChannelDisplayName(db, key)
+    if type(key) ~= "string" or key == "" then
+        return ""
+    end
+
+    local _, byId = ns.GetJoinedChannels()
+    if byId then
+        for _, entry in pairs(byId) do
+            if entry.key == key then
+                return entry.name
+            end
+        end
+    end
+
+    local names = type(db) == "table" and db.channelLabelNames
+    if type(names) == "table" and type(names[key]) == "string" and names[key] ~= "" then
+        return names[key]
+    end
+
+    return key
+end
+
+-- Every key that has a label or a remembered name, joined or not, merged with the
+-- currently joined list. This is what the options panel iterates, so a channel
+-- created by hand with /join keeps its row after you leave it.
+function ns.GetKnownChannelKeys(db)
+    local seen, list = {}, {}
+
+    for _, entry in ipairs(ns.GetJoinedChannels()) do
+        if entry.key and not seen[entry.key] then
+            seen[entry.key] = true
+            list[#list + 1] = {
+                key = entry.key,
+                name = entry.name,
+                id = entry.id,
+                joined = true,
+            }
+        end
+    end
+
+    if type(db) == "table" then
+        for _, source in ipairs({ db.channelLabelsNamed, db.channelLabelNames }) do
+            if type(source) == "table" then
+                for key, value in pairs(source) do
+                    if type(key) == "string" and key ~= "" and not seen[key]
+                        and type(value) == "string" and value ~= "" then
+                        seen[key] = true
+                        list[#list + 1] = {
+                            key = key,
+                            name = ns.GetChannelDisplayName(db, key),
+                            joined = false,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(list, function(a, b)
+        -- Joined channels first, in their in-game order; everything else after,
+        -- alphabetically, so the list does not reshuffle between openings.
+        if a.joined ~= b.joined then
+            return a.joined
+        end
+        if a.joined and b.joined then
+            return (a.id or 0) < (b.id or 0)
+        end
+        return tostring(a.name) < tostring(b.name)
+    end)
+
+    return list
+end
+
 function ns.InvalidateChannelListCache()
     joinedChannelCache = nil
     joinedChannelById = nil
@@ -217,6 +313,7 @@ function ns.MigrateChannelLabels(db)
     end
 
     db.channelLabelsNumbered = {}
+    ns.RememberChannelNames(db)
 end
 
 -- Channel label tokens.
@@ -225,17 +322,40 @@ end
 -- and identical on every flavour - that is why the rewrite matches on it rather
 -- than on the visible label. `short` is the built-in abbreviation used when
 -- "Shorten Channel Names" is on and no custom label is set.
+-- `global` is the GlobalString holding the label the game itself shows, which is
+-- what the options panel pre-fills the field with. Reading it beats hardcoding an
+-- English name: on a French client the Party field should read "Groupe", and the
+-- fallback `name` is only used where the global is missing.
 ns.Lists.ChannelLabels = {
-    { token = "GUILD",           short = "G",   name = "Guild" },
-    { token = "OFFICER",         short = "O",   name = "Officer" },
-    { token = "PARTY",           short = "P",   name = "Party" },
-    { token = "PARTY_LEADER",    short = "PL",  name = "Party Leader" },
-    { token = "RAID",            short = "R",   name = "Raid" },
-    { token = "RAID_LEADER",     short = "RL",  name = "Raid Leader" },
-    { token = "RAID_WARNING",    short = "RW",  name = "Raid Warning" },
-    { token = "INSTANCE",        short = "I",   name = "Instance" },
-    { token = "INSTANCE_LEADER", short = "IL",  name = "Instance Leader" },
+    { token = "GUILD",           short = "G",   name = "Guild",           global = "GUILD" },
+    { token = "OFFICER",         short = "O",   name = "Officer",         global = "OFFICER" },
+    { token = "PARTY",           short = "P",   name = "Party",           global = "PARTY" },
+    { token = "PARTY_LEADER",    short = "PL",  name = "Party Leader",    global = "PARTY_LEADER" },
+    { token = "RAID",            short = "R",   name = "Raid",            global = "RAID" },
+    { token = "RAID_LEADER",     short = "RL",  name = "Raid Leader",     global = "RAID_LEADER" },
+    { token = "RAID_WARNING",    short = "RW",  name = "Raid Warning",    global = "RAID_WARNING" },
+    { token = "INSTANCE",        short = "I",   name = "Instance",        global = "INSTANCE_CHAT" },
+    { token = "INSTANCE_LEADER", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER" },
 }
+
+-- The label the game would show for a built-in channel, used to pre-fill the
+-- options field so it displays the value in force rather than an empty box.
+function ns.GetBuiltinChannelDefault(entry, shortChannels)
+    if type(entry) ~= "table" then
+        return ""
+    end
+
+    if shortChannels then
+        return entry.short or entry.name or ""
+    end
+
+    local global = entry.global and _G[entry.global]
+    if type(global) == "string" and global ~= "" then
+        return global
+    end
+
+    return entry.name or ""
+end
 
 ns.Lists.TimeFormats = {
     [1] = { name = "None",                     format = nil },
@@ -529,6 +649,11 @@ ns.defaults = {
         -- happened to land in slot 3. Keys are the uppercased base name with any
         -- " - Zone" suffix removed, e.g. GENERAL, TRADE, LOOKINGFORGROUP.
         channelLabelsNamed = {},
+
+        -- Human-readable name per key in channelLabelsNamed, so a channel you are
+        -- not currently in can still be listed as "General" rather than GENERAL.
+        -- Written whenever a channel is seen joined, or typed in by hand.
+        channelLabelNames = {},
 
         -- Legacy, kept only so ns.MigrateChannelLabels can move existing entries
         -- across on first load. Not read anywhere else.

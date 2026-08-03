@@ -355,4 +355,13 @@ Locale:RegisterLocale("enUS", {
     ["Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone."] = "Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone.",
     ["|cff999999No numbered channels joined yet. This list fills in once you are in one.|r"] = "|cff999999No numbered channels joined yet. This list fills in once you are in one.|r",
     ["Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r, and |cffaaaaaa[1. General]|r becomes |cffaaaaaa[1]|r.\n\nAny label you set below overrides the short form."] = "Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r, and |cffaaaaaa[1. General]|r becomes |cffaaaaaa[1]|r.\n\nAny label you set below overrides the short form.",
+    ["Numbered and Custom Channels"] = "Numbered and Custom Channels",
+    ["Add a Channel by Name"] = "Add a Channel by Name",
+    ["For a channel you are not in right now. Type the channel name exactly as it appears in chat, without the number."] = "For a channel you are not in right now. Type the channel name exactly as it appears in chat, without the number.",
+    ["not joined"] = "not joined",
+    ["Forget Channels You Left"] = "Forget Channels You Left",
+    ["Removes the rows marked as not joined, along with their labels."] = "Removes the rows marked as not joined, along with their labels.",
+    ["Each field shows the label currently in use. Clear a field, or type the default back into it, to hand the channel back to the game."] = "Each field shows the label currently in use. Clear a field, or type the default back into it, to hand the channel back to the game.",
+    ["Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone. Channels you made yourself with /join work the same way."] = "Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone. Channels you made yourself with /join work the same way.",
+    ["|cff999999No numbered channels yet. This list fills in once you join one, or add it by name above.|r"] = "|cff999999No numbered channels yet. This list fills in once you join one, or add it by name above.|r",
 })

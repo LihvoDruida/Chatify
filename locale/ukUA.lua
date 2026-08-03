@@ -357,4 +357,13 @@ Locale:RegisterLocale("ukUA", {
     ["Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone."] = "Назви запам'ятовуються за іменем каналу, а не за номером перед ним, тож вони не губляться, коли номери змінюються після приєднання, виходу чи зміни зони.",
     ["|cff999999No numbered channels joined yet. This list fills in once you are in one.|r"] = "|cff999999Нумерованих каналів поки немає. Список заповниться, щойно ви приєднаєтесь до якогось.|r",
     ["Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r, and |cffaaaaaa[1. General]|r becomes |cffaaaaaa[1]|r.\n\nAny label you set below overrides the short form."] = "Компактні назви каналів для економії місця.\n\nПриклад:\n|cffaaaaaa[Party]|r стає |cffaaaaaa[P]|r, а |cffaaaaaa[1. General]|r стає |cffaaaaaa[1]|r.\n\nБудь-яка назва, задана нижче, має пріоритет над скороченням.",
+    ["Numbered and Custom Channels"] = "Нумеровані та власні канали",
+    ["Add a Channel by Name"] = "Додати канал за назвою",
+    ["For a channel you are not in right now. Type the channel name exactly as it appears in chat, without the number."] = "Для каналу, у якому вас зараз немає. Введіть назву каналу точно так, як вона виглядає в чаті, без номера.",
+    ["not joined"] = "не приєднано",
+    ["Forget Channels You Left"] = "Забути покинуті канали",
+    ["Removes the rows marked as not joined, along with their labels."] = "Прибирає рядки, позначені як «не приєднано», разом з їхніми назвами.",
+    ["Each field shows the label currently in use. Clear a field, or type the default back into it, to hand the channel back to the game."] = "Кожне поле показує назву, яка діє зараз. Очистіть поле або впишіть у нього типове значення, щоб повернути канал грі.",
+    ["Labels are remembered by channel name, not by the number in front of it, so they survive the numbers being reshuffled when you join, leave or change zone. Channels you made yourself with /join work the same way."] = "Назви запам'ятовуються за іменем каналу, а не за номером перед ним, тож вони не губляться, коли номери змінюються після приєднання, виходу чи зміни зони. Канали, створені вами через /join, працюють так само.",
+    ["|cff999999No numbered channels yet. This list fills in once you join one, or add it by name above.|r"] = "|cff999999Нумерованих каналів поки немає. Список заповниться, щойно ви приєднаєтесь до якогось або додасте його за назвою вище.|r",
 })
