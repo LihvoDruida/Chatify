@@ -539,6 +539,16 @@ local function PrepareOutput(text)
         end
     end
 
+    -- Channel labels. In virtual mode the router owns AddMessage, so ChatVisuals
+    -- deliberately does not install its own hook and hands the work over here
+    -- instead; doing it in both would rewrite the label twice.
+    if type(ns.ApplyChannelLabels) == "function" then
+        local ok, labelled = pcall(ns.ApplyChannelLabels, safeText)
+        if ok and type(labelled) == "string" then
+            safeText = labelled
+        end
+    end
+
     return ApplyTimestamp(safeText), safeText
 end
 
@@ -561,6 +571,15 @@ local function HandleRetailRestrictedAddMessage(frame, text, ...)
             end
         elseif safeText then
             output = safeText
+        end
+
+        -- SafeString already rejected secret values, so this only ever sees text
+        -- that is safe to read.
+        if safeText and type(ns.ApplyChannelLabels) == "function" then
+            local okLabels, labelled = pcall(ns.ApplyChannelLabels, output)
+            if okLabels and type(labelled) == "string" then
+                output = labelled
+            end
         end
     end
 
@@ -688,6 +707,15 @@ function Router:ApplyToAllFrames()
                 HookFrame(frame)
             end
         end
+    end
+
+    -- Whoever runs last wins on frame.AddMessage, and this function both installs
+    -- and restores it. Re-asserting the channel label hook here makes the outcome
+    -- independent of the order ApplyVisuals and this function happen to be called
+    -- in: it installs when the router is not driving the frame, removes itself
+    -- when it is.
+    if type(ns.RefreshChannelLabelHook) == "function" then
+        pcall(ns.RefreshChannelLabelHook)
     end
 end
 

@@ -232,6 +232,58 @@ local function ColorName(name)
     return "|c" .. GetNameColor(name) .. name .. "|r"
 end
 
+-- Leading-timestamp extraction.
+--
+-- ReadMessageHistory pulls fully rendered lines out of the chat frame via
+-- GetMessageInfo, so whatever timestamp is visible in chat is already part of the
+-- text. BuildEntry then prefixed its own [HH:MM:SS], which is where the doubled
+-- timestamps in the copy window came from. It became visible to everyone on 12.0+
+-- because Chatify now drives Blizzard's own showTimestamps CVar there, so a
+-- timestamp is present even when Chatify's filter never ran.
+--
+-- The leading stamp is therefore parsed off and reused as the entry's time, which
+-- also fixes a quieter bug: with no timestamp argument the entry fell back to
+-- time(), stamping every copied line with the moment the window was opened rather
+-- than when the message arrived.
+--
+-- Patterns are anchored and deliberately narrow. Anything that does not look like
+-- a clock is left alone - mangling a real message is far worse than showing one
+-- redundant timestamp.
+local timestampStripPatterns = {
+    -- Chatify's own: [12:30], [12:30:45], [12:30 PM], [08.02 12:30]
+    "^%[%s*%d%d?%.%d%d?%s+%d%d?:%d%d%s*%]%s*",
+    "^%[%s*%d%d?:%d%d:%d%d%s*[AaPp]?%.?[Mm]?%.?%s*%]%s*",
+    "^%[%s*%d%d?:%d%d%s*[AaPp]?%.?[Mm]?%.?%s*%]%s*",
+    -- Blizzard's showTimestamps CVar renders without brackets.
+    "^%d%d?:%d%d:%d%d%s+[AaPp]%.?[Mm]%.?%s+",
+    "^%d%d?:%d%d%s+[AaPp]%.?[Mm]%.?%s+",
+    "^%d%d?:%d%d:%d%d%s+",
+    "^%d%d?:%d%d%s+",
+}
+
+-- Returns the text with any leading timestamp removed, plus the stamp itself.
+local function SplitLeadingTimestamp(text)
+    if type(text) ~= "string" or text == "" then
+        return text, nil
+    end
+
+    for i = 1, #timestampStripPatterns do
+        local ok, stamp = pcall(string.match, text, timestampStripPatterns[i])
+        if ok and stamp then
+            local okRest, rest = pcall(string.gsub, text, timestampStripPatterns[i], "", 1)
+            if okRest and type(rest) == "string" and rest ~= "" then
+                -- Normalise to the copy window's own HH:MM:SS column width by
+                -- keeping the stamp as written; padding it out would invent
+                -- seconds the original line never had.
+                stamp = stamp:gsub("^%s*%[?%s*", ""):gsub("%s*%]?%s*$", "")
+                return rest, (stamp ~= "" and stamp or nil)
+            end
+        end
+    end
+
+    return text, nil
+end
+
 local function BuildProtectedEntry(label, timestamp)
     local fallback = L("Protected chat line omitted.")
     local safeLabel = StripChatMarkup(label) or fallback
@@ -252,8 +304,27 @@ local function BuildEntry(text, author, timestamp)
         return nil
     end
 
+    -- Strip before the author is derived, so a leading stamp cannot be mistaken
+    -- for the sender by ExtractAuthorFromText.
+    local embeddedTime
+    cleanText, embeddedTime = SplitLeadingTimestamp(cleanText)
+    if not IsNonEmptyString(cleanText) then
+        return nil
+    end
+
     local cleanAuthor = NormalizeName(rawAuthor) or ExtractAuthorFromText(rawPayload) or ExtractAuthorFromText(cleanText)
-    local timeText = date("%H:%M:%S", tonumber(timestamp) or time())
+
+    -- Precedence: an explicit timestamp argument (the live filter path knows
+    -- exactly when the message arrived), then the stamp already in the line, then
+    -- the clock as a last resort.
+    local timeText
+    if tonumber(timestamp) then
+        timeText = date("%H:%M:%S", tonumber(timestamp))
+    elseif embeddedTime then
+        timeText = embeddedTime
+    else
+        timeText = date("%H:%M:%S", time())
+    end
 
     return {
         text = cleanText,

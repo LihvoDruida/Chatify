@@ -111,6 +111,24 @@ AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Legacy", ADDON_FONT_ROOT .. "Exo2.ttf", 
 })
 
 -- Список форматів часу
+-- Channel label tokens.
+--
+-- `token` is what appears inside the chat hyperlink, which is locale-independent
+-- and identical on every flavour - that is why the rewrite matches on it rather
+-- than on the visible label. `short` is the built-in abbreviation used when
+-- "Shorten Channel Names" is on and no custom label is set.
+ns.Lists.ChannelLabels = {
+    { token = "GUILD",           short = "G",   name = "Guild" },
+    { token = "OFFICER",         short = "O",   name = "Officer" },
+    { token = "PARTY",           short = "P",   name = "Party" },
+    { token = "PARTY_LEADER",    short = "PL",  name = "Party Leader" },
+    { token = "RAID",            short = "R",   name = "Raid" },
+    { token = "RAID_LEADER",     short = "RL",  name = "Raid Leader" },
+    { token = "RAID_WARNING",    short = "RW",  name = "Raid Warning" },
+    { token = "INSTANCE",        short = "I",   name = "Instance" },
+    { token = "INSTANCE_LEADER", short = "IL",  name = "Instance Leader" },
+}
+
 ns.Lists.TimeFormats = {
     [1] = { name = "None",                     format = nil },
     [2] = { name = "HH:MM (12:30)",            format = "%H:%M" },
@@ -389,6 +407,14 @@ ns.defaults = {
         enableScrollTweaks = true,
         scrollLinesPerNotch = 3,
         hideBlizzardChatButtons = false,
+        -- Custom channel labels.
+        --
+        -- Keys are the channel tokens that appear inside the chat hyperlink
+        -- (|Hchannel:PARTY|h[Party]|h), plus a numeric key per numbered channel
+        -- (channelLabelsNumbered["1"] = "Gen"). Empty or absent means "leave the
+        -- game's label alone"; shortChannels supplies the fallback.
+        channelLabels = {},
+        channelLabelsNumbered = {},
         shortChannels = true,       -- [Party] -> [P]
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті

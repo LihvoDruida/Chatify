@@ -454,23 +454,236 @@ end
 -- =========================================================
 -- 3. CHANNEL SHORTENING
 -- =========================================================
-local ShortChannelMaps = {
-    CHAT_GUILD_GET              = "|Hchannel:GUILD|h[G]|h %s:\32",
-    CHAT_OFFICER_GET            = "|Hchannel:OFFICER|h[O]|h %s:\32",
-    CHAT_PARTY_GET              = "|Hchannel:PARTY|h[P]|h %s:\32",
-    CHAT_PARTY_LEADER_GET       = "|Hchannel:PARTY|h[PL]|h %s:\32",
-    CHAT_RAID_GET               = "|Hchannel:RAID|h[R]|h %s:\32",
-    CHAT_RAID_LEADER_GET        = "|Hchannel:RAID|h[RL]|h %s:\32",
-    CHAT_RAID_WARNING_GET       = "|Hchannel:RAID|h[RW]|h %s:\32",
-    CHAT_INSTANCE_CHAT_GET      = "|Hchannel:INSTANCE|h[I]|h %s:\32",
-    CHAT_INSTANCE_CHAT_LEADER_GET = "|Hchannel:INSTANCE|h[IL]|h %s:\32",
-    CHAT_WHISPER_GET            = "[W] %s:\32",
-    CHAT_WHISPER_INFORM_GET     = "[TO] %s:\32",
-    CHAT_BN_WHISPER_GET         = "[BW] %s:\32",
-    CHAT_BN_WHISPER_INFORM_GET  = "[BTO] %s:\32",
-}
+-- =========================================================
+-- 3b. CHANNEL LABELS (TAINT-FREE)
+-- =========================================================
+-- The old implementation overwrote Blizzard's CHAT_*_GET GlobalStrings. That is
+-- free per message, but it writes into the shared global environment, it collides
+-- with Prat and ElvUI doing the same, it cannot touch numbered channels
+-- ([1. General]) at all, and on 12.0+ it was disabled outright because those
+-- globals feed the secure chat handler - which is exactly why users on Retail
+-- reported "Shorten Channel Names" doing nothing.
+--
+-- This rewrites the label inside the rendered line instead, in Chatify's own
+-- AddMessage hook. The match is on the channel token inside the hyperlink
+-- (|Hchannel:PARTY|h[Party]|h), which is locale-independent and identical on
+-- every flavour, so one implementation now covers Classic and Retail alike and
+-- numbered channels come along for free.
 
-local OriginalChannelMaps = {}
+local channelLabelCache
+local channelLabelSignature
+
+local function BuildChannelLabelMap(db)
+    local signature = tostring(db.shortChannels and 1 or 0)
+    local labels, numbered = db.channelLabels, db.channelLabelsNumbered
+
+    if type(labels) == "table" then
+        for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
+            local custom = labels[entry.token]
+            if type(custom) == "string" and custom ~= "" then
+                signature = signature .. "|" .. entry.token .. "=" .. custom
+            end
+        end
+    end
+    if type(numbered) == "table" then
+        for key, value in pairs(numbered) do
+            if type(value) == "string" and value ~= "" then
+                signature = signature .. "|#" .. tostring(key) .. "=" .. value
+            end
+        end
+    end
+
+    if channelLabelSignature == signature and channelLabelCache then
+        return channelLabelCache
+    end
+
+    local map = { byToken = {}, byNumber = {}, active = false }
+
+    for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
+        local custom = type(labels) == "table" and labels[entry.token] or nil
+        if type(custom) == "string" and custom ~= "" then
+            map.byToken[entry.token] = custom
+            map.active = true
+        elseif db.shortChannels then
+            map.byToken[entry.token] = entry.short
+            map.active = true
+        end
+    end
+
+    if type(numbered) == "table" then
+        for key, value in pairs(numbered) do
+            local index = tonumber(key)
+            if index and type(value) == "string" and value ~= "" then
+                map.byNumber[index] = value
+                map.active = true
+            end
+        end
+    end
+
+    channelLabelCache = map
+    channelLabelSignature = signature
+    return map
+end
+
+-- Pure string transform. Takes and returns a plain string; no globals are touched
+-- and nothing is registered on Blizzard's chat dispatch, so it cannot taint.
+function ns.ApplyChannelLabels(text)
+    if type(text) ~= "string" then
+        return text
+    end
+
+    -- Cheapest possible rejection first: this runs once per rendered line.
+    if not text:find("|Hchannel:", 1, true) then
+        return text
+    end
+
+    local db = GetVisualDB()
+    if not db then
+        return text
+    end
+
+    local map = BuildChannelLabelMap(db)
+    if not map.active then
+        return text
+    end
+
+    local ok, result = pcall(function()
+        local value = text
+
+        -- Named channels: |Hchannel:PARTY|h[Party]|h
+        value = value:gsub("(|Hchannel:)([A-Za-z_]+)(|h%[)(.-)(%]|h)",
+            function(open, token, mid, label, close)
+                local replacement = map.byToken[token:upper()]
+                if not replacement then
+                    return nil
+                end
+                return open .. token .. mid .. replacement .. close
+            end)
+
+        -- Numbered channels: |Hchannel:CHANNEL:1|h[1. General]|h
+        value = value:gsub("(|Hchannel:[Cc][Hh][Aa][Nn][Nn][Ee][Ll]:)(%d+)(|h%[)(.-)(%]|h)",
+            function(open, index, mid, label, close)
+                local replacement = map.byNumber[tonumber(index)]
+                if not replacement then
+                    return nil
+                end
+                return open .. index .. mid .. replacement .. close
+            end)
+
+        return value
+    end)
+
+    if ok and type(result) == "string" and result ~= "" then
+        return result
+    end
+
+    return text
+end
+
+-- The AddMessage hook.
+--
+-- ChatRouter already replaces AddMessage when virtual chat is on, and its pipeline
+-- calls ns.ApplyChannelLabels itself. This hook therefore installs only when the
+-- router is not driving the frame, so a line is never rewritten twice and the two
+-- modules never fight over frame.AddMessage.
+--
+-- Rather than swapping the method, a wrapper is stored per frame and the previous
+-- function is kept, so removal restores the exact original - including another
+-- addon's replacement, if it hooked after us.
+local channelHookOriginal = setmetatable({}, { __mode = "k" })
+local channelHookWrapper = setmetatable({}, { __mode = "k" })
+
+local function ChannelLabelsWanted()
+    local db = GetVisualDB()
+    if not db then
+        return false
+    end
+
+    -- The router owns AddMessage in virtual mode and applies labels itself.
+    if db.useVirtualChat and not IsRetailRestricted() then
+        return false
+    end
+
+    return BuildChannelLabelMap(db).active
+end
+
+local function InstallChannelLabelHook(frame)
+    if not frame or type(frame.AddMessage) ~= "function" then
+        return
+    end
+    if channelHookWrapper[frame] and frame.AddMessage == channelHookWrapper[frame] then
+        return
+    end
+
+    local original = frame.AddMessage
+    channelHookOriginal[frame] = original
+
+    local wrapper = function(self, text, ...)
+        local output = text
+        if type(text) == "string" then
+            -- Secret values must be handed through untouched: reading one to build
+            -- a replacement string is what produces "string conversion on a secret
+            -- string value" during an encounter.
+            local safe = true
+            if type(ns.IsSecretValue) == "function" then
+                local okSecret, isSecret = pcall(ns.IsSecretValue, text)
+                safe = okSecret and not isSecret
+            end
+            if safe then
+                local ok, rewritten = pcall(ns.ApplyChannelLabels, text)
+                if ok and type(rewritten) == "string" then
+                    output = rewritten
+                end
+            end
+        end
+        return original(self, output, ...)
+    end
+
+    channelHookWrapper[frame] = wrapper
+    frame.AddMessage = wrapper
+end
+
+local function RemoveChannelLabelHookFromFrame(frame)
+    if not frame then
+        return
+    end
+    local wrapper = channelHookWrapper[frame]
+    if wrapper and frame.AddMessage == wrapper then
+        frame.AddMessage = channelHookOriginal[frame] or frame.AddMessage
+    end
+    channelHookWrapper[frame] = nil
+    channelHookOriginal[frame] = nil
+end
+
+local function ForEachChatFrame(callback)
+    local count = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
+        or NUM_CHAT_WINDOWS or 10
+    for i = 1, count do
+        local frame = _G["ChatFrame" .. i]
+        if frame then
+            callback(frame)
+        end
+    end
+end
+
+function ns.RefreshChannelLabelHook()
+    if ChannelLabelsWanted() then
+        ForEachChatFrame(InstallChannelLabelHook)
+    else
+        ForEachChatFrame(RemoveChannelLabelHookFromFrame)
+    end
+end
+
+function ns.RemoveChannelLabelHook()
+    ForEachChatFrame(RemoveChannelLabelHookFromFrame)
+end
+
+function ns.InvalidateChannelLabelCache()
+    channelLabelCache = nil
+    channelLabelSignature = nil
+end
+
+
 
 local function IsRetailRestricted()
     return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
@@ -683,28 +896,11 @@ function ns.ApplyVisuals()
 
     ApplyBlizzardButtonVisibility()
 
-    -- Short channel names swap Blizzard GlobalStrings (CHAT_*_GET). On modern Retail
-    -- (12.0+ secret values) we must not write Blizzard's shared global environment
-    -- from addon code: those globals feed the secure chat handler, and tainting them
-    -- risks the secret-value protection erroring on unrelated events. Apply only on
-    -- pre-12 Retail and every Classic flavour, where there is no secret-value system.
-    local retailRestricted = IsRetailRestricted()
-    if db.shortChannels and not retailRestricted then
-        if not next(OriginalChannelMaps) then
-            for k, v in pairs(ShortChannelMaps) do
-                if _G[k] then OriginalChannelMaps[k] = _G[k] end
-            end
-        end
-        for k, v in pairs(ShortChannelMaps) do
-            if _G[k] then _G[k] = v end
-        end
-    else
-        if next(OriginalChannelMaps) then
-            for k, v in pairs(OriginalChannelMaps) do
-                _G[k] = v
-            end
-        end
-    end
+    -- Channel labels are applied per rendered line in the AddMessage hook now, so
+    -- nothing here writes to the global environment any more. Any CHAT_*_GET a
+    -- pre-0.11.26 build overwrote is restored by FrameXML on the next /reload.
+    ns.InvalidateChannelLabelCache()
+    ns.RefreshChannelLabelHook()
 end
 
 -- =========================================================
@@ -885,9 +1081,5 @@ function VisualsModule:OnDisable()
         self:UnhookAll()
     end
 
-    if next(OriginalChannelMaps) then
-        for key, value in pairs(OriginalChannelMaps) do
-            _G[key] = value
-        end
-    end
+    ns.RemoveChannelLabelHook()
 end

@@ -492,10 +492,92 @@ function Chatify:GetOptions()
                                 set = function(info, val) self.db.profile.indentWrappedLines = val; ns.ApplyVisuals() end,
                                 get = function(info) return self.db.profile.indentWrappedLines end,
                             },
+                            channelLabels = {
+                                order = 4.5,
+                                name = T("Channel Labels"),
+                                desc = T("Rename the bracketed channel tag in front of each message. Leave a field empty to use the game's own label, or the short form when \"Shorten Channel Names\" is on."),
+                                type = "group",
+                                inline = false,
+                                args = (function()
+                                    local args = {
+                                        labelNote = {
+                                            order = 1,
+                                            type = "description",
+                                            name = T("Numbered channels are matched by their number, so a label set for 1 follows General wherever it sits in your list."),
+                                        },
+                                    }
+
+                                    -- Built from the shared token list rather than
+                                    -- written out per channel, so adding a channel
+                                    -- in Config.lua is enough to expose it here.
+                                    for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
+                                        args["label_" .. entry.token] = {
+                                            order = 10 + index,
+                                            type = "input",
+                                            width = "half",
+                                            name = T(entry.name),
+                                            desc = function()
+                                                return T("Default:") .. " " .. entry.short
+                                            end,
+                                            validate = function(info, val)
+                                                if type(val) == "string" and #val > 12 then
+                                                    return T("Keep labels to 12 characters or fewer.")
+                                                end
+                                                return true
+                                            end,
+                                            set = function(info, val)
+                                                local profile = self.db.profile
+                                                profile.channelLabels = profile.channelLabels or {}
+                                                val = tostring(val or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                                                profile.channelLabels[entry.token] = (val ~= "") and val or nil
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info)
+                                                local labels = self.db.profile.channelLabels
+                                                return labels and labels[entry.token] or ""
+                                            end,
+                                        }
+                                    end
+
+                                    for number = 1, 10 do
+                                        args["labelNum_" .. number] = {
+                                            order = 40 + number,
+                                            type = "input",
+                                            width = "half",
+                                            name = T("Channel") .. " " .. number,
+                                            set = function(info, val)
+                                                local profile = self.db.profile
+                                                profile.channelLabelsNumbered = profile.channelLabelsNumbered or {}
+                                                val = tostring(val or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                                                profile.channelLabelsNumbered[tostring(number)] = (val ~= "") and val or nil
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info)
+                                                local labels = self.db.profile.channelLabelsNumbered
+                                                return labels and labels[tostring(number)] or ""
+                                            end,
+                                        }
+                                    end
+
+                                    args.clearLabels = {
+                                        order = 90,
+                                        type = "execute",
+                                        name = T("Clear All Labels"),
+                                        func = function()
+                                            self.db.profile.channelLabels = {}
+                                            self.db.profile.channelLabelsNumbered = {}
+                                            ns.ApplyVisuals()
+                                        end,
+                                    }
+
+                                    return args
+                                end)(),
+                            },
+
                             shortChannels = {
                                 order = 4,
                                 name = T("Shorten Channel Names"),
-                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\n|cff999999Retail 12.x: applied through the safe formatting path.|r"),
+                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r\n\nSet your own text under Channel Labels to override any of these."),
                                 type = "toggle",
                                 width = "full", 
                                 set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
