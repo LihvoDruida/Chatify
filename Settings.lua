@@ -890,8 +890,15 @@ function Chatify:GetOptions()
                                 },
                             }
 
-                            -- Generated from the shared type list, so adding a chat
-                            -- type in Config.lua is enough to expose it here.
+                            -- One inline group per chat type.
+                            --
+                            -- AceConfigDialog lays widgets out in a flow and packs
+                            -- as many per row as will fit, so a flat list of
+                            -- mode+text pairs desynchronised as soon as three fit:
+                            -- the label above a control belonged to the previous
+                            -- channel. An inline group always starts a new row and
+                            -- owns its contents, so the pairing cannot drift, and
+                            -- the group title carries the channel name.
                             for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
                                 local token = entry.token
 
@@ -899,72 +906,94 @@ function Chatify:GetOptions()
                                     return ns.GetChannelMode(self.db.profile, token, entry)
                                 end
 
-                                args["mode_" .. token] = {
-                                    order = 10 + index * 2,
-                                    type = "select",
-                                    width = "normal",
+                                args["row_" .. token] = {
+                                    order = 10 + index,
+                                    type = "group",
+                                    inline = true,
                                     name = T(entry.name),
-                                    disabled = function() return not self.db.profile.shortChannels end,
-                                    values = function()
-                                        return {
-                                            default = T("Game default"),
-                                            short = T("Short") .. " (" .. (entry.short or "") .. ")",
-                                            custom = T("Custom"),
-                                            hidden = T("Hidden"),
-                                        }
-                                    end,
-                                    sorting = function() return ns.Lists.ChannelModes end,
-                                    set = function(info, val)
-                                        local profile = self.db.profile
-                                        profile.channelModes = profile.channelModes or {}
-                                        profile.channelModes[token] = val
-                                        ns.ApplyVisuals()
-                                    end,
-                                    get = function(info) return Mode() end,
-                                }
+                                    args = {
+                                        mode = {
+                                            order = 1,
+                                            type = "select",
+                                            width = "normal",
+                                            name = T("Mode"),
+                                            disabled = function() return not self.db.profile.shortChannels end,
+                                            values = function()
+                                                return {
+                                                    default = T("Game default"),
+                                                    short = T("Short") .. " (" .. (entry.short or "") .. ")",
+                                                    custom = T("Custom"),
+                                                    hidden = T("Hidden"),
+                                                }
+                                            end,
+                                            sorting = function() return ns.Lists.ChannelModes end,
+                                            set = function(info, val)
+                                                local profile = self.db.profile
+                                                profile.channelModes = profile.channelModes or {}
+                                                profile.channelModes[token] = val
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info) return Mode() end,
+                                        },
 
-                                args["label_" .. token] = {
-                                    order = 11 + index * 2,
-                                    type = "input",
-                                    width = "normal",
-                                    name = "",
-                                    desc = function()
-                                        return T("Text used for this chat type.")
-                                    end,
-                                    -- Only meaningful in Custom mode; shown greyed
-                                    -- rather than hidden so the row keeps its shape
-                                    -- and the fields stay in two tidy columns.
-                                    disabled = function()
-                                        return not self.db.profile.shortChannels or Mode() ~= "custom"
-                                    end,
-                                    validate = function(info, val)
-                                        if type(val) == "string" and #val > 12 then
-                                            return T("Keep labels to 12 characters or fewer.")
-                                        end
-                                        return true
-                                    end,
-                                    set = function(info, val)
-                                        local profile = self.db.profile
-                                        profile.channelLabels = profile.channelLabels or {}
-                                        val = TrimInput(val)
-                                        profile.channelLabels[token] = (val ~= "") and val or nil
-                                        ns.ApplyVisuals()
-                                    end,
-                                    get = function(info)
-                                        local labels = self.db.profile.channelLabels
-                                        local custom = labels and labels[token]
-                                        if type(custom) == "string" and custom ~= "" then
-                                            return custom
-                                        end
-                                        -- Pre-filled with what this mode currently
-                                        -- produces, so the field never sits blank
-                                        -- with no clue what the channel is called.
-                                        local mode = Mode()
-                                        if mode == "short" or mode == "custom" then
-                                            return entry.short or ""
-                                        end
-                                        return ns.GetBuiltinChannelDefault(entry)
-                                    end,
+                                        label = {
+                                            order = 2,
+                                            type = "input",
+                                            width = "normal",
+                                            name = T("Label"),
+                                            desc = T("Text used for this chat type."),
+                                            -- Hidden rather than greyed: an empty
+                                            -- disabled box next to every channel was
+                                            -- most of the clutter, and it only means
+                                            -- anything in Custom mode anyway.
+                                            hidden = function()
+                                                return not self.db.profile.shortChannels or Mode() ~= "custom"
+                                            end,
+                                            validate = function(info, val)
+                                                if type(val) == "string" and #val > 12 then
+                                                    return T("Keep labels to 12 characters or fewer.")
+                                                end
+                                                return true
+                                            end,
+                                            set = function(info, val)
+                                                local profile = self.db.profile
+                                                profile.channelLabels = profile.channelLabels or {}
+                                                val = TrimInput(val)
+                                                profile.channelLabels[token] = (val ~= "") and val or nil
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info)
+                                                local labels = self.db.profile.channelLabels
+                                                local custom = labels and labels[token]
+                                                if type(custom) == "string" and custom ~= "" then
+                                                    return custom
+                                                end
+                                                return entry.short or ""
+                                            end,
+                                        },
+
+                                        preview = {
+                                            order = 3,
+                                            type = "description",
+                                            width = "normal",
+                                            name = function()
+                                                local mode = Mode()
+                                                local shown
+                                                if mode == "hidden" then
+                                                    shown = "|cff999999" .. T("no tag") .. "|r"
+                                                elseif mode == "short" then
+                                                    shown = "[" .. (entry.short or "") .. "]"
+                                                elseif mode == "custom" then
+                                                    local labels = self.db.profile.channelLabels
+                                                    local custom = labels and labels[token]
+                                                    shown = "[" .. ((type(custom) == "string" and custom ~= "") and custom or (entry.short or "")) .. "]"
+                                                else
+                                                    shown = "[" .. ns.GetBuiltinChannelDefault(entry) .. "]"
+                                                end
+                                                return T("Shows as:") .. " |cffffd100" .. shown .. "|r"
+                                            end,
+                                        },
+                                    },
                                 }
                             end
 
@@ -1031,6 +1060,9 @@ function Chatify:GetOptions()
                                 return args
                             end
 
+                            -- Same inline-group-per-row treatment as the chat types
+                            -- above, for the same reason: a flat flow layout cannot
+                            -- keep a control under its own label.
                             for index, entry in ipairs(known) do
                                 local key = entry.key
 
@@ -1045,64 +1077,102 @@ function Chatify:GetOptions()
                                     return entry.name .. " |cff999999(" .. T("not joined") .. ")|r"
                                 end
 
-                                args["mode_" .. key] = {
-                                    order = 10 + index * 2,
-                                    type = "select",
-                                    width = "normal",
+                                args["row_" .. key] = {
+                                    order = 10 + index,
+                                    type = "group",
+                                    inline = true,
                                     name = RowName,
-                                    disabled = function() return not profile.shortChannels end,
-                                    values = function()
-                                        local shortLabel = entry.joined and entry.id
-                                            and (T("Short") .. " (" .. entry.id .. ")")
-                                            or T("Short")
-                                        return {
-                                            default = T("Game default"),
-                                            short = shortLabel,
-                                            custom = T("Custom"),
-                                            hidden = T("Hidden"),
-                                        }
-                                    end,
-                                    sorting = function() return ns.Lists.ChannelModes end,
-                                    set = function(info, val)
-                                        profile.channelModes = profile.channelModes or {}
-                                        profile.channelModes[key] = val
-                                        ns.ApplyVisuals()
-                                    end,
-                                    get = function(info) return Mode() end,
-                                }
+                                    args = {
+                                        mode = {
+                                            order = 1,
+                                            type = "select",
+                                            width = "normal",
+                                            name = T("Mode"),
+                                            disabled = function() return not profile.shortChannels end,
+                                            values = function()
+                                                local shortLabel = entry.joined and entry.id
+                                                    and (T("Short") .. " (" .. entry.id .. ")")
+                                                    or T("Short")
+                                                return {
+                                                    default = T("Game default"),
+                                                    short = shortLabel,
+                                                    custom = T("Custom"),
+                                                    hidden = T("Hidden"),
+                                                }
+                                            end,
+                                            sorting = function() return ns.Lists.ChannelModes end,
+                                            set = function(info, val)
+                                                profile.channelModes = profile.channelModes or {}
+                                                profile.channelModes[key] = val
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info) return Mode() end,
+                                        },
 
-                                args["label_" .. key] = {
-                                    order = 11 + index * 2,
-                                    type = "input",
-                                    width = "normal",
-                                    name = "",
-                                    desc = T("Text used for this channel. Start with # to keep the number."),
-                                    disabled = function()
-                                        return not profile.shortChannels or Mode() ~= "custom"
-                                    end,
-                                    validate = function(info, val)
-                                        if type(val) == "string" and #val > 12 then
-                                            return T("Keep labels to 12 characters or fewer.")
-                                        end
-                                        return true
-                                    end,
-                                    set = function(info, val)
-                                        val = TrimInput(val)
-                                        profile.channelLabelsNamed = profile.channelLabelsNamed or {}
-                                        profile.channelLabelsNamed[key] = (val ~= "") and val or nil
-                                        ns.ApplyVisuals()
-                                    end,
-                                    get = function(info)
-                                        local labels = profile.channelLabelsNamed
-                                        local custom = labels and labels[key]
-                                        if type(custom) == "string" and custom ~= "" then
-                                            return custom
-                                        end
-                                        if entry.joined and entry.id then
-                                            return tostring(entry.id)
-                                        end
-                                        return entry.name or ""
-                                    end,
+                                        label = {
+                                            order = 2,
+                                            type = "input",
+                                            width = "normal",
+                                            name = T("Label"),
+                                            desc = T("Text used for this channel. Start with # to keep the number."),
+                                            hidden = function()
+                                                return not profile.shortChannels or Mode() ~= "custom"
+                                            end,
+                                            validate = function(info, val)
+                                                if type(val) == "string" and #val > 12 then
+                                                    return T("Keep labels to 12 characters or fewer.")
+                                                end
+                                                return true
+                                            end,
+                                            set = function(info, val)
+                                                val = TrimInput(val)
+                                                profile.channelLabelsNamed = profile.channelLabelsNamed or {}
+                                                profile.channelLabelsNamed[key] = (val ~= "") and val or nil
+                                                ns.ApplyVisuals()
+                                            end,
+                                            get = function(info)
+                                                local labels = profile.channelLabelsNamed
+                                                local custom = labels and labels[key]
+                                                if type(custom) == "string" and custom ~= "" then
+                                                    return custom
+                                                end
+                                                if entry.joined and entry.id then
+                                                    return tostring(entry.id)
+                                                end
+                                                return entry.name or ""
+                                            end,
+                                        },
+
+                                        preview = {
+                                            order = 3,
+                                            type = "description",
+                                            width = "normal",
+                                            name = function()
+                                                local mode = Mode()
+                                                local shown
+                                                if mode == "hidden" then
+                                                    shown = "|cff999999" .. T("no tag") .. "|r"
+                                                elseif mode == "short" then
+                                                    shown = "[" .. (entry.joined and entry.id or entry.name) .. "]"
+                                                elseif mode == "custom" then
+                                                    local labels = profile.channelLabelsNamed
+                                                    local custom = labels and labels[key]
+                                                    local text = (type(custom) == "string" and custom ~= "")
+                                                        and custom or tostring(entry.id or entry.name)
+                                                    -- Mirror the "#" expansion so the
+                                                    -- preview matches what chat does.
+                                                    local rest = text:match("^#(.*)$")
+                                                    if rest ~= nil and entry.id then
+                                                        text = (rest ~= "") and (entry.id .. ". " .. rest) or tostring(entry.id)
+                                                    end
+                                                    shown = "[" .. text .. "]"
+                                                else
+                                                    shown = "[" .. (entry.joined and entry.id and (entry.id .. ". " .. entry.name) or entry.name) .. "]"
+                                                end
+                                                return T("Shows as:") .. " |cffffd100" .. shown .. "|r"
+                                            end,
+                                        },
+                                    },
                                 }
                             end
 

@@ -383,4 +383,8 @@ Locale:RegisterLocale("enUS", {
     ["Whisper Sent"] = "Whisper Sent",
     ["Battle.net Received"] = "Battle.net Received",
     ["Battle.net Sent"] = "Battle.net Sent",
+    ["Mode"] = "Mode",
+    ["Label"] = "Label",
+    ["Shows as:"] = "Shows as:",
+    ["no tag"] = "no tag",
 })

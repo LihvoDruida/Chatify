@@ -385,4 +385,8 @@ Locale:RegisterLocale("ukUA", {
     ["Whisper Sent"] = "Шепіт надісланий",
     ["Battle.net Received"] = "Battle.net отриманий",
     ["Battle.net Sent"] = "Battle.net надісланий",
+    ["Mode"] = "Режим",
+    ["Label"] = "Назва",
+    ["Shows as:"] = "Вигляд:",
+    ["no tag"] = "без позначки",
 })
