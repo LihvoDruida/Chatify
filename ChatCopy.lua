@@ -191,6 +191,28 @@ local function ExtractAuthorFromText(text)
             return NormalizeName(linkName)
         end
 
+        -- Any other player-ish hyperlink type.
+        --
+        -- 12.1 relays Discord messages into guild chat, and those senders are not
+        -- |Hplayer: links - they carry their own link type with no guarantee about
+        -- its name. Rather than hardcoding a tag that may be renamed before the
+        -- patch ships, this takes the visible text of the FIRST hyperlink on the
+        -- line, which is where the sender sits in every chat format the game uses.
+        --
+        -- Channel links are excluded explicitly: on a line like
+        -- "|Hchannel:GUILD|h[Guild]|h |Hplayer:Bob|h[Bob]|h: hi" the channel tag
+        -- comes first and is emphatically not the author.
+        -- gmatch rather than match: the channel tag is the leftmost link on most
+        -- lines, so a single match would find it, get rejected, and give up.
+        for linkType, visible in safe:gmatch("|H([%a]+):[^|]*|h%[?([^%]|]+)%]?|h") do
+            if linkType:lower() ~= "channel" then
+                local normalized = NormalizeName(visible)
+                if normalized and #normalized <= 32 then
+                    return normalized
+                end
+            end
+        end
+
         local bracketName = safe:match("^%s*%[([^%]]+)%]%s*:")
         if bracketName then
             return NormalizeName(bracketName)
@@ -587,8 +609,8 @@ local function GetChatFrameDisplayName(frame, index)
     end
 
     local frameID = GetChatFrameID(frame, index)
-    if type(_G.FCF_GetChatWindowInfo) == "function" and frameID then
-        local ok, value = pcall(_G.FCF_GetChatWindowInfo, frameID)
+    if frameID and type(ns.CallChatAPI) == "function" then
+        local ok, value = ns.CallChatAPI("FCF_GetChatWindowInfo", "GetChatWindowInfo", frameID)
         if ok and IsNonEmptyString(value) then
             name = value
         end
@@ -727,8 +749,8 @@ local function IsCopyBlockedChatFrame(frame, index)
         return true
     end
 
-    if frameID and type(_G.FCF_IsWindowIDCombatLog) == "function" then
-        local ok, isCombatLog = pcall(_G.FCF_IsWindowIDCombatLog, frameID)
+    if frameID and type(ns.CallChatAPI) == "function" then
+        local ok, isCombatLog = ns.CallChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog", frameID)
         if ok and isCombatLog then
             return true
         end
@@ -1421,6 +1443,14 @@ local function CreateCopyWindow()
             ScrollingEdit_OnUpdate(self, elapsed, scrollArea)
         end
     end)
+
+    -- 12.1 adds Frame:SetOnUpdateMode. RunWhenVisible is the default, so this is
+    -- not a behaviour change; it is stated explicitly so the copy window keeps its
+    -- current cost if the default is ever reconsidered, and it costs nothing on
+    -- clients that lack the API.
+    if type(eb.SetOnUpdateMode) == "function" then
+        pcall(eb.SetOnUpdateMode, eb, "RunWhenVisible")
+    end
     eb:SetScript("OnTextChanged", function(self, userInput)
         if userInput and not copySettingText then
             local cursor = self:GetCursorPosition() or 0

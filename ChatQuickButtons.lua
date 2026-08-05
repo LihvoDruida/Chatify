@@ -1339,8 +1339,8 @@ local function GetSelectedDockFrame()
 end
 
 local function GetLastActiveChatFrame()
-    if type(_G.ChatEdit_GetLastActiveWindow) == "function" then
-        local ok, result = pcall(_G.ChatEdit_GetLastActiveWindow)
+    if type(ns.CallChatAPI) == "function" then
+        local ok, result = ns.CallChatAPI("ChatEdit_GetLastActiveWindow", "GetLastActiveWindow")
         if ok then
             result = NormalizeChatFrame(result)
             if result then

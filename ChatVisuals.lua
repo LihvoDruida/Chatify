@@ -923,7 +923,13 @@ function ns.ApplyNativeTimestamps(db)
             nativeTimestampPrevious = ns.GetCVarCompat("showTimestamps")
             nativeTimestampApplied = true
         end
-        ns.SetCVarCompat("showTimestamps", wanted)
+        if not ns.SetCVarCompat("showTimestamps", wanted) then
+            -- The write was refused, most likely because the CVar system is not
+            -- ready yet during login. Retry once the world is in.
+            if type(ns.SafeAfter) == "function" then
+                ns.SafeAfter(2, function() pcall(ns.ApplyNativeTimestamps) end)
+            end
+        end
     elseif nativeTimestampApplied then
         ns.SetCVarCompat("showTimestamps", nativeTimestampPrevious or "none")
         nativeTimestampApplied = false

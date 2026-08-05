@@ -1150,6 +1150,16 @@ function ns.GetCVarCompat(name)
 end
 
 function ns.SetCVarCompat(name, value)
+    -- 12.1 added C_CVar.AreCVarsLoaded. A write issued before the CVar system is
+    -- ready is dropped silently, which is exactly the window ApplyNativeTimestamps
+    -- can land in during login. Where the probe exists, wait rather than lose it.
+    if C_CVar and type(C_CVar.AreCVarsLoaded) == "function" then
+        local okProbe, loaded = pcall(C_CVar.AreCVarsLoaded)
+        if okProbe and not loaded then
+            return false
+        end
+    end
+
     if C_CVar and type(C_CVar.SetCVar) == "function" then
         if pcall(C_CVar.SetCVar, name, value) then
             return true
