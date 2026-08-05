@@ -473,57 +473,119 @@ end
 local channelLabelCache
 local channelLabelSignature
 
-local function BuildChannelLabelMap(db)
-    local signature = tostring(db.shortChannels and 1 or 0)
-    local labels, named = db.channelLabels, db.channelLabelsNamed
+local function EscapeChatPattern(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+    return (value:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+end
 
-    if type(labels) == "table" then
-        for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
-            local custom = labels[entry.token]
-            if type(custom) == "string" and custom ~= "" then
-                signature = signature .. "|" .. entry.token .. "=" .. custom
+local function BuildChannelLabelMap(db)
+    -- Signature covers everything the resolution depends on, so the cache is
+    -- rebuilt exactly when a setting that matters has moved.
+    local parts = { tostring(db.shortChannels and 1 or 0) }
+    for _, source in ipairs({ db.channelModes, db.channelLabels, db.channelLabelsNamed }) do
+        if type(source) == "table" then
+            local keys = {}
+            for key, value in pairs(source) do
+                if type(value) == "string" and value ~= "" then
+                    keys[#keys + 1] = tostring(key) .. "=" .. value
+                end
             end
+            table.sort(keys)
+            parts[#parts + 1] = table.concat(keys, ",")
+        else
+            parts[#parts + 1] = ""
         end
     end
-    if type(named) == "table" then
-        for key, value in pairs(named) do
-            if type(value) == "string" and value ~= "" then
-                signature = signature .. "|#" .. tostring(key) .. "=" .. value
-            end
-        end
-    end
+    local signature = table.concat(parts, "|")
 
     if channelLabelSignature == signature and channelLabelCache then
         return channelLabelCache
     end
 
-    local map = { byToken = {}, byName = {}, shortNumbered = false, active = false }
+    local map = {
+        byToken = {},        -- link channels: token -> replacement, or false to hide
+        byName = {},         -- numbered channels: name key -> replacement or false
+        numberedFallback = nil,  -- "short" when unset numbered channels shorten
+        templates = {},      -- say/yell/whisper rewrites
+        active = false,
+    }
+
+    local labels = type(db.channelLabels) == "table" and db.channelLabels or {}
+    local named = type(db.channelLabelsNamed) == "table" and db.channelLabelsNamed or {}
 
     for _, entry in ipairs(ns.Lists.ChannelLabels or {}) do
-        local custom = type(labels) == "table" and labels[entry.token] or nil
-        if type(custom) == "string" and custom ~= "" then
-            map.byToken[entry.token] = custom
-            map.active = true
-        elseif db.shortChannels then
-            map.byToken[entry.token] = entry.short
-            map.active = true
-        end
-    end
+        local mode = ns.GetChannelMode(db, entry.token, entry)
 
-    if type(named) == "table" then
-        for key, value in pairs(named) do
-            if type(value) == "string" and value ~= "" then
-                map.byName[key] = value
+        local replacement
+        if mode == "short" then
+            replacement = entry.short
+        elseif mode == "custom" then
+            local custom = labels[entry.token]
+            -- A custom mode with nothing typed yet falls back to the abbreviation
+            -- rather than blanking the tag; hiding is its own mode.
+            replacement = (type(custom) == "string" and custom ~= "") and custom or entry.short
+        elseif mode == "hidden" then
+            replacement = false
+        end
+
+        if replacement ~= nil then
+            if entry.kind == "template" then
+                local prefix, suffix = ns.SplitChatTemplate(entry.template)
+                if prefix then
+                    -- Anchored, with the name captured non-greedily so it stops at
+                    -- the first occurrence of the suffix. The trailing () yields
+                    -- the index just past the match, which is where the message
+                    -- body starts.
+                    map.templates[#map.templates + 1] = {
+                        label = replacement,
+                        pattern = "^" .. EscapeChatPattern(prefix)
+                            .. "(.-)" .. EscapeChatPattern(suffix) .. "()",
+                    }
+                    map.active = true
+                end
+            else
+                map.byToken[entry.token] = replacement
                 map.active = true
             end
         end
     end
 
-    -- With no custom label, a numbered channel shortens to its number alone:
-    -- [1. General] becomes [1]. Same convention Prat uses, and the only
-    -- abbreviation that is correct in every locale without a name table.
+    -- Numbered channels. An explicit mode per channel wins; anything without one
+    -- follows the master switch, which is what makes [1. General] shorten to [1]
+    -- without needing a row per channel.
+    local modes = type(db.channelModes) == "table" and db.channelModes or {}
+    for key, value in pairs(named) do
+        if type(value) == "string" and value ~= "" then
+            local mode = ns.GetChannelMode(db, key, nil)
+            if mode == "custom" then
+                map.byName[key] = value
+                map.active = true
+            end
+        end
+    end
+    for key, mode in pairs(modes) do
+        if map.byName[key] == nil then
+            local resolved = ns.GetChannelMode(db, key, nil)
+            if resolved == "hidden" then
+                map.byName[key] = false
+                map.active = true
+            elseif resolved == "custom" then
+                local custom = named[key]
+                if type(custom) == "string" and custom ~= "" then
+                    map.byName[key] = custom
+                    map.active = true
+                end
+            elseif resolved == "default" and db.shortChannels then
+                -- Explicitly opted out of shortening while the master switch is on.
+                map.byName[key] = nil
+            end
+        end
+    end
+
     if db.shortChannels then
-        map.shortNumbered = true
+        map.numberedFallback = "short"
         map.active = true
     end
 
@@ -555,15 +617,26 @@ local function ResolveNumberedChannelKey(id, label)
     return nil
 end
 
+-- Prat's convention: a custom label beginning with "#" keeps the channel number
+-- in front of it, so "#Trade" renders as "2. Trade" rather than "Trade".
+local function ExpandNumberedLabel(label, index)
+    if type(label) ~= "string" then
+        return label
+    end
+    local rest = label:match("^#(.*)$")
+    if rest == nil then
+        return label
+    end
+    if rest == "" then
+        return index
+    end
+    return index .. ". " .. rest
+end
+
 -- Pure string transform. Takes and returns a plain string; no globals are touched
 -- and nothing is registered on Blizzard's chat dispatch, so it cannot taint.
 function ns.ApplyChannelLabels(text)
     if type(text) ~= "string" then
-        return text
-    end
-
-    -- Cheapest possible rejection first: this runs once per rendered line.
-    if not text:find("|Hchannel:", 1, true) then
         return text
     end
 
@@ -577,35 +650,74 @@ function ns.ApplyChannelLabels(text)
         return text
     end
 
+    local hasLink = text:find("|Hchannel:", 1, true) ~= nil
+    if not hasLink and #map.templates == 0 then
+        -- Cheapest possible rejection: this runs once per rendered line.
+        return text
+    end
+
     local ok, result = pcall(function()
         local value = text
 
-        -- Named channels: |Hchannel:PARTY|h[Party]|h
-        value = value:gsub("(|Hchannel:)([A-Za-z_]+)(|h%[)(.-)(%]|h)",
-            function(open, token, mid, label, close)
-                local replacement = map.byToken[token:upper()]
-                if not replacement then
-                    return nil
-                end
-                return open .. token .. mid .. replacement .. close
-            end)
+        if hasLink then
+            -- Named channels: |Hchannel:PARTY|h[Party]|h
+            value = value:gsub("(|Hchannel:)([A-Za-z_]+)(|h%[)(.-)(%]|h)%s?",
+                function(open, token, mid, label, close)
+                    local replacement = map.byToken[token:upper()]
+                    if replacement == nil then
+                        return nil
+                    end
+                    if replacement == false then
+                        -- Hidden: the tag and the space that followed it both go,
+                        -- otherwise the line starts with a stray gap.
+                        return ""
+                    end
+                    return open .. token .. mid .. replacement .. close .. " "
+                end)
 
-        -- Numbered channels: |Hchannel:CHANNEL:1|h[1. General]|h
-        value = value:gsub("(|Hchannel:[Cc][Hh][Aa][Nn][Nn][Ee][Ll]:)(%d+)(|h%[)(.-)(%]|h)",
-            function(open, index, mid, label, close)
-                local replacement
-                local key = ResolveNumberedChannelKey(index, label)
-                if key then
-                    replacement = map.byName[key]
+            -- Numbered channels: |Hchannel:CHANNEL:1|h[1. General]|h
+            value = value:gsub("(|Hchannel:[Cc][Hh][Aa][Nn][Nn][Ee][Ll]:)(%d+)(|h%[)(.-)(%]|h)%s?",
+                function(open, index, mid, label, close)
+                    local replacement
+                    local key = ResolveNumberedChannelKey(index, label)
+                    if key ~= nil and map.byName[key] ~= nil then
+                        replacement = map.byName[key]
+                    elseif map.numberedFallback == "short" then
+                        replacement = index
+                    end
+
+                    if replacement == nil then
+                        return nil
+                    end
+                    if replacement == false then
+                        return ""
+                    end
+
+                    replacement = ExpandNumberedLabel(replacement, index)
+                    return open .. index .. mid .. replacement .. close .. " "
+                end)
+        end
+
+        -- Say, yell and whispers. These carry no tag of their own, so the phrasing
+        -- the game wrote around the player name ("Bob whispers: ") is replaced by
+        -- one ("[W From] Bob: ").
+        --
+        -- Only the first matching rule fires: a line is exactly one chat type, and
+        -- letting a second rule run would re-match the text just produced.
+        for i = 1, #map.templates do
+            local rule = map.templates[i]
+            local name, tail = value:match(rule.pattern)
+            if name and name ~= "" and tail then
+                local head
+                if rule.label == false or rule.label == "" then
+                    head = name .. ": "
+                else
+                    head = "[" .. rule.label .. "] " .. name .. ": "
                 end
-                if not replacement and map.shortNumbered then
-                    replacement = index
-                end
-                if not replacement then
-                    return nil
-                end
-                return open .. index .. mid .. replacement .. close
-            end)
+                value = head .. value:sub(tail)
+                break
+            end
+        end
 
         return value
     end)
@@ -615,104 +727,6 @@ function ns.ApplyChannelLabels(text)
     end
 
     return text
-end
-
--- The AddMessage hook.
---
--- ChatRouter already replaces AddMessage when virtual chat is on, and its pipeline
--- calls ns.ApplyChannelLabels itself. This hook therefore installs only when the
--- router is not driving the frame, so a line is never rewritten twice and the two
--- modules never fight over frame.AddMessage.
---
--- Rather than swapping the method, a wrapper is stored per frame and the previous
--- function is kept, so removal restores the exact original - including another
--- addon's replacement, if it hooked after us.
-local channelHookOriginal = setmetatable({}, { __mode = "k" })
-local channelHookWrapper = setmetatable({}, { __mode = "k" })
-
-local function ChannelLabelsWanted()
-    local db = GetVisualDB()
-    if not db then
-        return false
-    end
-
-    -- The router owns AddMessage in virtual mode and applies labels itself.
-    if db.useVirtualChat and not IsRetailRestricted() then
-        return false
-    end
-
-    return BuildChannelLabelMap(db).active
-end
-
-local function InstallChannelLabelHook(frame)
-    if not frame or type(frame.AddMessage) ~= "function" then
-        return
-    end
-    if channelHookWrapper[frame] and frame.AddMessage == channelHookWrapper[frame] then
-        return
-    end
-
-    local original = frame.AddMessage
-    channelHookOriginal[frame] = original
-
-    local wrapper = function(self, text, ...)
-        local output = text
-        if type(text) == "string" then
-            -- Secret values must be handed through untouched: reading one to build
-            -- a replacement string is what produces "string conversion on a secret
-            -- string value" during an encounter.
-            local safe = true
-            if type(ns.IsSecretValue) == "function" then
-                local okSecret, isSecret = pcall(ns.IsSecretValue, text)
-                safe = okSecret and not isSecret
-            end
-            if safe then
-                local ok, rewritten = pcall(ns.ApplyChannelLabels, text)
-                if ok and type(rewritten) == "string" then
-                    output = rewritten
-                end
-            end
-        end
-        return original(self, output, ...)
-    end
-
-    channelHookWrapper[frame] = wrapper
-    frame.AddMessage = wrapper
-end
-
-local function RemoveChannelLabelHookFromFrame(frame)
-    if not frame then
-        return
-    end
-    local wrapper = channelHookWrapper[frame]
-    if wrapper and frame.AddMessage == wrapper then
-        frame.AddMessage = channelHookOriginal[frame] or frame.AddMessage
-    end
-    channelHookWrapper[frame] = nil
-    channelHookOriginal[frame] = nil
-end
-
-local function ForEachChatFrame(callback)
-    local count = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
-        or NUM_CHAT_WINDOWS or 10
-    for i = 1, count do
-        local frame = _G["ChatFrame" .. i]
-        if frame then
-            callback(frame)
-        end
-    end
-end
-
-function ns.RefreshChannelLabelHook()
-    if ChannelLabelsWanted() then
-        ForEachChatFrame(InstallChannelLabelHook)
-    else
-        ForEachChatFrame(RemoveChannelLabelHookFromFrame)
-    end
-end
-
-function ns.RemoveChannelLabelHook()
-    ForEachChatFrame(RemoveChannelLabelHookFromFrame)
 end
 
 function ns.InvalidateChannelLabelCache()

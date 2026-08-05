@@ -846,53 +846,96 @@ function Chatify:GetOptions()
                 name = T("Channels"),
                 type = "group",
                 order = 15,
+                childGroups = "tab",
                 args = {
-                    groupChannelShorten = {
-                        name = T("Shorten Channel Names"),
+                    groupChannelGeneral = {
+                        name = T("General"),
                         type = "group",
-                        inline = true,
                         order = 1,
                         args = {
                             shortChannels = {
                                 order = 1,
-                                name = T("Shorten Channel Names"),
-                                desc = T("Compact channel names to save space.\n\nExample:\n|cffaaaaaa[Party]|r becomes |cffaaaaaa[P]|r, and |cffaaaaaa[1. General]|r becomes |cffaaaaaa[1]|r.\n\nAny label you set below overrides the short form."),
+                                name = T("Replace Channel Names"),
+                                desc = T("Master switch. When off, every channel keeps the label the game gives it and the per-channel settings below are left untouched, so turning it back on restores them."),
                                 type = "toggle",
                                 width = "full",
                                 set = function(info, val) self.db.profile.shortChannels = val; ns.ApplyVisuals() end,
                                 get = function(info) return self.db.profile.shortChannels end,
                             },
+
+                            modesNote = {
+                                order = 2,
+                                type = "description",
+                                name = T("Each channel can be set to:\n|cffffd100Game default|r - leave the label alone\n|cffffd100Short|r - the built-in abbreviation, or the number for a numbered channel\n|cffffd100Custom|r - your own text\n|cffffd100Hidden|r - drop the tag entirely"),
+                            },
+
+                            numberHint = {
+                                order = 3,
+                                type = "description",
+                                name = T("For numbered channels, start a custom label with |cffffd100#|r to keep the number in front of it: |cffffd100#Trade|r shows as |cffaaaaaa[2. Trade]|r, and |cffffd100#|r on its own shows as |cffaaaaaa[2]|r."),
+                            },
                         },
                     },
 
                     groupChannelBuiltin = {
-                        name = T("Built-in Channels"),
+                        name = T("Chat Types"),
                         type = "group",
-                        inline = true,
                         order = 2,
                         args = (function()
                             local args = {
                                 builtinNote = {
                                     order = 1,
                                     type = "description",
-                                    name = T("Each field shows the label currently in use. Clear a field, or type the default back into it, to hand the channel back to the game."),
+                                    name = T("Say, yell and whispers have no channel tag of their own, so Chatify has to introduce one and rewrite the wording around the sender's name. That is more invasive than swapping a label, which is why they start switched off."),
                                 },
                             }
 
-                            -- Generated from the shared token list, so adding a
-                            -- channel in Config.lua is enough to expose it here.
+                            -- Generated from the shared type list, so adding a chat
+                            -- type in Config.lua is enough to expose it here.
                             for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
-                                local function DefaultLabel()
-                                    return ns.GetBuiltinChannelDefault(entry, self.db.profile.shortChannels)
+                                local token = entry.token
+
+                                local function Mode()
+                                    return ns.GetChannelMode(self.db.profile, token, entry)
                                 end
 
-                                args["label_" .. entry.token] = {
-                                    order = 10 + index,
-                                    type = "input",
+                                args["mode_" .. token] = {
+                                    order = 10 + index * 2,
+                                    type = "select",
                                     width = "normal",
                                     name = T(entry.name),
+                                    disabled = function() return not self.db.profile.shortChannels end,
+                                    values = function()
+                                        return {
+                                            default = T("Game default"),
+                                            short = T("Short") .. " (" .. (entry.short or "") .. ")",
+                                            custom = T("Custom"),
+                                            hidden = T("Hidden"),
+                                        }
+                                    end,
+                                    sorting = function() return ns.Lists.ChannelModes end,
+                                    set = function(info, val)
+                                        local profile = self.db.profile
+                                        profile.channelModes = profile.channelModes or {}
+                                        profile.channelModes[token] = val
+                                        ns.ApplyVisuals()
+                                    end,
+                                    get = function(info) return Mode() end,
+                                }
+
+                                args["label_" .. token] = {
+                                    order = 11 + index * 2,
+                                    type = "input",
+                                    width = "normal",
+                                    name = "",
                                     desc = function()
-                                        return T("Default:") .. " " .. DefaultLabel()
+                                        return T("Text used for this chat type.")
+                                    end,
+                                    -- Only meaningful in Custom mode; shown greyed
+                                    -- rather than hidden so the row keeps its shape
+                                    -- and the fields stay in two tidy columns.
+                                    disabled = function()
+                                        return not self.db.profile.shortChannels or Mode() ~= "custom"
                                     end,
                                     validate = function(info, val)
                                         if type(val) == "string" and #val > 12 then
@@ -904,26 +947,23 @@ function Chatify:GetOptions()
                                         local profile = self.db.profile
                                         profile.channelLabels = profile.channelLabels or {}
                                         val = TrimInput(val)
-                                        -- Storing a value identical to the default
-                                        -- would freeze the label: it would stop
-                                        -- following the shortening toggle and the
-                                        -- client locale. Treat it as "unset".
-                                        if val == "" or val == DefaultLabel() then
-                                            profile.channelLabels[entry.token] = nil
-                                        else
-                                            profile.channelLabels[entry.token] = val
-                                        end
+                                        profile.channelLabels[token] = (val ~= "") and val or nil
                                         ns.ApplyVisuals()
                                     end,
                                     get = function(info)
                                         local labels = self.db.profile.channelLabels
-                                        local custom = labels and labels[entry.token]
+                                        local custom = labels and labels[token]
                                         if type(custom) == "string" and custom ~= "" then
                                             return custom
                                         end
-                                        -- Pre-filled with the label in force, so the
-                                        -- field shows what chat actually says.
-                                        return DefaultLabel()
+                                        -- Pre-filled with what this mode currently
+                                        -- produces, so the field never sits blank
+                                        -- with no clue what the channel is called.
+                                        local mode = Mode()
+                                        if mode == "short" or mode == "custom" then
+                                            return entry.short or ""
+                                        end
+                                        return ns.GetBuiltinChannelDefault(entry)
                                     end,
                                 }
                             end
@@ -935,7 +975,6 @@ function Chatify:GetOptions()
                     groupChannelNamed = {
                         name = T("Numbered and Custom Channels"),
                         type = "group",
-                        inline = true,
                         order = 3,
                         args = (function()
                             local profile = self.db.profile
@@ -995,28 +1034,51 @@ function Chatify:GetOptions()
                             for index, entry in ipairs(known) do
                                 local key = entry.key
 
-                                local function DefaultLabel()
-                                    -- Joined and shortening on: the number, which is
-                                    -- the only abbreviation that is right in every
-                                    -- locale. Otherwise the channel's own name.
-                                    if profile.shortChannels and entry.joined and entry.id then
-                                        return tostring(entry.id)
-                                    end
-                                    return entry.name or key
+                                local function Mode()
+                                    return ns.GetChannelMode(profile, key, nil)
                                 end
 
-                                args["named_" .. key] = {
-                                    order = 10 + index,
+                                local function RowName()
+                                    if entry.joined and entry.id then
+                                        return entry.id .. ". " .. entry.name
+                                    end
+                                    return entry.name .. " |cff999999(" .. T("not joined") .. ")|r"
+                                end
+
+                                args["mode_" .. key] = {
+                                    order = 10 + index * 2,
+                                    type = "select",
+                                    width = "normal",
+                                    name = RowName,
+                                    disabled = function() return not profile.shortChannels end,
+                                    values = function()
+                                        local shortLabel = entry.joined and entry.id
+                                            and (T("Short") .. " (" .. entry.id .. ")")
+                                            or T("Short")
+                                        return {
+                                            default = T("Game default"),
+                                            short = shortLabel,
+                                            custom = T("Custom"),
+                                            hidden = T("Hidden"),
+                                        }
+                                    end,
+                                    sorting = function() return ns.Lists.ChannelModes end,
+                                    set = function(info, val)
+                                        profile.channelModes = profile.channelModes or {}
+                                        profile.channelModes[key] = val
+                                        ns.ApplyVisuals()
+                                    end,
+                                    get = function(info) return Mode() end,
+                                }
+
+                                args["label_" .. key] = {
+                                    order = 11 + index * 2,
                                     type = "input",
                                     width = "normal",
-                                    name = function()
-                                        if entry.joined and entry.id then
-                                            return entry.id .. ". " .. entry.name
-                                        end
-                                        return entry.name .. " |cff999999(" .. T("not joined") .. ")|r"
-                                    end,
-                                    desc = function()
-                                        return T("Default:") .. " " .. DefaultLabel()
+                                    name = "",
+                                    desc = T("Text used for this channel. Start with # to keep the number."),
+                                    disabled = function()
+                                        return not profile.shortChannels or Mode() ~= "custom"
                                     end,
                                     validate = function(info, val)
                                         if type(val) == "string" and #val > 12 then
@@ -1027,11 +1089,7 @@ function Chatify:GetOptions()
                                     set = function(info, val)
                                         val = TrimInput(val)
                                         profile.channelLabelsNamed = profile.channelLabelsNamed or {}
-                                        if val == "" or val == DefaultLabel() then
-                                            profile.channelLabelsNamed[key] = nil
-                                        else
-                                            profile.channelLabelsNamed[key] = val
-                                        end
+                                        profile.channelLabelsNamed[key] = (val ~= "") and val or nil
                                         ns.ApplyVisuals()
                                     end,
                                     get = function(info)
@@ -1040,13 +1098,16 @@ function Chatify:GetOptions()
                                         if type(custom) == "string" and custom ~= "" then
                                             return custom
                                         end
-                                        return DefaultLabel()
+                                        if entry.joined and entry.id then
+                                            return tostring(entry.id)
+                                        end
+                                        return entry.name or ""
                                     end,
                                 }
                             end
 
                             args.forgetUnjoined = {
-                                order = 80,
+                                order = 800,
                                 type = "execute",
                                 name = T("Forget Channels You Left"),
                                 desc = T("Removes the rows marked as not joined, along with their labels."),
@@ -1065,30 +1126,35 @@ function Chatify:GetOptions()
                                             if profile.channelLabelNames then
                                                 profile.channelLabelNames[entry.key] = nil
                                             end
+                                            if profile.channelModes then
+                                                profile.channelModes[entry.key] = nil
+                                            end
                                         end
                                     end
                                     ns.ApplyVisuals()
                                 end,
                             }
 
+                            args.clearLabels = {
+                                order = 900,
+                                type = "execute",
+                                name = T("Reset All Channels"),
+                                confirm = true,
+                                confirmText = T("Put every chat type and channel back to the game's own labels?"),
+                                func = function()
+                                    profile.channelModes = {}
+                                    profile.channelLabels = {}
+                                    profile.channelLabelsNamed = {}
+                                    -- channelLabelNames is left alone on purpose: it
+                                    -- only holds readable names for the rows, so
+                                    -- wiping it would also remove channels the user
+                                    -- added by hand.
+                                    ns.ApplyVisuals()
+                                end,
+                            }
+
                             return args
                         end)(),
-                    },
-
-                    clearLabels = {
-                        order = 90,
-                        type = "execute",
-                        name = T("Clear All Labels"),
-                        confirm = true,
-                        confirmText = T("Remove every custom channel label?"),
-                        func = function()
-                            self.db.profile.channelLabels = {}
-                            self.db.profile.channelLabelsNamed = {}
-                            -- channelLabelNames is left alone on purpose: it only
-                            -- holds readable names for the rows, so wiping it would
-                            -- also remove channels the user added by hand.
-                            ns.ApplyVisuals()
-                        end,
                     },
                 },
             },

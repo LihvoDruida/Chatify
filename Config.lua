@@ -326,26 +326,106 @@ end
 -- what the options panel pre-fills the field with. Reading it beats hardcoding an
 -- English name: on a French client the Party field should read "Groupe", and the
 -- fallback `name` is only used where the global is missing.
+-- Channel types, split by how the label reaches the rendered line.
+--
+-- kind = "link": the label sits inside a chat hyperlink,
+--   |Hchannel:PARTY|h[Party]|h, so it can be swapped by rewriting the bracket
+--   contents. Safe, locale-independent, and what Chatify has always done.
+--
+-- kind = "template": say, yell and whispers carry no channel link at all. The
+--   game renders them from a GlobalString like CHAT_WHISPER_GET ("%s whispers: "),
+--   so there is no tag to replace - one has to be introduced, and the phrasing
+--   that surrounds the player name has to be removed. Prat can do this cleanly
+--   because it works on message components before they are assembled; we only
+--   ever see the finished line, so the pattern is derived from the GlobalString at
+--   runtime. That is exact rather than guessed, but it is still surgery on a
+--   rendered string, which is why these default to off.
+--
+-- `short` is the built-in abbreviation. `global` holds the label the game itself
+-- shows, used to pre-fill the options field.
 ns.Lists.ChannelLabels = {
-    { token = "GUILD",           short = "G",   name = "Guild",           global = "GUILD" },
-    { token = "OFFICER",         short = "O",   name = "Officer",         global = "OFFICER" },
-    { token = "PARTY",           short = "P",   name = "Party",           global = "PARTY" },
-    { token = "PARTY_LEADER",    short = "PL",  name = "Party Leader",    global = "PARTY_LEADER" },
-    { token = "RAID",            short = "R",   name = "Raid",            global = "RAID" },
-    { token = "RAID_LEADER",     short = "RL",  name = "Raid Leader",     global = "RAID_LEADER" },
-    { token = "RAID_WARNING",    short = "RW",  name = "Raid Warning",    global = "RAID_WARNING" },
-    { token = "INSTANCE",        short = "I",   name = "Instance",        global = "INSTANCE_CHAT" },
-    { token = "INSTANCE_LEADER", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER" },
+    { token = "GUILD",           kind = "link", short = "G",   name = "Guild",           global = "GUILD" },
+    { token = "OFFICER",         kind = "link", short = "O",   name = "Officer",         global = "OFFICER" },
+    { token = "PARTY",           kind = "link", short = "P",   name = "Party",           global = "PARTY" },
+    { token = "PARTY_LEADER",    kind = "link", short = "PL",  name = "Party Leader",    global = "PARTY_LEADER" },
+    { token = "RAID",            kind = "link", short = "R",   name = "Raid",            global = "RAID" },
+    { token = "RAID_LEADER",     kind = "link", short = "RL",  name = "Raid Leader",     global = "RAID_LEADER" },
+    { token = "RAID_WARNING",    kind = "link", short = "RW",  name = "Raid Warning",    global = "RAID_WARNING" },
+    { token = "INSTANCE",        kind = "link", short = "I",   name = "Instance",        global = "INSTANCE_CHAT" },
+    { token = "INSTANCE_LEADER", kind = "link", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER" },
+
+    { token = "SAY",             kind = "template", short = "S",      name = "Say",              template = "CHAT_SAY_GET" },
+    { token = "YELL",            kind = "template", short = "Y",      name = "Yell",             template = "CHAT_YELL_GET" },
+    { token = "WHISPER",         kind = "template", short = "W From", name = "Whisper Received", template = "CHAT_WHISPER_GET" },
+    { token = "WHISPER_INFORM",  kind = "template", short = "W To",   name = "Whisper Sent",     template = "CHAT_WHISPER_INFORM_GET" },
+    { token = "BN_WHISPER",      kind = "template", short = "W From", name = "Battle.net Received", template = "CHAT_BN_WHISPER_GET" },
+    { token = "BN_WHISPER_INFORM", kind = "template", short = "W To", name = "Battle.net Sent",  template = "CHAT_BN_WHISPER_INFORM_GET" },
 }
+
+-- How a channel's label is decided. Mirrors Prat's per-type `replace` toggle plus
+-- its "Blank" option, but as one control instead of a toggle and a text box whose
+-- emptiness silently means two different things.
+ns.Lists.ChannelModes = {
+    "default",  -- leave the label the game produced
+    "short",    -- the built-in abbreviation, or the number for a numbered channel
+    "custom",   -- whatever is in the text field
+    "hidden",   -- drop the tag entirely, and the space after it
+}
+
+-- Types that are shortened when nothing has been chosen. Only the link kinds, so
+-- turning the master switch on cannot silently start rewriting the sentence
+-- structure of say, yell and whispers.
+function ns.GetDefaultChannelMode(entry)
+    if type(entry) == "table" and entry.kind == "template" then
+        return "default"
+    end
+    return "short"
+end
+
+-- Splits a chat GlobalString template into the literal text around its player
+-- name placeholder.
+--
+-- CHAT_WHISPER_GET is "%s whispers: " -> prefix "", suffix " whispers: "
+-- CHAT_WHISPER_INFORM_GET is "To %s: " -> prefix "To ", suffix ": "
+--
+-- Deriving this at runtime is what makes the template rewrite locale-correct: on
+-- a German client the suffix is whatever Blizzard ships, not a guess. Returns nil
+-- for anything that does not have exactly one placeholder, which is the signal to
+-- leave that chat type alone.
+function ns.SplitChatTemplate(templateName)
+    local template = templateName and _G[templateName]
+    if type(template) ~= "string" or template == "" then
+        return nil
+    end
+
+    local prefix, suffix = template:match("^(.-)%%s(.*)$")
+    if not prefix or not suffix then
+        return nil
+    end
+
+    -- A second placeholder means the message body is part of the template, which
+    -- this simple two-part split cannot represent safely.
+    if prefix:find("%%s") or suffix:find("%%s") then
+        return nil
+    end
+
+    if suffix == "" then
+        return nil
+    end
+
+    return prefix, suffix
+end
 
 -- The label the game would show for a built-in channel, used to pre-fill the
 -- options field so it displays the value in force rather than an empty box.
-function ns.GetBuiltinChannelDefault(entry, shortChannels)
+function ns.GetBuiltinChannelDefault(entry)
     if type(entry) ~= "table" then
         return ""
     end
 
-    if shortChannels then
+    -- Template kinds have no tag of their own, so there is nothing the game would
+    -- have shown; the abbreviation is the only sensible starting point.
+    if entry.kind == "template" then
         return entry.short or entry.name or ""
     end
 
@@ -355,6 +435,28 @@ function ns.GetBuiltinChannelDefault(entry, shortChannels)
     end
 
     return entry.name or ""
+end
+
+-- The mode in force for a channel, honouring the master switch.
+function ns.GetChannelMode(db, key, entry)
+    if type(db) ~= "table" then
+        return "default"
+    end
+
+    -- Master switch off means the game's labels, whatever the per-channel
+    -- settings say. Those settings are kept, not cleared, so turning it back on
+    -- restores them.
+    if not db.shortChannels then
+        return "default"
+    end
+
+    local modes = db.channelModes
+    local mode = type(modes) == "table" and modes[key] or nil
+    if mode == "default" or mode == "short" or mode == "custom" or mode == "hidden" then
+        return mode
+    end
+
+    return ns.GetDefaultChannelMode(entry)
 end
 
 ns.Lists.TimeFormats = {
@@ -641,6 +743,10 @@ ns.defaults = {
         -- (|Hchannel:PARTY|h[Party]|h), plus a numeric key per numbered channel
         -- (channelLabelsNumbered["1"] = "Gen"). Empty or absent means "leave the
         -- game's label alone"; shortChannels supplies the fallback.
+        -- Per-channel mode, keyed by token for built-in types and by name key for
+        -- numbered channels. Absent means ns.GetDefaultChannelMode decides.
+        channelModes = {},
+
         channelLabels = {},
 
         -- Numbered channels are keyed by NAME, not by the number shown in chat.
