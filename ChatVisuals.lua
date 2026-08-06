@@ -729,6 +729,108 @@ function ns.ApplyChannelLabels(text)
     return text
 end
 
+local function IsRetailRestricted()
+    return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+end
+
+-- The AddMessage hook.
+--
+-- ChatRouter already replaces AddMessage when virtual chat is on, and its pipeline
+-- calls ns.ApplyChannelLabels itself. This hook therefore installs only when the
+-- router is not driving the frame, so a line is never rewritten twice and the two
+-- modules never fight over frame.AddMessage.
+--
+-- Rather than swapping the method outright, the previous function is kept, so
+-- removal restores the exact original - including another addon's replacement, if
+-- it hooked before us.
+local channelHookOriginal = setmetatable({}, { __mode = "k" })
+local channelHookWrapper = setmetatable({}, { __mode = "k" })
+
+local function ChannelLabelsWanted()
+    local db = GetVisualDB()
+    if not db then
+        return false
+    end
+
+    -- The router owns AddMessage in virtual mode and applies labels itself.
+    if db.useVirtualChat and not IsRetailRestricted() then
+        return false
+    end
+
+    return BuildChannelLabelMap(db).active
+end
+
+local function InstallChannelLabelHook(frame)
+    if not frame or type(frame.AddMessage) ~= "function" then
+        return
+    end
+    if channelHookWrapper[frame] and frame.AddMessage == channelHookWrapper[frame] then
+        return
+    end
+
+    local original = frame.AddMessage
+    channelHookOriginal[frame] = original
+
+    local wrapper = function(self, text, ...)
+        local output = text
+        if type(text) == "string" then
+            -- Secret values must be handed through untouched: reading one to build
+            -- a replacement string is what produces "string conversion on a secret
+            -- string value" during an encounter.
+            local safe = true
+            if type(ns.IsSecretValue) == "function" then
+                local okSecret, isSecret = pcall(ns.IsSecretValue, text)
+                safe = okSecret and not isSecret
+            end
+            if safe then
+                local ok, rewritten = pcall(ns.ApplyChannelLabels, text)
+                if ok and type(rewritten) == "string" then
+                    output = rewritten
+                end
+            end
+        end
+        return original(self, output, ...)
+    end
+
+    channelHookWrapper[frame] = wrapper
+    frame.AddMessage = wrapper
+end
+
+local function RemoveChannelLabelHookFromFrame(frame)
+    if not frame then
+        return
+    end
+    local wrapper = channelHookWrapper[frame]
+    if wrapper and frame.AddMessage == wrapper then
+        frame.AddMessage = channelHookOriginal[frame] or frame.AddMessage
+    end
+    channelHookWrapper[frame] = nil
+    channelHookOriginal[frame] = nil
+end
+
+local function ForEachChatFrame(callback)
+    local count = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
+        or NUM_CHAT_WINDOWS or 10
+    for i = 1, count do
+        local frame = _G["ChatFrame" .. i]
+        if frame then
+            callback(frame)
+        end
+    end
+end
+
+function ns.RefreshChannelLabelHook()
+    if ChannelLabelsWanted() then
+        ForEachChatFrame(InstallChannelLabelHook)
+    else
+        ForEachChatFrame(RemoveChannelLabelHookFromFrame)
+    end
+end
+
+function ns.RemoveChannelLabelHook()
+    ForEachChatFrame(RemoveChannelLabelHookFromFrame)
+end
+
 function ns.InvalidateChannelLabelCache()
     channelLabelCache = nil
     channelLabelSignature = nil
@@ -736,9 +838,6 @@ end
 
 
 
-local function IsRetailRestricted()
-    return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
-end
 
 local function RegisterTimestampFilter(eventName)
     if registeredTimestampFilters[eventName] then
