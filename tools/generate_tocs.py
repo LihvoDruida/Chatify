@@ -29,13 +29,13 @@ SOURCE = ROOT / "Chatify.toc"
 
 # suffix -> (Interface, X-Flavor, X-Expansion, live?)
 #
-# "live" records whether the client is still reachable in July 2026. TBC, Wrath
-# and Cata Classic have all been retired, so those files load on nothing today -
-# they are kept so the addon stays installable on private and legacy realms, and
-# so a future re-release needs no new plumbing.
+# "live" records whether the client is currently reachable. Keep these current:
+# an interface number one patch behind is exactly what gets the addon flagged
+# out of date, which is what users report. TBC is live again as the Burning
+# Crusade Classic Anniversary realms (2.5.6 -> 20506).
 FLAVOURS = {
     "Vanilla": ("11508", "classic", "Vanilla", True),
-    "TBC":     ("20505", "classic", "TBC", False),
+    "TBC":     ("20506", "classic", "TBC", True),
     "Wrath":   ("30405", "classic", "Wrath", False),
     "Cata":    ("40402", "classic", "Cata", False),
     "Mists":   ("50504", "classic", "Mists", True),

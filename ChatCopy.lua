@@ -137,12 +137,34 @@ local function StripChatMarkup(text)
         -- then strip normal color/texture/hyperlink markup without touching secret payloads.
         value = value:gsub("|K.-|k", "<protected>")
         value = value:gsub("|W.-|w", "<protected>")
+
+        -- Colour openers come in two forms and BOTH have to go before |r does.
+        --
+        --   |cffa335ee            classic, eight hex digits
+        --   |cnITEM_QUALITY4_COLOR:   named, added in 11.x
+        --
+        -- Only the classic form was handled, so a named opener survived while its
+        -- |r was stripped - which is why every character after an item link or a
+        -- URL stayed purple or blue to the end of the line.
         value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
+        value = value:gsub("|c[nN][%w_]+:", "")
         value = value:gsub("|r", "")
+
         value = value:gsub("|H.-|h(.-)|h", "%1")
         value = value:gsub("|A:Professions%-ChatIcon%-Quality%-Tier(%d):.-|a", "%1*")
         value = value:gsub("|A.-|a", "")
         value = value:gsub("|T.-|t", "")
+        -- |4singular:plural; pluralisation, e.g. "2 |4hour:hours;". The game
+        -- resolves this at render time; copied text kept the raw markup, so
+        -- "1 |4day:days;, 2 |4hour:hours;" was what landed on the clipboard.
+        -- The number immediately before it picks the form.
+        value = value:gsub("(%d+)%s*|4([^:;]*):([^;]*);", function(count, one, many)
+            return count .. " " .. ((tonumber(count) == 1) and one or many)
+        end)
+        -- Any left over with no number in front: take the plural, which is what
+        -- Blizzard falls back to.
+        value = value:gsub("|4([^:;]*):([^;]*);", "%2")
+
         value = value:gsub("||", "|")
         return value
     end)
@@ -218,8 +240,18 @@ local function ExtractAuthorFromText(text)
             return NormalizeName(bracketName)
         end
 
-        local plainName = safe:match("^%s*([^:%[%]]+)%s*:")
-        if plainName and #plainName <= 32 then
+        -- Last resort: "Name: message" with no markup at all.
+        --
+        -- This used to accept anything before the first colon, which swallowed
+        -- system lines: "Total time played: 1 day..." made "Total time played"
+        -- the author, and since the payload was never trimmed the line came out
+        -- as "Total time played: Total time played: 1 day...".
+        --
+        -- A character name is a single token - no spaces, no punctuation beyond
+        -- the realm separator - so requiring that rules system text out while
+        -- still catching a genuinely unlinked sender.
+        local plainName = safe:match("^%s*([^%s:%[%]]+)%s*:")
+        if plainName and #plainName <= 32 and not plainName:find("%d%d") then
             return NormalizeName(plainName)
         end
 
@@ -356,6 +388,30 @@ local function BuildEntry(text, author, timestamp)
     }
 end
 
+-- Removes a leading "Author: " / "Author says: " from the payload when the entry
+-- already carries that author separately. Anchored and exact: if the text does
+-- not literally start with this author, it is left completely alone.
+local function StripLeadingAuthor(text, author)
+    if not IsNonEmptyString(text) or not IsNonEmptyString(author) then
+        return text
+    end
+
+    local ok, result = pcall(function()
+        local escaped = author:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+        -- Optional realm suffix, then the separator the game uses.
+        local stripped = text:gsub("^%s*" .. escaped .. "%-?[^%s:]*%s*:%s*", "", 1)
+        if stripped ~= text and stripped ~= "" then
+            return stripped
+        end
+        return text
+    end)
+
+    if ok and IsNonEmptyString(result) then
+        return result
+    end
+    return text
+end
+
 local function BuildPlainLine(entry)
     if type(entry) == "string" then
         return StripChatMarkup(entry)
@@ -371,6 +427,10 @@ local function BuildPlainLine(entry)
 
     local author = NormalizeName(entry.author)
     if IsNonEmptyString(author) then
+        -- The rendered payload usually still begins with the sender, because it
+        -- is the same string the author was derived from. Emitting both is what
+        -- produced doubled prefixes; drop the one already in the text.
+        text = StripLeadingAuthor(text, author)
         return string.format("[%s] %s: %s", entry.time or "--:--:--", author, text)
     end
 
@@ -393,6 +453,7 @@ local function BuildColoredLine(entry)
     local timeText = string.format("|cff888888[%s]|r", entry.time or "--:--:--")
     local author = NormalizeName(entry.author)
     if IsNonEmptyString(author) then
+        text = StripLeadingAuthor(text, author)
         return string.format("%s %s: %s", timeText, ColorName(author), text)
     end
 
@@ -1702,7 +1763,41 @@ local function ReadVisibleLineMessages(chatFrame)
     return entries
 end
 
+-- Whether the on-screen contents of this frame are actually this frame's.
+--
+-- Docked chat tabs share the same area: only the selected one is rendered, and
+-- the others are not visible. Scraping FontStrings or visibleLines from a frame
+-- that is not on screen therefore returns whatever the dock is currently showing,
+-- which is how General's lines ended up in the Guild tab's copy window.
+--
+-- The frame's own history buffer, read through GetMessageInfo, is per-frame and
+-- unaffected; only the display-scraping fallbacks need this guard.
+local function IsFrameDisplayingItsOwnContent(chatFrame)
+    if not chatFrame then
+        return false
+    end
+
+    if type(chatFrame.IsVisible) == "function" then
+        local ok, visible = pcall(chatFrame.IsVisible, chatFrame)
+        if ok and not visible then
+            return false
+        end
+    end
+
+    -- A docked frame is only rendering its own lines while it is the selected tab.
+    local dock = chatFrame.isDocked and _G.GENERAL_CHAT_DOCK
+    if dock and dock.selected and dock.selected ~= chatFrame then
+        return false
+    end
+
+    return true
+end
+
 local function ReadVisibleChatLines(chatFrame)
+    if not IsFrameDisplayingItsOwnContent(chatFrame) then
+        return nil
+    end
+
     local visibleLineEntries = ReadVisibleLineMessages(chatFrame)
     if visibleLineEntries then
         return visibleLineEntries

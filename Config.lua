@@ -344,15 +344,15 @@ end
 -- `short` is the built-in abbreviation. `global` holds the label the game itself
 -- shows, used to pre-fill the options field.
 ns.Lists.ChannelLabels = {
-    { token = "GUILD",           kind = "link", short = "G",   name = "Guild",           global = "GUILD" },
-    { token = "OFFICER",         kind = "link", short = "O",   name = "Officer",         global = "OFFICER" },
-    { token = "PARTY",           kind = "link", short = "P",   name = "Party",           global = "PARTY" },
-    { token = "PARTY_LEADER",    kind = "link", short = "PL",  name = "Party Leader",    global = "PARTY_LEADER" },
-    { token = "RAID",            kind = "link", short = "R",   name = "Raid",            global = "RAID" },
-    { token = "RAID_LEADER",     kind = "link", short = "RL",  name = "Raid Leader",     global = "RAID_LEADER" },
-    { token = "RAID_WARNING",    kind = "link", short = "RW",  name = "Raid Warning",    global = "RAID_WARNING" },
-    { token = "INSTANCE",        kind = "link", short = "I",   name = "Instance",        global = "INSTANCE_CHAT" },
-    { token = "INSTANCE_LEADER", kind = "link", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER" },
+    { token = "GUILD",           kind = "link", short = "G",   name = "Guild",           global = "GUILD",                 template = "CHAT_GUILD_GET" },
+    { token = "OFFICER",         kind = "link", short = "O",   name = "Officer",         global = "OFFICER",               template = "CHAT_OFFICER_GET" },
+    { token = "PARTY",           kind = "link", short = "P",   name = "Party",           global = "PARTY",                 template = "CHAT_PARTY_GET" },
+    { token = "PARTY_LEADER",    kind = "link", short = "PL",  name = "Party Leader",    global = "PARTY_LEADER",          template = "CHAT_PARTY_LEADER_GET" },
+    { token = "RAID",            kind = "link", short = "R",   name = "Raid",            global = "RAID",                  template = "CHAT_RAID_GET" },
+    { token = "RAID_LEADER",     kind = "link", short = "RL",  name = "Raid Leader",     global = "RAID_LEADER",           template = "CHAT_RAID_LEADER_GET" },
+    { token = "RAID_WARNING",    kind = "link", short = "RW",  name = "Raid Warning",    global = "RAID_WARNING",          template = "CHAT_RAID_WARNING_GET" },
+    { token = "INSTANCE",        kind = "link", short = "I",   name = "Instance",        global = "INSTANCE_CHAT",         template = "CHAT_INSTANCE_CHAT_GET" },
+    { token = "INSTANCE_LEADER", kind = "link", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER",  template = "CHAT_INSTANCE_CHAT_LEADER_GET" },
 
     { token = "SAY",             kind = "template", short = "S",      name = "Say",              template = "CHAT_SAY_GET" },
     { token = "YELL",            kind = "template", short = "Y",      name = "Yell",             template = "CHAT_YELL_GET" },
@@ -380,6 +380,33 @@ function ns.GetDefaultChannelMode(entry)
         return "default"
     end
     return "short"
+end
+
+-- The hyperlink token a link-kind channel actually uses in rendered chat.
+--
+-- Our entry tokens are internal names and do not always match. Two cases bit us:
+--
+--   INSTANCE      -> the link says |Hchannel:INSTANCE_CHAT|h, so nothing matched
+--                    and instance chat was never shortened.
+--   PARTY_LEADER  -> the link says |Hchannel:party|h, exactly like PARTY, so the
+--                    leader line picked up the party label ([P] instead of [PL]).
+--
+-- Reading the token out of the GlobalString is authoritative for the running
+-- client instead of a table that has to be kept in step with Blizzard.
+function ns.GetChannelLinkToken(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    local template = entry.template and _G[entry.template]
+    if type(template) == "string" then
+        local token = template:match("|Hchannel:([^|:]+)")
+        if token and token ~= "" then
+            return token:upper()
+        end
+    end
+
+    return entry.token
 end
 
 -- Splits a chat GlobalString template into the literal text around its player

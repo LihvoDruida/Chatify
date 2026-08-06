@@ -505,7 +505,13 @@ local function BuildChannelLabelMap(db)
     end
 
     local map = {
-        byToken = {},        -- link channels: token -> replacement, or false to hide
+        -- Leader variants share a hyperlink token with their base channel
+        -- (|Hchannel:party|h for both Party and Party Leader), so the token alone
+        -- cannot tell them apart. The visible label can: it comes from separate
+        -- GlobalStrings. byLabel is therefore consulted first and byToken is the
+        -- fallback for anything it does not cover.
+        byLabel = {},        -- exact current label -> replacement, or false to hide
+        byToken = {},        -- link token -> replacement, or false to hide
         byName = {},         -- numbered channels: name key -> replacement or false
         numberedFallback = nil,  -- "short" when unset numbered channels shorten
         templates = {},      -- say/yell/whisper rewrites
@@ -546,7 +552,18 @@ local function BuildChannelLabelMap(db)
                     map.active = true
                 end
             else
-                map.byToken[entry.token] = replacement
+                local label = entry.global and _G[entry.global]
+                if type(label) == "string" and label ~= "" then
+                    map.byLabel[label] = replacement
+                end
+
+                -- Only claim the shared token for the base channel. Writing the
+                -- leader's replacement here too would make whichever entry was
+                -- processed last win for both.
+                local token = ns.GetChannelLinkToken(entry)
+                if token and map.byToken[token] == nil then
+                    map.byToken[token] = replacement
+                end
                 map.active = true
             end
         end
@@ -663,7 +680,12 @@ function ns.ApplyChannelLabels(text)
             -- Named channels: |Hchannel:PARTY|h[Party]|h
             value = value:gsub("(|Hchannel:)([A-Za-z_]+)(|h%[)(.-)(%]|h)%s?",
                 function(open, token, mid, label, close)
-                    local replacement = map.byToken[token:upper()]
+                    -- Label first: it is the only thing that separates a leader
+                    -- line from its base channel.
+                    local replacement = map.byLabel[label]
+                    if replacement == nil then
+                        replacement = map.byToken[token:upper()]
+                    end
                     if replacement == nil then
                         return nil
                     end
@@ -1036,27 +1058,54 @@ function ns.ApplyNativeTimestamps(db)
     end
 end
 
+-- Runs one stage of the visual pass in isolation.
+--
+-- ApplyVisuals is called from PLAYER_LOGIN, so anything that throws here takes
+-- the whole pass down with it and the user gets a Lua error the moment they log
+-- in. That is not hypothetical: 0.11.29 shipped with a block of hook management
+-- functions removed by a bad edit while their call sites stayed, and the nil call
+-- aborted ApplyVisuals before channel labels were ever installed - which is why
+-- the error and "shortening does nothing" were the same bug.
+--
+-- Each stage is now independent, so a fault in one costs that feature rather than
+-- every feature, and the cause is named in the message instead of a line number.
+-- Routed through ns.SafeCall so a failure lands in the Runtime Debug panel with
+-- the stage name attached, instead of a bare line number in the error frame.
+-- SafeCall also treats a missing function as a handled failure, which is exactly
+-- the case that shipped.
+local function RunVisualStage(label, fn, ...)
+    if type(ns.SafeCall) == "function" then
+        return (ns.SafeCall("ApplyVisuals:" .. label, fn, ...))
+    end
+
+    -- Config.lua defines SafeCall, so this only runs if load order changes.
+    if type(fn) ~= "function" then
+        return false
+    end
+    return (pcall(fn, ...))
+end
+
 function ns.ApplyVisuals()
     local db = GetVisualDB()
     if not db then return end
 
-    ns.ApplyNativeTimestamps(db)
+    RunVisualStage("timestamps", ns.ApplyNativeTimestamps, db)
 
     for i = 1, (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows() or NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame"..i]
         if frame then
-            StyleFrame(frame)
-            ApplyFrameBehaviour(frame)
+            RunVisualStage("style", StyleFrame, frame)
+            RunVisualStage("behaviour", ApplyFrameBehaviour, frame)
         end
     end
 
-    ApplyBlizzardButtonVisibility()
+    RunVisualStage("buttons", ApplyBlizzardButtonVisibility)
 
     -- Channel labels are applied per rendered line in the AddMessage hook now, so
     -- nothing here writes to the global environment any more. Any CHAT_*_GET a
     -- pre-0.11.26 build overwrote is restored by FrameXML on the next /reload.
-    ns.InvalidateChannelLabelCache()
-    ns.RefreshChannelLabelHook()
+    RunVisualStage("labelCache", ns.InvalidateChannelLabelCache)
+    RunVisualStage("labelHook", ns.RefreshChannelLabelHook)
 end
 
 -- =========================================================
