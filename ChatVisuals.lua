@@ -671,8 +671,10 @@ end
 -- label in a rare notice is much better than risking a match against ordinary
 -- chat that happens to contain the same words.
 local channelNoticePrefixes
+local channelFormatterA = "|Hchannel:%d|h"
+local channelFormatterB = "|Hchannel:CHANNEL:%d|h"
 
-local function GetChannelNoticePrefixes()
+function GetChannelNoticePrefixes(dbg)
     if channelNoticePrefixes then
         return channelNoticePrefixes
     end
@@ -682,11 +684,30 @@ local function GetChannelNoticePrefixes()
     for key, value in pairs(_G) do
         if type(key) == "string" and type(value) == "string"
             and key:find("^CHAT_") and key:find("_NOTICE") then
-            local prefix = value:match("^(.-)%%s")
+
+            local prefix
+            -- Remove the channel name placeholder from the end of a string to find the prefix
+            if value:sub(-6, -3) == "[%s]" then
+                prefix = value:sub(1, -7)
+            else
+                prefix = value:match("^(.-)%%s")
+            end
+
             -- Three characters is enough to be distinctive while excluding the
             -- empty prefix of a placeholder-first template.
-            if prefix and #prefix >= 3 then
-                channelNoticePrefixes[#channelNoticePrefixes + 1] = prefix
+            if prefix then
+                -- Remove these two non-renderable strings
+                end
+                if prefix:find(channelFormatterA, 1, true) then
+                    prefix = prefix:sub(1, prefix:find(channelFormatterA, 1, true) - 1)
+                end
+                if prefix:find(channelFormatterB, 1, true) then
+                    prefix = prefix:sub(1, prefix:find(channelFormatterB, 1, true) - 1)
+                end
+
+                if #prefix >= 3 then
+                    channelNoticePrefixes[#channelNoticePrefixes + 1] = prefix
+                end
             end
         end
     end
