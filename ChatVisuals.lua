@@ -652,6 +652,64 @@ end
 
 -- Pure string transform. Takes and returns a plain string; no globals are touched
 -- and nothing is registered on Blizzard's chat dispatch, so it cannot taint.
+-- Channel system notices.
+--
+-- "Changed Channel: [1. General]" carries a real channel hyperlink, so the label
+-- rewrite happily turned it into "Changed Channel: [1. G]" - which defeats the
+-- point of the notice, since it exists precisely to tell you which channel you
+-- are now in.
+--
+-- These lines are built from the CHAT_*_NOTICE GlobalStrings. Rather than listing
+-- them (there are around twenty, and Blizzard adds more), the prefixes are
+-- harvested from _G once per session, which is locale-correct for free and needs
+-- no maintenance.
+--
+-- Only notices whose literal text comes BEFORE the placeholder can be recognised
+-- this way: those are matched anchored at the start of the line, which cannot
+-- produce a false positive. A template that opens with its placeholder has no
+-- anchor to key on and is left to the normal rewrite - accepting a shortened
+-- label in a rare notice is much better than risking a match against ordinary
+-- chat that happens to contain the same words.
+local channelNoticePrefixes
+
+local function GetChannelNoticePrefixes()
+    if channelNoticePrefixes then
+        return channelNoticePrefixes
+    end
+
+    channelNoticePrefixes = {}
+
+    for key, value in pairs(_G) do
+        if type(key) == "string" and type(value) == "string"
+            and key:find("^CHAT_") and key:find("_NOTICE") then
+            local prefix = value:match("^(.-)%%s")
+            -- Three characters is enough to be distinctive while excluding the
+            -- empty prefix of a placeholder-first template.
+            if prefix and #prefix >= 3 then
+                channelNoticePrefixes[#channelNoticePrefixes + 1] = prefix
+            end
+        end
+    end
+
+    return channelNoticePrefixes
+end
+
+-- Exposed so the notice list can be re-harvested if something reloads
+-- GlobalStrings mid-session; nothing in Chatify does, but it costs one line.
+function ns.InvalidateChannelNoticeCache()
+    channelNoticePrefixes = nil
+end
+
+local function IsChannelNoticeLine(text)
+    local prefixes = GetChannelNoticePrefixes()
+    for i = 1, #prefixes do
+        if text:find(prefixes[i], 1, true) == 1 then
+            return true
+        end
+    end
+    return false
+end
+
 function ns.ApplyChannelLabels(text)
     if type(text) ~= "string" then
         return text
@@ -670,6 +728,12 @@ function ns.ApplyChannelLabels(text)
     local hasLink = text:find("|Hchannel:", 1, true) ~= nil
     if not hasLink and #map.templates == 0 then
         -- Cheapest possible rejection: this runs once per rendered line.
+        return text
+    end
+
+    -- Tested only when a channel link is present, so ordinary chat never pays for
+    -- the scan.
+    if hasLink and IsChannelNoticeLine(text) then
         return text
     end
 

@@ -164,6 +164,12 @@ _G.CHAT_INSTANCE_CHAT_GET = "|Hchannel:INSTANCE_CHAT|h[%s]|h %s: "
 _G.CHAT_INSTANCE_CHAT_LEADER_GET = "|Hchannel:INSTANCE_CHAT|h[%s]|h %s: "
 _G.CHAT_RAID_WARNING_GET = "|Hchannel:RAID_WARNING|h[%s]|h %s: "
 
+-- Channel notices, which the label engine harvests out of _G to know which lines
+-- to leave alone.
+_G.CHAT_YOU_CHANGED_NOTICE = "Changed Channel: %s"
+_G.CHAT_YOU_JOINED_NOTICE = "Joined Channel: %s"
+_G.CHAT_YOU_LEFT_NOTICE = "Left Channel: %s"
+
 -- ------------------------------------------------------------------ stub Ace3
 
 local addonObject
@@ -329,6 +335,19 @@ if type(ns.GetChannelLinkToken) == "function" and type(ns.Lists) == "table" then
         end
     end
     print("ok         channel link tokens")
+end
+
+-- Channel notices must keep the full channel name: shortening "Changed Channel:
+-- [1. General]" to "[1. G]" defeats the only purpose the line has.
+if type(ns.ApplyChannelLabels) == "function" then
+    local notice = "Changed Channel: |Hchannel:CHANNEL:1|h[1. General - Elwynn Forest]|h"
+    local ok, out = pcall(ns.ApplyChannelLabels, notice)
+    if not ok or out ~= notice then
+        print("CALL FAIL  channel notice was rewritten: " .. tostring(out))
+        failures = failures + 1
+    else
+        print("ok         channel notices left alone")
+    end
 end
 try("ns.ApplyNativeTimestamps", ns.ApplyNativeTimestamps)
 try("ns.RefreshTimestampFilterState", ns.RefreshTimestampFilterState)
