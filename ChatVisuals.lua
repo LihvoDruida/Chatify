@@ -674,7 +674,7 @@ local channelNoticePrefixes
 local channelFormatterA = "|Hchannel:%d|h"
 local channelFormatterB = "|Hchannel:CHANNEL:%d|h"
 
-function GetChannelNoticePrefixes(dbg)
+local function GetChannelNoticePrefixes()
     if channelNoticePrefixes then
         return channelNoticePrefixes
     end
