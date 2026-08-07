@@ -695,7 +695,6 @@ local function GetChannelNoticePrefixes()
 
             if prefix then
                 -- Remove these two non-renderable strings
-                end
                 if prefix:find(channelFormatterA, 1, true) then
                     prefix = prefix:sub(1, prefix:find(channelFormatterA, 1, true) - 1)
                 end
