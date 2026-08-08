@@ -146,9 +146,7 @@ local function StripChatMarkup(text)
         -- Only the classic form was handled, so a named opener survived while its
         -- |r was stripped - which is why every character after an item link or a
         -- URL stayed purple or blue to the end of the line.
-        value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
-        value = value:gsub("|c[nN][%w_]+:", "")
-        value = value:gsub("|r", "")
+        value = ns.StripColorCodes(value)
 
         value = value:gsub("|H.-|h(.-)|h", "%1")
         value = value:gsub("|A:Professions%-ChatIcon%-Quality%-Tier(%d):.-|a", "%1*")
@@ -185,8 +183,10 @@ local function NormalizeName(author)
     local ok, name = pcall(function()
         local value = safe
         value = value:gsub("|K.-|k", "")
-        value = value:gsub("|c%x%x%x%x%x%x%x%x", "")
-        value = value:gsub("|r", "")
+        -- Named colour codes reach here too: a class-coloured sender arrives as
+        -- |cnPLAYER_CLASS_COLOR:Name|r, and leaving the opener in made the code
+        -- part of the stored author name.
+        value = ns.StripColorCodes(value)
         value = value:gsub("|H.-|h%[?(.-)%]?|h", "%1")
         value = value:gsub("^%[", ""):gsub("%]$", "")
         value = value:gsub("%-.+$", "")

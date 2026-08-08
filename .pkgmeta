@@ -19,6 +19,9 @@ ignore:
   - release.sh
   - cliff.toml
   - .DS_Store
+  - COMMITS.md
+  - tools
+  - luac.out
 
 externals:
   libs/LibStub:

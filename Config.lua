@@ -2117,6 +2117,35 @@ end
 ns.Runtime = ns.Runtime or { errors = {}, counters = {} }
 local Runtime = ns.Runtime
 
+-- Colour code removal.
+--
+-- WoW has two colour opener syntaxes and both must be handled wherever |r is
+-- removed, or the opener survives with nothing to close it and the colour bleeds
+-- to the end of the line:
+--
+--   |cffa335ee                 classic, eight hex digits
+--   |cnITEM_QUALITY4_COLOR:    named, added in 11.x
+--
+-- This lives in one place because the named form was originally fixed only in the
+-- copy window while three other call sites - the author normalizer, the spam
+-- normalizer and the router's duplicate key - kept the old pattern and silently
+-- carried the code through. Anything that strips colours should call this.
+function ns.StripColorCodes(value, keepReset)
+    if type(value) ~= "string" then
+        return value
+    end
+
+    -- The escape letter is matched case-insensitively for the same reason the
+    -- name part is: the client accepts either, and a stray |CN... would otherwise
+    -- survive and bleed exactly like the bug this function exists to prevent.
+    value = value:gsub("|[cC]%x%x%x%x%x%x%x%x", "")
+    value = value:gsub("|[cC][nN][%w_]+:", "")
+    if not keepReset then
+        value = value:gsub("|[rR]", "")
+    end
+    return value
+end
+
 function ns.SafeCall(label, func, ...)
     if type(func) ~= "function" then
         return false, "missing function"

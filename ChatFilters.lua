@@ -219,8 +219,10 @@ local function StripWoWMarkup(text)
         guard = guard + 1
     end
 
-    value = string_gsub(value, "|c%x%x%x%x%x%x%x%x", "")
-    value = string_gsub(value, "|r", "")
+    -- Both colour syntaxes: a named code left in place would become part of the
+    -- normalized text, so an advert coloured with |cn... would not match its own
+    -- keyword and would evade the duplicate throttle.
+    value = ns.StripColorCodes(value)
     value = string_gsub(value, "|T.-|t", " ")
     value = string_gsub(value, "|A.-|a", " ")
     value = string_gsub(value, "{.-}", " ")
