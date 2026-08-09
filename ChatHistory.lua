@@ -427,7 +427,28 @@ end
 -- =========================================================
 -- SAVE HISTORY
 -- =========================================================
+-- The logout write.
+--
+-- This runs from PLAYER_LOGOUT, which is the single most dangerous place in an
+-- addon to throw: the client is serialising SavedVariables at that moment, and an
+-- error raised here can leave the file unwritten. Both ChatifyDB and
+-- ChatifyHistoryDB live in that one file, so a fault while saving chat history
+-- takes every setting with it - and it does so on every logout, which is exactly
+-- what "my settings keep resetting" looks like from the outside.
+--
+-- Everything below is therefore written to be unable to throw: the whole body
+-- runs inside SaveHistoryUnprotected, called through pcall, and each loop checks
+-- that what it is about to iterate is really a table. Losing a session of chat
+-- history is a small cost; losing the user's configuration is not.
 function History:SaveHistory()
+    if type(ns.SafeCall) == "function" then
+        ns.SafeCall("History:SaveHistory", History.SaveHistoryUnprotected, self)
+    else
+        pcall(History.SaveHistoryUnprotected, self)
+    end
+end
+
+function History:SaveHistoryUnprotected()
     local db = GetHistoryDB()
     if not db or db.enableHistory == false then return end
     SeedFrameHistoryFromSaved()
@@ -438,32 +459,72 @@ function History:SaveHistory()
         frames = {},
     }
 
-    for chatID, messages in pairs(frameHistory) do
-        chatID = NormalizeFrameID(chatID)
-        if chatID and type(messages) == "table" and #messages > 0 then
-            output.frames[chatID] = { unpack(messages) }
+    -- ChatRouter keeps its virtual-chat lines under ChatifyHistoryDB.Virtual.
+    -- This function replaces ChatifyHistoryDB wholesale, so without carrying that
+    -- branch across it was destroyed on every logout.
+    if type(ChatifyHistoryDB) == "table" and type(ChatifyHistoryDB.Virtual) == "table" then
+        output.Virtual = ChatifyHistoryDB.Virtual
+    end
+
+    -- CopyList rather than unpack: unpack on a long array raises "too many
+    -- results to unpack", and the whole point here is that nothing throws.
+    local function CopyList(messages)
+        if type(messages) ~= "table" then
+            return nil
+        end
+        local copy, count = {}, 0
+        for index = 1, #messages do
+            local value = messages[index]
+            if type(value) == "string" then
+                count = count + 1
+                copy[count] = value
+            end
+        end
+        if count == 0 then
+            return nil
+        end
+        return copy
+    end
+
+    if type(frameHistory) == "table" then
+        for chatID, messages in pairs(frameHistory) do
+            chatID = NormalizeFrameID(chatID)
+            local copy = chatID and CopyList(messages)
+            if copy then
+                output.frames[chatID] = copy
+            end
         end
     end
 
     -- Keep legacy grouped data for the existing restore path and older installs.
-    for typeKey, data in pairs(sessionHistory) do
-        if typeKey == "CHANNEL" then
-            output.CHANNEL = {}
-            for channelName, channelData in pairs(data) do
-                output.CHANNEL[channelName] = {}
-                if type(channelData) == "table" and type(channelData.frames) == "table" then
-                    for chatID, messages in pairs(channelData.frames) do
-                        if type(messages) == "table" and #messages > 0 then
-                            output.CHANNEL[channelName][chatID] = { unpack(messages) }
+    -- Every pairs() below is guarded: these tables come from a whole session of
+    -- chat traffic, and one unexpected value used to be enough to raise here.
+    if type(sessionHistory) == "table" then
+        for typeKey, data in pairs(sessionHistory) do
+            if type(data) ~= "table" then
+                -- skip
+            elseif typeKey == "CHANNEL" then
+                output.CHANNEL = {}
+                for channelName, channelData in pairs(data) do
+                    if type(channelName) == "string" or type(channelName) == "number" then
+                        output.CHANNEL[channelName] = {}
+                        if type(channelData) == "table" and type(channelData.frames) == "table" then
+                            for chatID, messages in pairs(channelData.frames) do
+                                local copy = CopyList(messages)
+                                if copy then
+                                    output.CHANNEL[channelName][chatID] = copy
+                                end
+                            end
                         end
                     end
                 end
-            end
-        else
-            output[typeKey] = {}
-            for chatID, messages in pairs(data) do
-                if type(messages) == "table" and #messages > 0 then
-                    output[typeKey][chatID] = { unpack(messages) }
+            else
+                output[typeKey] = {}
+                for chatID, messages in pairs(data) do
+                    local copy = CopyList(messages)
+                    if copy then
+                        output[typeKey][chatID] = copy
+                    end
                 end
             end
         end

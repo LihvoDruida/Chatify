@@ -51,6 +51,11 @@ if command -v lua5.1 >/dev/null 2>&1; then
 
     printf '\n=== load test (retail, secret values) ===\n'
     CHATIFY_STUB_MODE=retail lua5.1 tools/stub/load_test.lua | tail -3 || fail=1
+    # 6. SavedVariables round-trip. A value the client cannot write costs the
+    #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
+    #    file and one bad value discards both.
+    printf '\n=== savedvariables ===\n'
+    lua5.1 tools/savedvars_test.lua | tail -4 || fail=1
 else
     printf '\n=== load test ===\nlua5.1 not installed, skipped\n'
 fi

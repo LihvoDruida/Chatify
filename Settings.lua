@@ -164,6 +164,7 @@ end
 
 
 local selectedMentionRuleIndex = 1
+local sessionLoadedFromDisk = false
 
 local function EnsureProfileTables(db)
     if not db then return end
@@ -2114,9 +2115,78 @@ end
 -- =========================================================
 -- 5. INITIALIZATION LOGIC
 -- =========================================================
+-- /chatifydb - what the SavedVariables actually did this session.
+--
+-- Settings resetting at logout is almost never the addon clearing them: it is
+-- the SavedVariables file failing to be written or failing to parse on the way
+-- back in, after which the client discards it and the addon starts from
+-- defaults. That is invisible from inside the game, so this reports the few
+-- facts that distinguish the causes.
+--
+-- Read it at the START of a session, before changing anything: "loaded from
+-- disk" being false on a character that has used Chatify before is the finding.
+function Chatify:PrintSavedVariablesReport()
+    local function say(line)
+        local frame = DEFAULT_CHAT_FRAME
+        if frame and type(frame.AddMessage) == "function" then
+            pcall(frame.AddMessage, frame, "|cffffd200Chatify:|r " .. tostring(line))
+        end
+    end
+
+    say("SavedVariables report")
+
+    if not self.db then
+        say("  database was never created - settings cannot persist at all")
+        return
+    end
+
+    -- Guarded individually: AceDB's profile API is not present on every version,
+    -- and a diagnostic that errors is worse than one that says less.
+    if type(self.db.GetCurrentProfile) == "function" then
+        local ok, current = pcall(self.db.GetCurrentProfile, self.db)
+        say("  profile in use: " .. tostring(ok and current or "unknown"))
+    end
+
+    if type(self.db.GetProfiles) == "function" then
+        local ok, profiles = pcall(self.db.GetProfiles, self.db)
+        if ok and type(profiles) == "table" then
+            say("  profiles stored: " .. #profiles)
+        end
+    end
+
+    -- ChatifyDB exists as a global only if the client read a file back in. On a
+    -- first-ever login it is absent, which is expected; on a character that has
+    -- used the addon before, absent means the file did not survive.
+    say("  loaded from disk: " .. tostring(sessionLoadedFromDisk))
+
+    if type(ChatifyHistoryDB) == "table" then
+        local frames, lines = 0, 0
+        for _, messages in pairs(ChatifyHistoryDB.frames or {}) do
+            frames = frames + 1
+            if type(messages) == "table" then
+                lines = lines + #messages
+            end
+        end
+        say("  history: " .. frames .. " windows, " .. lines .. " lines")
+    else
+        say("  history: none stored")
+    end
+
+    say("  addon folder: " .. tostring(addonName))
+    say("If 'loaded from disk' is false at the start of a session, the file is")
+    say("being lost at logout rather than the settings being reset.")
+end
+
 function Chatify:OnInitialize()
     -- Initialize DB
     if not ns.defaults then ns.defaults = { profile = { spamKeywords = {} } } end
+
+    -- Recorded before AceDB runs, because AceDB creates the table when it is
+    -- missing and afterwards there is no way to tell a restored file from a
+    -- fresh one. This is the single fact that separates "settings were reset"
+    -- from "the file never came back".
+    sessionLoadedFromDisk = type(ChatifyDB) == "table" and next(ChatifyDB) ~= nil
+
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)
     
     -- Register Callbacks
@@ -2168,6 +2238,7 @@ function Chatify:OnInitialize()
     -- last-writer-wins registration would silently hijack it from them.
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("cfy", "OpenConfig")
+    self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after
