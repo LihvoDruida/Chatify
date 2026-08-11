@@ -56,6 +56,12 @@ if command -v lua5.1 >/dev/null 2>&1; then
     #    file and one bad value discards both.
     printf '\n=== savedvariables ===\n'
     lua5.1 tools/savedvars_test.lua | tail -4 || fail=1
+
+    # 7. The question a user actually asks: change a setting, log out, log back
+    #    in, is it still there. Needs the real AceDB, since the behaviour under
+    #    test is its removeDefaults pass. Skips itself if Ace3 is not available.
+    printf '\n=== settings round trip ===\n'
+    lua5.1 tools/roundtrip_test.lua | tail -4 || fail=1
 else
     printf '\n=== load test ===\nlua5.1 not installed, skipped\n'
 fi

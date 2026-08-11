@@ -165,6 +165,9 @@ end
 
 local selectedMentionRuleIndex = 1
 local sessionLoadedFromDisk = false
+local sessionPreviousCount = 0
+local sessionPreviousStamp = nil
+local sessionWarningShown = false
 
 local function EnsureProfileTables(db)
     if not db then return end
@@ -2158,6 +2161,21 @@ function Chatify:PrintSavedVariablesReport()
     -- first-ever login it is absent, which is expected; on a character that has
     -- used the addon before, absent means the file did not survive.
     say("  loaded from disk: " .. tostring(sessionLoadedFromDisk))
+    say("  previous sessions recorded: " .. tostring(sessionPreviousCount))
+    if sessionPreviousStamp then
+        say("  last saved: " .. tostring(sessionPreviousStamp))
+    end
+
+    if sessionPreviousCount == 0 then
+        say("|cffff6060  Nothing came back from disk this session.|r")
+        say("  If you have used Chatify before, the file is not being written at")
+        say("  logout. That is outside the addon: check that WoW is not installed")
+        say("  under Program Files, that the WTF folder is not synced by OneDrive")
+        say("  or Dropbox, and that the game is exited normally rather than being")
+        say("  force-closed or crashing, since the file is only written on a clean exit.")
+    else
+        say("  Persistence is working: your settings did survive earlier logouts.")
+    end
 
     if type(ChatifyHistoryDB) == "table" then
         local frames, lines = 0, 0
@@ -2167,7 +2185,18 @@ function Chatify:PrintSavedVariablesReport()
                 lines = lines + #messages
             end
         end
-        say("  history: " .. frames .. " windows, " .. lines .. " lines")
+
+        local size = type(ns.EstimateHistorySize) == "function" and ns.EstimateHistorySize() or 0
+        say(string.format("  history: %d windows, %d lines, about %.1f MB",
+            frames, lines, size / 1048576))
+
+        -- The client refuses to write an oversized file and then saves nothing at
+        -- all, settings included, so a large history is worth calling out even
+        -- before SAVED_VARIABLES_TOO_LARGE fires.
+        if size > 2 * 1048576 then
+            say("  |cffff4444history is large enough to risk the save being refused|r")
+            say("  lower History Limit, or press Clear History, then /reload")
+        end
     else
         say("  history: none stored")
     end
@@ -2188,6 +2217,21 @@ function Chatify:OnInitialize()
     sessionLoadedFromDisk = type(ChatifyDB) == "table" and next(ChatifyDB) ~= nil
 
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)
+
+    -- Session marker.
+    --
+    -- "My settings reset every logout" has two completely different causes and
+    -- no way to tell them apart from inside the game: either something is
+    -- clearing the profile, or the SavedVariables file is not surviving the
+    -- logout at all. The counter answers that outright - it lives in the global
+    -- section, has no default, and is therefore never touched by AceDB's
+    -- removeDefaults. If it reads 1 on a character that has used Chatify for
+    -- days, nothing was ever written back.
+    local marker = self.db.global
+    sessionPreviousCount = tonumber(marker.sessionCount) or 0
+    sessionPreviousStamp = marker.lastSavedAt
+    marker.sessionCount = sessionPreviousCount + 1
+    marker.lastSavedAt = (type(date) == "function") and date("%Y-%m-%d %H:%M") or nil
     
     -- Register Callbacks
     self.db.RegisterCallback(self, "OnProfileChanged", "RefreshConfig")
@@ -2308,6 +2352,47 @@ end
 
 function Chatify:OnEnable()
     RefreshRuntimeModules()
+    self:WarnIfSettingsWereLost()
+end
+
+-- Tells the user once, in chat, when their configuration did not come back.
+--
+-- Without this they only notice that things look wrong and have to guess why.
+-- The condition is deliberately narrow: the session counter is stored in the
+-- global section with no default, so AceDB never strips it, and the only way it
+-- reads zero while a profile has customised values is that the last write did
+-- not reach disk. A genuine first run has no customised values either, so it
+-- stays quiet.
+function Chatify:WarnIfSettingsWereLost()
+    if sessionWarningShown or sessionPreviousCount > 0 then
+        return
+    end
+
+    if not self.db or not self.db.profile then
+        return
+    end
+
+    -- rawget through the AceDB proxy: reading normally would fall through to the
+    -- defaults and report customisation that is not there.
+    local sv = rawget(self.db, "sv")
+    local profiles = sv and rawget(sv, "profiles")
+    local stored = profiles and profiles[self.db:GetCurrentProfile()]
+    if type(stored) ~= "table" or next(stored) == nil then
+        -- Nothing customised, so this is a first run and there is nothing to warn about.
+        return
+    end
+
+    sessionWarningShown = true
+
+    local frame = DEFAULT_CHAT_FRAME
+    if not frame or type(frame.AddMessage) ~= "function" then
+        return
+    end
+
+    pcall(frame.AddMessage, frame,
+        "|cffffd200Chatify:|r |cffff6060" ..
+        T("Your saved settings did not load this session.") .. "|r " ..
+        T("Type /chatifydb for details."))
 end
 
 function Chatify:OpenConfig()

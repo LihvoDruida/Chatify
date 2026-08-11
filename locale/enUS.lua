@@ -387,4 +387,7 @@ Locale:RegisterLocale("enUS", {
     ["Label"] = "Label",
     ["Shows as:"] = "Shows as:",
     ["no tag"] = "no tag",
+    ["SavedVariables file was too large. Chat history has been cleared and the limit reduced to 50 lines so your settings can be saved."] = "SavedVariables file was too large. Chat history has been cleared and the limit reduced to 50 lines so your settings can be saved.",
+    ["Your saved settings did not load this session."] = "Your saved settings did not load this session.",
+    ["Type /chatifydb for details."] = "Type /chatifydb for details.",
 })

@@ -56,7 +56,6 @@ local retailSafeEventTypeMap = {
 -- =========================================================
 -- STATE
 -- =========================================================
-local sessionHistory = {}
 local frameHistory = {}
 local targetFrameCache = {}
 local activeEventTypeMap = {}
@@ -242,30 +241,6 @@ local function AddFrameHistory(chatID, message, limit)
     AddWithLimit(frameHistory[chatID], message, limit)
 end
 
-local function AddLegacyHistory(typeKey, chatID, message, limit, channelName, channelID)
-    if not typeKey or not chatID then
-        return
-    end
-
-    if typeKey == "CHANNEL" then
-        channelName = GetSafeText(channelName)
-        if not channelName or not channelID then
-            return
-        end
-        sessionHistory.CHANNEL = sessionHistory.CHANNEL or {}
-        sessionHistory.CHANNEL[channelName] = sessionHistory.CHANNEL[channelName] or { id = channelID, frames = {} }
-        local channelData = sessionHistory.CHANNEL[channelName]
-        channelData.id = channelID
-        channelData.frames[chatID] = channelData.frames[chatID] or {}
-        AddWithLimit(channelData.frames[chatID], message, limit)
-        return
-    end
-
-    sessionHistory[typeKey] = sessionHistory[typeKey] or {}
-    sessionHistory[typeKey][chatID] = sessionHistory[typeKey][chatID] or {}
-    AddWithLimit(sessionHistory[typeKey][chatID], message, limit)
-end
-
 local function SeedFrameHistoryFromSaved()
     if savedSeeded then
         return
@@ -419,7 +394,6 @@ function History:OnChatEvent(event, message, author, ...)
         chatID = NormalizeFrameID(chatID)
         if chatID then
             AddFrameHistory(chatID, fullMessage, limit)
-            AddLegacyHistory(typeKey, chatID, fullMessage, limit, channelName, channelID)
         end
     end
 end
@@ -440,6 +414,65 @@ end
 -- runs inside SaveHistoryUnprotected, called through pcall, and each loop checks
 -- that what it is about to iterate is really a table. Losing a session of chat
 -- history is a small cost; losing the user's configuration is not.
+-- SAVED_VARIABLES_TOO_LARGE.
+--
+-- The client fires this when an addon's SavedVariables file exceeds what it is
+-- willing to write, and then it writes NOTHING - so the settings go with the
+-- history, and they go again at every logout for as long as the file stays over
+-- the line. That is the one failure mode that produces "my settings reset every
+-- time I log out" while nothing in the addon resets anything.
+--
+-- Chat history is the only thing here that grows without bound in practice, so
+-- the response is to cut it back hard and tell the user, rather than fail
+-- silently again next time.
+function History:SAVED_VARIABLES_TOO_LARGE(event, addon)
+    if addon and addon ~= "Chatify" then
+        return
+    end
+
+    local db = GetHistoryDB()
+    if db then
+        -- Well below any plausible limit, and applied to the profile so it
+        -- survives into the next session rather than being undone at login.
+        db.historyLimit = 50
+    end
+
+    frameHistory = {}
+    ChatifyHistoryDB = { version = 2, savedAt = time(), frames = {} }
+
+    local frame = DEFAULT_CHAT_FRAME
+    if frame and type(frame.AddMessage) == "function" then
+        pcall(frame.AddMessage, frame,
+            "|cffffd200Chatify:|r " .. (type(ns.L) == "table" and ns.L["SavedVariables file was too large. Chat history has been cleared and the limit reduced to 50 lines so your settings can be saved."] or
+            "SavedVariables file was too large. Chat history has been cleared and the limit reduced to 50 lines so your settings can be saved."))
+    end
+end
+
+-- Rough byte estimate of what the history will occupy on disk. Used by
+-- /chatifydb; deliberately approximate, since the point is spotting an order of
+-- magnitude, not an exact figure.
+function ns.EstimateHistorySize()
+    local total = 0
+    if type(ChatifyHistoryDB) ~= "table" then
+        return 0
+    end
+
+    for _, messages in pairs(ChatifyHistoryDB.frames or {}) do
+        if type(messages) == "table" then
+            for index = 1, #messages do
+                local value = messages[index]
+                if type(value) == "string" then
+                    -- The string, its quotes, the index and the surrounding
+                    -- syntax the client writes around each entry.
+                    total = total + #value + 16
+                end
+            end
+        end
+    end
+
+    return total
+end
+
 function History:SaveHistory()
     if type(ns.SafeCall) == "function" then
         ns.SafeCall("History:SaveHistory", History.SaveHistoryUnprotected, self)
@@ -496,39 +529,16 @@ function History:SaveHistoryUnprotected()
         end
     end
 
-    -- Keep legacy grouped data for the existing restore path and older installs.
-    -- Every pairs() below is guarded: these tables come from a whole session of
-    -- chat traffic, and one unexpected value used to be enough to raise here.
-    if type(sessionHistory) == "table" then
-        for typeKey, data in pairs(sessionHistory) do
-            if type(data) ~= "table" then
-                -- skip
-            elseif typeKey == "CHANNEL" then
-                output.CHANNEL = {}
-                for channelName, channelData in pairs(data) do
-                    if type(channelName) == "string" or type(channelName) == "number" then
-                        output.CHANNEL[channelName] = {}
-                        if type(channelData) == "table" and type(channelData.frames) == "table" then
-                            for chatID, messages in pairs(channelData.frames) do
-                                local copy = CopyList(messages)
-                                if copy then
-                                    output.CHANNEL[channelName][chatID] = copy
-                                end
-                            end
-                        end
-                    end
-                end
-            else
-                output[typeKey] = {}
-                for chatID, messages in pairs(data) do
-                    local copy = CopyList(messages)
-                    if copy then
-                        output[typeKey][chatID] = copy
-                    end
-                end
-            end
-        end
-    end
+    -- The legacy grouped format is no longer written.
+    --
+    -- Every message was stored twice - once under frames, once again under its
+    -- chat type - and channel messages three times. The saved file was therefore
+    -- two to three times larger than the data in it, which matters because an
+    -- oversized SavedVariables file is refused by the client outright
+    -- (SAVED_VARIABLES_TOO_LARGE) and then NOTHING is written, settings included.
+    --
+    -- Nothing is lost by dropping it: SeedFrameHistoryFromSaved still reads the
+    -- legacy layout, so files written by older versions import normally.
 
     ChatifyHistoryDB = output
 end
@@ -568,12 +578,14 @@ function History:OnEnable()
 
     if type(ns.RegisterEventIfSupported) == "function" then
         ns.RegisterEventIfSupported(self, "PLAYER_LOGOUT", "SaveHistory")
+        ns.RegisterEventIfSupported(self, "SAVED_VARIABLES_TOO_LARGE", "SAVED_VARIABLES_TOO_LARGE")
         ns.RegisterEventIfSupported(self, "PLAYER_LEAVING_WORLD", "SaveHistory")
         ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
         ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
         ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
     else
         pcall(self.RegisterEvent, self, "PLAYER_LOGOUT", "SaveHistory")
+        pcall(self.RegisterEvent, self, "SAVED_VARIABLES_TOO_LARGE", "SAVED_VARIABLES_TOO_LARGE")
         pcall(self.RegisterEvent, self, "PLAYER_LEAVING_WORLD", "SaveHistory")
         pcall(self.RegisterEvent, self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
         pcall(self.RegisterEvent, self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)

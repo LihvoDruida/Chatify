@@ -109,11 +109,17 @@ function M.install(mode)
     G.ChatFrameMenuButton = newFrame("Button", "ChatFrameMenuButton")
     G.QuickJoinToastButton = newFrame("Button", "QuickJoinToastButton")
 
+    -- Every frame is kept so events can actually be delivered. Libraries such as
+    -- AceDB do real work from PLAYER_LOGOUT, and a test that cannot fire that
+    -- event cannot tell whether settings survive a logout.
+    M.frames = {}
+
     G.CreateFrame = function(kind, name, parent, template)
         local f = newFrame(kind, name)
         f.__parent = parent
         f.__template = template
         if name then G[name] = f end
+        M.frames[#M.frames + 1] = f
         return f
     end
 
@@ -173,7 +179,20 @@ function M.install(mode)
     G.sort = table.sort
     G.unpack = unpack
 
-    G.C_Timer = { After = function(_, fn) return fn end, NewTicker = function() return { Cancel = noop } end }
+    -- C_Timer used to swallow the callback entirely, which meant every piece of
+    -- deferred login work - the channel label migration, the timestamp retry, the
+    -- delayed visual passes - was never exercised by any test. Callbacks are now
+    -- queued with their delay so a test can run them explicitly.
+    M.pendingTimers = {}
+    G.C_Timer = {
+        After = function(delay, fn)
+            if type(fn) == "function" then
+                M.pendingTimers[#M.pendingTimers + 1] = { delay = tonumber(delay) or 0, fn = fn }
+            end
+            return fn
+        end,
+        NewTicker = function() return { Cancel = noop } end,
+    }
     G.C_CVar = {
         AreCVarsLoaded = function() return true end,
         GetCVar = function() return "none" end,
@@ -299,6 +318,60 @@ end
 
 -- Ace3 is not vendored into this harness, so LibStub hands back small stand-ins
 -- that satisfy the calls the addon makes.
+-- Dispatches an event to every frame registered for it, the way the client does.
+-- Runs everything scheduled through C_Timer.After with a delay at or below
+-- `upTo`, in schedule order. Callbacks that schedule more work are picked up on
+-- the next pass, with a cap so a self-rescheduling timer cannot hang the test.
+function M.runPendingTimers(upTo)
+    upTo = tonumber(upTo) or math.huge
+    local ran = 0
+
+    for _ = 1, 8 do
+        local queue = M.pendingTimers or {}
+        if #queue == 0 then
+            break
+        end
+        M.pendingTimers = {}
+
+        local deferred = {}
+        for _, entry in ipairs(queue) do
+            if entry.delay <= upTo then
+                ran = ran + 1
+                local ok, err = pcall(entry.fn)
+                if not ok then
+                    print("  note: deferred timer failed: " .. tostring(err))
+                end
+            else
+                deferred[#deferred + 1] = entry
+            end
+        end
+
+        for _, entry in ipairs(deferred) do
+            M.pendingTimers[#M.pendingTimers + 1] = entry
+        end
+    end
+
+    return ran
+end
+
+function M.fireEvent(event, ...)
+    local delivered = 0
+    for _, frame in ipairs(M.frames or {}) do
+        if frame.__events and frame.__events[event] then
+            local handler = frame.__scripts and frame.__scripts.OnEvent
+            if handler then
+                delivered = delivered + 1
+                local ok, err = pcall(handler, frame, event, ...)
+                if not ok then
+                    M.eventErrors = M.eventErrors or {}
+                    M.eventErrors[#M.eventErrors + 1] = event .. ": " .. tostring(err)
+                end
+            end
+        end
+    end
+    return delivered
+end
+
 function M.installLibStub()
     local libs = {}
 

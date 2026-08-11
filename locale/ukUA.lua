@@ -389,4 +389,7 @@ Locale:RegisterLocale("ukUA", {
     ["Label"] = "Назва",
     ["Shows as:"] = "Вигляд:",
     ["no tag"] = "без позначки",
+    ["SavedVariables file was too large. Chat history has been cleared and the limit reduced to 50 lines so your settings can be saved."] = "Файл SavedVariables був завеликий. Історію чату очищено, а ліміт зменшено до 50 рядків, щоб ваші налаштування могли зберегтися.",
+    ["Your saved settings did not load this session."] = "Ваші збережені налаштування не завантажились у цій сесії.",
+    ["Type /chatifydb for details."] = "Введіть /chatifydb для подробиць.",
 })
