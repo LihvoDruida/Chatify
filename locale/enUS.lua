@@ -207,6 +207,7 @@ Locale:RegisterLocale("enUS", {
     ["Channel Notifications"] = "Channel Notifications",
     ["Channel notification sounds. Mention alerts are configured in Mention Manager."] = "Channel notification sounds. Mention alerts are configured in Mention Manager.",
     ["Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown."] = "Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown.",
+    ["On Midnight (12.0+) Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed."] = "On Midnight (12.0+) Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed.",
     ["Mention Manager"] = "Mention Manager",
     ["Enable Mention Manager"] = "Enable Mention Manager",
     ["Add Word / Phrase"] = "Add Word / Phrase",

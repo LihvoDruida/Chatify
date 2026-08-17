@@ -1094,6 +1094,233 @@ function ns.ApplyMentionRules(text, eventName, author, ...)
     return output
 end
 
+-- === Render-time mention highlighting (12.0+ fallback) ===
+--
+-- ns.ApplyMentionRules only ever runs from inside a chat message-event filter. On
+-- 12.0+ Chatify does not install those filters by default, because a filter closure
+-- on Blizzard's chat dispatch is what silences chat inside encounters. The mention
+-- *sound* already had a fallback (ChatSounds.TryMentionFallback); the highlight had
+-- none, so the whole Mention Manager was silently inert on modern Retail while the
+-- options panel still showed the rules as configured.
+--
+-- The highlight cannot simply be moved onto an event frame: at that point Blizzard
+-- has not built the chat line yet, and the line it eventually builds is not the raw
+-- message. So the work is split. The match and the colouring happen here, on
+-- Chatify's own event frame, where the full event context is available and
+-- per-channel scoping still resolves correctly. The coloured result is parked, and
+-- the AddMessage wrapper in ChatVisuals swaps the raw message for the coloured one
+-- inside the line Blizzard hands it.
+--
+-- Nothing about this touches Blizzard's dispatch, so it cannot taint anything.
+--
+-- Only messages that actually matched a rule are ever parked, so on an ordinary
+-- chat line the queue is empty and the wrapper returns on its first comparison.
+local mentionRenderQueue = {}
+local MENTION_RENDER_TTL = 8
+local MENTION_RENDER_LIMIT = 12
+local mentionCaptureFrame
+
+local MentionCaptureEvents = {
+    "CHAT_MSG_SAY",
+    "CHAT_MSG_YELL",
+    "CHAT_MSG_GUILD",
+    "CHAT_MSG_OFFICER",
+    "CHAT_MSG_PARTY",
+    "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID",
+    "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_RAID_WARNING",
+    "CHAT_MSG_INSTANCE_CHAT",
+    "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    "CHAT_MSG_CHANNEL",
+    "CHAT_MSG_COMMUNITIES_CHANNEL",
+    "CHAT_MSG_WHISPER",
+    "CHAT_MSG_BN_WHISPER",
+    "CHAT_MSG_BN_CONVERSATION",
+}
+
+local function MentionNow()
+    return type(GetTime) == "function" and GetTime() or 0
+end
+
+local function PruneMentionRenderQueue(now)
+    for i = #mentionRenderQueue, 1, -1 do
+        if (now - (mentionRenderQueue[i].at or 0)) > MENTION_RENDER_TTL then
+            table.remove(mentionRenderQueue, i)
+        end
+    end
+end
+
+function ns.AreMessageFiltersInstalled()
+    return filtersInstalled and true or false
+end
+
+local function HasActiveMentionRules(db)
+    local rules = GetMentionRules(db)
+    if not rules then
+        return false
+    end
+
+    for i = 1, #rules do
+        local rule = rules[i]
+        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- The render path and the filter path are mutually exclusive by construction: this
+-- is keyed on whether the filters are *actually installed*, not on whether they are
+-- currently allowed, so there is neither a gap nor an overlap when the lockdown gate
+-- flips mid-session.
+function ns.ShouldHighlightMentionsOnRender()
+    if filtersInstalled then
+        return false
+    end
+
+    return HasActiveMentionRules(DB())
+end
+
+local function MentionCaptureOnEvent(_, event, msg, author, ...)
+    if not ns.ShouldHighlightMentionsOnRender() then
+        return
+    end
+
+    if type(msg) ~= "string" or msg == "" then
+        return
+    end
+
+    -- Same guard the filters use: never read a payload that is secret or otherwise
+    -- inaccessible during chat lockdown.
+    if type(ns.CanMutateChatPayload) == "function" then
+        if not ns.CanMutateChatPayload(event, msg, author, ...) then
+            return
+        end
+    elseif IsSecretValue(msg) or IsSecretValue(author) then
+        return
+    end
+
+    local rules = GetMentionRules(DB())
+    if not rules then
+        return
+    end
+
+    local output = msg
+    local matched = false
+    for i = 1, #rules do
+        local rule = rules[i]
+        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule)
+            and MentionRuleAppliesToEvent(rule, event, ...) then
+            local hit = false
+            output = TransformPlainTextSegments(output, function(segment)
+                if not hit and SegmentContainsRule(segment, rule) then
+                    hit = true
+                end
+                return HighlightMentionRuleInSegment(segment, rule)
+            end)
+            if hit then
+                matched = true
+            end
+        end
+    end
+
+    -- The sound is deliberately not queued here. ChatSounds owns the mention sound
+    -- whenever the filter path is absent, and announcing it from both places is the
+    -- double-notification the post-message sound model exists to avoid.
+    if not matched or output == msg then
+        return
+    end
+
+    local now = MentionNow()
+    PruneMentionRenderQueue(now)
+
+    for i = 1, #mentionRenderQueue do
+        if mentionRenderQueue[i].raw == msg then
+            mentionRenderQueue[i].formatted = output
+            mentionRenderQueue[i].at = now
+            return
+        end
+    end
+
+    if #mentionRenderQueue >= MENTION_RENDER_LIMIT then
+        table.remove(mentionRenderQueue, 1)
+    end
+    mentionRenderQueue[#mentionRenderQueue + 1] = { raw = msg, formatted = output, at = now }
+end
+
+function ns.ApplyPendingMentionRender(text)
+    if #mentionRenderQueue == 0 or type(text) ~= "string" or text == "" then
+        return text
+    end
+
+    PruneMentionRenderQueue(MentionNow())
+
+    for i = 1, #mentionRenderQueue do
+        local entry = mentionRenderQueue[i]
+        local raw = entry.raw
+        if type(raw) == "string" and raw ~= "" then
+            -- Plain find: the raw message is user text and must not be read as a
+            -- Lua pattern.
+            local first, last = string_find(text, raw, 1, true)
+            if first then
+                -- The entry is not consumed on use. One message is rendered once per
+                -- chat frame that shows the channel, and every one of those lines
+                -- should carry the highlight; the TTL alone retires it.
+                return text:sub(1, first - 1) .. entry.formatted .. text:sub(last + 1)
+            end
+        end
+    end
+
+    return text
+end
+
+function ns.StopMentionRenderCapture()
+    if mentionCaptureFrame then
+        pcall(mentionCaptureFrame.UnregisterAllEvents, mentionCaptureFrame)
+    end
+    mentionRenderQueue = {}
+end
+
+function ns.RefreshMentionRenderCapture()
+    local wanted = ns.ShouldHighlightMentionsOnRender()
+
+    if not wanted then
+        ns.StopMentionRenderCapture()
+        return false
+    end
+
+    if not mentionCaptureFrame then
+        if type(CreateFrame) ~= "function" then
+            return false
+        end
+        mentionCaptureFrame = CreateFrame("Frame")
+        mentionCaptureFrame:SetScript("OnEvent", MentionCaptureOnEvent)
+    end
+
+    for i = 1, #MentionCaptureEvents do
+        local eventName = MentionCaptureEvents[i]
+        if type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported(eventName) then
+            pcall(mentionCaptureFrame.RegisterEvent, mentionCaptureFrame, eventName)
+        end
+    end
+
+    return true
+end
+
+-- Single entry point for "the mention configuration changed". Both halves have to
+-- move together: the capture frame produces the highlight and the AddMessage
+-- wrapper applies it, so installing one without the other does nothing at all.
+function ns.RefreshMentionRuntime()
+    if type(ns.RefreshMentionRenderCapture) == "function" then
+        ns.RefreshMentionRenderCapture()
+    end
+    if type(ns.RefreshChannelLabelHook) == "function" then
+        pcall(ns.RefreshChannelLabelHook)
+    end
+end
+
 function ns.FormatLinksOnly(msg)
     if type(msg) ~= "string" then
         return msg
@@ -1283,6 +1510,13 @@ local function RefreshFilterState(allowed)
     else
         UnregisterMessageFilters()
     end
+
+    -- ns.ShouldHighlightMentionsOnRender is keyed on filtersInstalled, which was
+    -- just changed, so the render fallback has to be re-resolved here or the
+    -- Mention Manager stays dead for the rest of the session.
+    if type(ns.RefreshMentionRuntime) == "function" then
+        ns.RefreshMentionRuntime()
+    end
 end
 
 if type(ns.RegisterFilterRefreshHandler) == "function" then
@@ -1369,6 +1603,13 @@ function Filters:OnEnable()
 
     InstallMessageFilters()
 
+    -- Runs unconditionally: on clients where the filters did install this is a
+    -- cheap no-op, and where they did not it is the only thing that makes mention
+    -- highlighting work at all.
+    if type(ns.RefreshMentionRuntime) == "function" then
+        ns.RefreshMentionRuntime()
+    end
+
     if type(ns.IsAddOnLoadedCompat) == "function" and ns.IsAddOnLoadedCompat("Blizzard_Communities") then
         self:HookCommunities()
     elseif C_AddOns and C_AddOns.IsAddOnLoaded then
@@ -1390,6 +1631,12 @@ end
 
 function Filters:OnDisable()
     UnregisterMessageFilters()
+    -- Not RefreshMentionRenderCapture: UnregisterMessageFilters has just cleared
+    -- filtersInstalled, so a refresh would read "filters absent" and switch the
+    -- fallback ON while the module is being switched off.
+    if type(ns.StopMentionRenderCapture) == "function" then
+        ns.StopMentionRenderCapture()
+    end
     self:UnregisterAllEvents()
     if type(self.UnhookAll) == "function" then
         self:UnhookAll()

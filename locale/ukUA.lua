@@ -207,6 +207,7 @@ Locale:RegisterLocale("ukUA", {
     ["Channel Notifications"] = "Сповіщення каналів",
     ["Channel notification sounds. Mention alerts are configured in Mention Manager."] = "Звуки сповіщень каналів. Згадки налаштовуються в Менеджері згадок.",
     ["Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown."] = "Створюйте правила для імен, слів або фраз. Кожне правило може підсвічувати текст, програвати звук, обмежувати канали й мати власну затримку.",
+    ["On Midnight (12.0+) Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed."] = "На Midnight (12.0+) Chatify типово не встановлює чат-фільтри, тож згадки підсвічуються під час малювання рядка. Підсвітка працює в будь-якому режимі; змінювати налаштування не потрібно.",
     ["Mention Manager"] = "Менеджер згадок",
     ["Enable Mention Manager"] = "Увімкнути Менеджер згадок",
     ["Add Word / Phrase"] = "Додати слово / фразу",

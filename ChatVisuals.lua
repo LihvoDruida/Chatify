@@ -852,18 +852,43 @@ end
 local channelHookOriginal = setmetatable({}, { __mode = "k" })
 local channelHookWrapper = setmetatable({}, { __mode = "k" })
 
+local function RouterOwnsAddMessage()
+    local db = GetVisualDB()
+    -- The router replaces AddMessage in virtual mode and runs ns.FormatMessage
+    -- itself, which already covers both channel labels and mention highlighting.
+    return (db and db.useVirtualChat and not IsRetailRestricted()) and true or false
+end
+
 local function ChannelLabelsWanted()
     local db = GetVisualDB()
     if not db then
         return false
     end
 
-    -- The router owns AddMessage in virtual mode and applies labels itself.
-    if db.useVirtualChat and not IsRetailRestricted() then
+    if RouterOwnsAddMessage() then
         return false
     end
 
     return BuildChannelLabelMap(db).active
+end
+
+-- True only on clients where the message-event filters are absent, which is where
+-- ns.ApplyMentionRules never runs and this wrapper is the only thing that can put
+-- the highlight on screen. See the render-time mention block in ChatFilters.lua.
+local function MentionHighlightWanted()
+    if RouterOwnsAddMessage() then
+        return false
+    end
+    if type(ns.ShouldHighlightMentionsOnRender) ~= "function" then
+        return false
+    end
+
+    local ok, wanted = pcall(ns.ShouldHighlightMentionsOnRender)
+    return ok and wanted and true or false
+end
+
+local function RenderHookWanted()
+    return ChannelLabelsWanted() or MentionHighlightWanted()
 end
 
 local function InstallChannelLabelHook(frame)
@@ -889,9 +914,23 @@ local function InstallChannelLabelHook(frame)
                 safe = okSecret and not isSecret
             end
             if safe then
-                local ok, rewritten = pcall(ns.ApplyChannelLabels, text)
-                if ok and type(rewritten) == "string" then
-                    output = rewritten
+                if ChannelLabelsWanted() then
+                    local ok, rewritten = pcall(ns.ApplyChannelLabels, output)
+                    if ok and type(rewritten) == "string" then
+                        output = rewritten
+                    end
+                end
+
+                -- Deliberately after the labels. The label templates match on the
+                -- phrasing Blizzard wrote around the player name ("Bob whispers: "),
+                -- and a colour code inserted into that name first would stop them
+                -- matching. Colouring last cannot break anything the other way: the
+                -- swap is a plain substring replacement of the raw message.
+                if type(ns.ApplyPendingMentionRender) == "function" then
+                    local okMention, highlighted = pcall(ns.ApplyPendingMentionRender, output)
+                    if okMention and type(highlighted) == "string" then
+                        output = highlighted
+                    end
                 end
             end
         end
@@ -926,7 +965,7 @@ local function ForEachChatFrame(callback)
 end
 
 function ns.RefreshChannelLabelHook()
-    if ChannelLabelsWanted() then
+    if RenderHookWanted() then
         ForEachChatFrame(InstallChannelLabelHook)
     else
         ForEachChatFrame(RemoveChannelLabelHookFromFrame)

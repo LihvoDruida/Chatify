@@ -229,6 +229,15 @@ local function GetRuntimeDebugDescription()
     return "|cff888888Runtime debug log is not available yet.|r"
 end
 
+-- The render-time mention path (ChatFilters.lua) only arms itself while at least
+-- one usable rule exists, so any edit that can change that answer has to poke it.
+-- Cheap: it resolves a couple of booleans and returns.
+local function RefreshMentionRuntime()
+    if type(ns.RefreshMentionRuntime) == "function" then
+        pcall(ns.RefreshMentionRuntime)
+    end
+end
+
 local function AddMentionRule(db, text)
     EnsureProfileTables(db)
     text = TrimInput(text)
@@ -1733,12 +1742,20 @@ function Chatify:GetOptions()
                                 name = T("Create rules for names, words, or phrases. Each rule can highlight text, play a sound, limit channels, and use its own cooldown."),
                                 fontSize = "medium",
                             },
+                            mentionRuntimeNote = {
+                                order = 1.5,
+                                type = "description",
+                                name = "|cff999999" .. T("On Midnight (12.0+) Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed.") .. "|r",
+                                hidden = function()
+                                    return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
+                                end,
+                            },
                             enableMentionManager = {
                                 order = 2,
                                 name = T("Enable Mention Manager"),
                                 type = "toggle",
                                 width = "full",
-                                set = function(info, val) self.db.profile.enableMentionManager = val end,
+                                set = function(info, val) self.db.profile.enableMentionManager = val; RefreshMentionRuntime() end,
                                 get = function(info) return self.db.profile.enableMentionManager ~= false end,
                             },
                             addMentionRule = {
@@ -1747,7 +1764,7 @@ function Chatify:GetOptions()
                                 desc = T("Example: Sebas, RL, Ключ"),
                                 type = "input",
                                 width = "full",
-                                set = function(info, val) AddMentionRule(self.db.profile, val) end,
+                                set = function(info, val) AddMentionRule(self.db.profile, val); RefreshMentionRuntime() end,
                                 get = function(info) return "" end,
                             },
                             selectedMentionRule = {
@@ -1776,6 +1793,7 @@ function Chatify:GetOptions()
                                         if selectedMentionRuleIndex > #self.db.profile.mentionRules then selectedMentionRuleIndex = #self.db.profile.mentionRules end
                                         if selectedMentionRuleIndex < 1 then selectedMentionRuleIndex = 1 end
                                     end
+                                    RefreshMentionRuntime()
                                 end,
                             },
                         },
@@ -1791,7 +1809,7 @@ function Chatify:GetOptions()
                                 order = 1,
                                 name = T("Enabled"),
                                 type = "toggle",
-                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.enabled = val end end,
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.enabled = val end; RefreshMentionRuntime() end,
                                 get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.enabled ~= false or false end,
                             },
                             mentionText = {
@@ -1799,7 +1817,7 @@ function Chatify:GetOptions()
                                 name = T("Word / Phrase"),
                                 type = "input",
                                 width = "full",
-                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end end,
+                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end; RefreshMentionRuntime() end,
                                 get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.text or "" end,
                             },
                             mentionColor = {

@@ -51,6 +51,15 @@ if command -v lua5.1 >/dev/null 2>&1; then
 
     printf '\n=== load test (retail, secret values) ===\n'
     CHATIFY_STUB_MODE=retail lua5.1 tools/stub/load_test.lua | tail -3 || fail=1
+    # 5b. Mention Manager end to end, in both client shapes. This is the check
+    #     that would have caught 0.11.38: on a secret-value build the message
+    #     filters are absent, so the highlight has to come from the render path.
+    printf '\n=== mention manager (retail) ===\n'
+    CHATIFY_STUB_MODE=retail lua5.1 tools/mention_probe.lua | tail -2 || fail=1
+
+    printf '\n=== mention manager (classic) ===\n'
+    CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua | tail -2 || fail=1
+
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
     #    file and one bad value discards both.

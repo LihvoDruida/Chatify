@@ -528,6 +528,13 @@ local copyCurrentFrame
 local copyCurrentMaxLines = COPY_WINDOW_MAX_LINES
 local copyWindowMode = "copy"
 local copyTextValue = ""
+-- Text the deferred layout pass should size the scroll child against. Kept
+-- separately from copyTextValue so a second window opened in between cannot make
+-- the pending pass lay out the wrong content.
+local copyPreviewLayoutText = ""
+-- Defined further down, next to the layout helpers, but needed by the window
+-- construction above it.
+local RefreshCopyScrollRect
 local copySettingText = false
 local nativeCopySessions = setmetatable({}, { __mode = "k" })
 local nativeCopySessionId = 0
@@ -1477,9 +1484,13 @@ local function CreateCopyWindow()
     eb:SetScript("OnMouseWheel", function(_, delta)
         ScrollCopyWindow(delta)
     end)
-    eb:SetScript("OnMouseDown", function(self)
-        self:SetFocus()
-    end)
+    -- No OnMouseDown handler.
+    --
+    -- There used to be one that called SetFocus(). An EditBox with EnableMouse(true)
+    -- and SetAutoFocus(false) already takes keyboard focus when it is clicked, so it
+    -- bought nothing - and it actively broke drag selection, because SetFocus()
+    -- resets the cursor and discards the selection anchor the click had just placed.
+    -- The result was a copy window in which text could not be dragged over at all.
     eb:SetScript("OnEditFocusGained", function()
         if copyHint then
             copyHint:SetText(L("Select the needed text, then press Ctrl+C."))
@@ -1494,15 +1505,51 @@ local function CreateCopyWindow()
         self:ClearFocus()
         f:Hide()
     end)
+    -- ScrollingEdit_OnCursorChanged / ScrollingEdit_OnUpdate are FrameXML globals
+    -- from the old ScrollFrame templates. They were called under a plain `if`, so on
+    -- a client where they no longer exist both handlers silently became no-ops and
+    -- the caret stopped being followed at all. The fallback below is the same
+    -- algorithm, kept local so the behaviour no longer depends on them.
     eb:SetScript("OnCursorChanged", function(self, x, y, w, h)
         if ScrollingEdit_OnCursorChanged then
             ScrollingEdit_OnCursorChanged(self, x, y, w, h)
+        else
+            self.__chatifyCursorOffset = y
+            self.__chatifyCursorHeight = h
+            self.__chatifyHandleCursor = true
         end
+
+        -- Moving the caret can change nothing about the text and still leave the
+        -- cached child rect wrong after a resize, which is what made the caret and
+        -- the selection render one action behind.
+        RefreshCopyScrollRect()
     end)
     eb:SetScript("OnUpdate", function(self, elapsed)
         if ScrollingEdit_OnUpdate then
             ScrollingEdit_OnUpdate(self, elapsed, scrollArea)
+            return
         end
+
+        if not self.__chatifyHandleCursor then
+            return
+        end
+        self.__chatifyHandleCursor = false
+
+        local cursorOffset = -(self.__chatifyCursorOffset or 0)
+        local cursorHeight = self.__chatifyCursorHeight or 0
+        local offset = scrollArea:GetVerticalScroll() or 0
+        local height = scrollArea:GetHeight() or 0
+
+        if height + offset < cursorOffset + cursorHeight then
+            offset = cursorOffset + cursorHeight - height
+        elseif offset > cursorOffset then
+            offset = cursorOffset
+        end
+
+        if offset < 0 then
+            offset = 0
+        end
+        pcall(scrollArea.SetVerticalScroll, scrollArea, offset)
     end)
 
     -- 12.1 adds Frame:SetOnUpdateMode. RunWhenVisible is the default, so this is
@@ -1538,7 +1585,18 @@ local function CreateCopyWindow()
         if copyEditBox then
             copyEditBox:SetFocus()
             copyEditBox:SetCursorPosition(0)
+            -- Highlighting in the same frame as SetFocus is unreliable: a selection
+            -- is only drawn while the box holds focus, and the focus change has not
+            -- been applied yet at this point. That is why the selection used to
+            -- appear only after the next keypress. One frame later it is in place.
             copyEditBox:HighlightText(0, -1)
+            if type(ns.SafeAfter) == "function" then
+                ns.SafeAfter(0, function()
+                    if copyEditBox and copyFrame and copyFrame:IsShown() then
+                        copyEditBox:HighlightText(0, -1)
+                    end
+                end)
+            end
         end
         if copyHint then
             copyHint:SetText(L("Selected text is ready. Press Ctrl+C to copy."))
@@ -1587,25 +1645,67 @@ local function ClearCopyPreview()
     SetCopyEditText("")
 end
 
-local function RenderCopyPreview(entries)
+-- Recomputes the scroll child rect from the size the EditBox has right now.
+--
+-- ScrollFrame:UpdateScrollChildRect is the only thing that tells the scroll frame
+-- how large its child became. The old code called it exactly once, from
+-- OnTextChanged, i.e. *before* the height was applied, so on the first open the
+-- frame was still working from the 1px placeholder height the EditBox is created
+-- with and nothing was laid out where it could be seen.
+RefreshCopyScrollRect = function()
+    if copyScroll and type(copyScroll.UpdateScrollChildRect) == "function" then
+        pcall(copyScroll.UpdateScrollChildRect, copyScroll)
+    end
+end
+
+local function ApplyCopyPreviewLayout(text)
     if not copyContent then
         return
     end
 
     local width = 545
     if copyScroll and copyScroll.GetWidth then
-        width = math.max(260, math.floor((copyScroll:GetWidth() or 575) - 12))
+        local measured = copyScroll:GetWidth()
+        if type(measured) == "number" and measured > 0 then
+            width = measured - 12
+        end
     end
-
-    local text = BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS)
-    copyContent:SetWidth(width)
-    SetCopyEditText(text)
+    copyContent:SetWidth(math.max(260, math.floor(width)))
 
     local lineCount = 1
     for _ in string.gmatch(text or "", "\n") do
         lineCount = lineCount + 1
     end
     copyContent:SetHeight(math.max(1, lineCount * 16 + 24))
+end
+
+local function RenderCopyPreview(entries)
+    if not copyContent then
+        return
+    end
+
+    local text = BuildTextFromEntries(entries, COPY_WINDOW_MAX_CHARS)
+
+    -- Size first, fill second. The EditBox has to already be the right shape when
+    -- the text lands, or the layout the scroll frame caches describes the previous
+    -- one.
+    ApplyCopyPreviewLayout(text)
+    SetCopyEditText(text)
+    RefreshCopyScrollRect()
+
+    -- And once more on the next frame. RenderCopyPreview runs in the same frame as
+    -- copyFrame:Show(), when the anchors of the scroll frame have not been resolved
+    -- yet and GetWidth() cannot answer honestly. Re-running after the layout pass is
+    -- what stops the window coming up blank until the first click.
+    copyPreviewLayoutText = text
+    if type(ns.ScheduleUnique) == "function" then
+        ns.ScheduleUnique("ChatifyCopyPreviewLayout", 0, function()
+            if copyFrame and copyFrame:IsShown() then
+                ApplyCopyPreviewLayout(copyPreviewLayoutText)
+                RefreshCopyScrollRect()
+            end
+        end)
+    end
 end
 
 BuildTextFromEntries = function(entries, maxChars)
