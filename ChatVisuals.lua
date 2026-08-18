@@ -1158,18 +1158,12 @@ function ns.ApplyNativeTimestamps(db)
 
     local wanted = nil
     if db.enableTimestamps and not chatifyOwnsTimestamps then
-        local fmt = "%H:%M"
-        if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
-            local formatData = ns.Lists.TimeFormats[db.timestampID]
-            if formatData then
-                -- A nil format means "no timestamp" in Chatify's list.
-                if formatData.format == nil then
-                    wanted = nil
-                    fmt = nil
-                else
-                    fmt = formatData.format or fmt
-                end
-            end
+        -- A nil format is the "None" entry in Chatify's list and means the CVar
+        -- should stay off entirely.
+        local fmt = ns.GetTimestampFormat(db)
+        if type(fmt) ~= "string" or fmt == "" then
+            wanted = nil
+            fmt = nil
         end
         if fmt then
             wanted = fmt .. " "
@@ -1290,24 +1284,15 @@ TimestampFilter = function(self, event, msg, author, ...)
         return
     end
 
-    local timestampFormat = "%H:%M"
-    if ns.Lists and ns.Lists.TimeFormats and db.timestampID then
-        local formatData = ns.Lists.TimeFormats[db.timestampID]
-        if formatData then
-            if formatData.format == nil then
-                return
-            end
-            timestampFormat = formatData.format or timestampFormat
-        end
+    -- Resolved through the shared helper so the chat frames, the history window and
+    -- the copy window cannot drift apart on what a timestamp looks like.
+    local timestampFormat = ns.GetTimestampFormat(db)
+    if type(timestampFormat) ~= "string" or timestampFormat == "" then
+        -- "None": the user asked for no timestamps.
+        return
     end
 
-    local timestamp = time()
-    if db.useServerTime and type(GetServerTime) == "function" then
-        local okServer, serverTime = pcall(GetServerTime)
-        if okServer and serverTime then
-            timestamp = serverTime
-        end
-    end
+    local timestamp = ns.GetTimestampSeconds(db)
 
     local okBuild, finalMsg = pcall(function()
         local timeStr = date(timestampFormat, timestamp)

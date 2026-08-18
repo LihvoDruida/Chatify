@@ -214,10 +214,24 @@ local function AddWithLimit(tbl, message, limit)
     end
 end
 
+-- The history window follows the same timestamp setting as the chat frames.
+--
+-- This used to call date("%H:%M") directly, which ignored the configured format
+-- outright: someone using HH:MM:SS saw their seconds disappear in the history
+-- window and nowhere else. ns.FormatChatTimestamp resolves the setting in one
+-- place and also honours the server-time preference.
 local function FormatMessage(msg, author)
-    local okDate, timestamp = pcall(date, "%H:%M")
-    if not okDate or type(timestamp) ~= "string" then
-        timestamp = "--:--"
+    local timestamp
+    if type(ns.FormatChatTimestamp) == "function" then
+        timestamp = ns.FormatChatTimestamp(GetHistoryDB())
+    else
+        local okDate, fallback = pcall(date, "%H:%M")
+        timestamp = okDate and type(fallback) == "string" and fallback or nil
+    end
+
+    local prefix = ""
+    if type(timestamp) == "string" and timestamp ~= "" then
+        prefix = string.format("|cffaaaaaa[%s]|r ", timestamp)
     end
 
     if author and author ~= "" then
@@ -225,10 +239,10 @@ local function FormatMessage(msg, author)
         if not okAuthor or type(shortAuthor) ~= "string" then
             shortAuthor = tostring(author or "")
         end
-        return string.format("|cffaaaaaa[%s]|r |cffffd700[%s]|r: %s", timestamp, shortAuthor, msg)
+        return string.format("%s|cffffd700[%s]|r: %s", prefix, shortAuthor, msg)
     end
 
-    return string.format("|cffaaaaaa[%s]|r %s", timestamp, msg)
+    return string.format("%s%s", prefix, msg)
 end
 
 local function AddFrameHistory(chatID, message, limit)

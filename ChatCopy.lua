@@ -338,19 +338,31 @@ local function SplitLeadingTimestamp(text)
     return text, nil
 end
 
-local function BuildProtectedEntry(label, timestamp)
+local function BuildProtectedEntry(label, timestamp, historical)
     local fallback = L("Protected chat line omitted.")
     local safeLabel = StripChatMarkup(label) or fallback
+    local timeText
+    if tonumber(timestamp) then
+        timeText = date("%H:%M:%S", tonumber(timestamp))
+    elseif not historical then
+        timeText = date("%H:%M:%S", time())
+    end
     return {
         text = safeLabel,
         raw = safeLabel,
         author = nil,
-        time = date("%H:%M:%S", tonumber(timestamp) or time()),
+        time = timeText,
         protected = true,
     }
 end
 
-local function BuildEntry(text, author, timestamp)
+-- `historical` marks a line read back out of a chat frame's buffer rather than
+-- captured as it arrived. For those, the current clock is not a fallback for an
+-- unknown arrival time - it is a wrong answer that reads as a right one. A system
+-- line printed at login came out stamped with the moment the copy window was
+-- opened, so older lines carried later times than the chat below them, and every
+-- reopen moved them again.
+local function BuildEntry(text, author, timestamp, historical)
     local rawPayload = GetMessagePayload(text)
     local rawAuthor = author or GetMessageAuthor(text)
     local cleanText = StripChatMarkup(rawPayload)
@@ -376,7 +388,9 @@ local function BuildEntry(text, author, timestamp)
         timeText = date("%H:%M:%S", tonumber(timestamp))
     elseif embeddedTime then
         timeText = embeddedTime
-    else
+    elseif not historical then
+        -- Live capture: the message is arriving right now, so the clock is the
+        -- arrival time rather than a guess at it.
         timeText = date("%H:%M:%S", time())
     end
 
@@ -431,10 +445,20 @@ local function BuildPlainLine(entry)
         -- is the same string the author was derived from. Emitting both is what
         -- produced doubled prefixes; drop the one already in the text.
         text = StripLeadingAuthor(text, author)
-        return string.format("[%s] %s: %s", entry.time or "--:--:--", author, text)
+        if not IsNonEmptyString(entry.time) then
+            return string.format("%s: %s", author, text)
+        end
+        return string.format("[%s] %s: %s", entry.time, author, text)
     end
 
-    return string.format("[%s] %s", entry.time or "--:--:--", text)
+    -- No time column at all when the arrival time is genuinely unknown. A
+    -- placeholder would line the column up, but it would also imply Chatify knows
+    -- the line has a time and simply lost it.
+    if not IsNonEmptyString(entry.time) then
+        return text
+    end
+
+    return string.format("[%s] %s", entry.time, text)
 end
 
 local function BuildColoredLine(entry)
@@ -450,14 +474,16 @@ local function BuildColoredLine(entry)
         return ""
     end
 
-    local timeText = string.format("|cff888888[%s]|r", entry.time or "--:--:--")
+    local timeText = IsNonEmptyString(entry.time)
+        and string.format("|cff888888[%s]|r ", entry.time)
+        or ""
     local author = NormalizeName(entry.author)
     if IsNonEmptyString(author) then
         text = StripLeadingAuthor(text, author)
-        return string.format("%s %s: %s", timeText, ColorName(author), text)
+        return string.format("%s%s: %s", timeText, ColorName(author), text)
     end
 
-    return string.format("%s %s", timeText, text)
+    return string.format("%s%s", timeText, text)
 end
 
 local function AddFullChatEntry(entry)
@@ -1952,17 +1978,17 @@ local function ReadVisibleChatLines(chatFrame)
     return entries
 end
 
-local function AddHistoryEntry(entries, rawText, author, timestamp)
+local function AddHistoryEntry(entries, rawText, author, timestamp, historical)
     local payload = GetMessagePayload(rawText)
     local payloadAuthor = author or GetMessageAuthor(rawText)
-    local entry = BuildEntry(payload, payloadAuthor, timestamp)
+    local entry = BuildEntry(payload, payloadAuthor, timestamp, historical)
     if entry then
         entries[#entries + 1] = entry
         return true
     end
 
     if IsProtectedChatValue(payload) then
-        entries[#entries + 1] = BuildProtectedEntry(nil, timestamp)
+        entries[#entries + 1] = BuildProtectedEntry(nil, timestamp, historical)
         return true
     end
 
@@ -2042,7 +2068,7 @@ local function ReadMessageHistory(chatFrame, maxLines)
         for i = first, count do
             local ok, msg, r, g, b, messageId, extraData = pcall(chatFrame.GetMessageInfo, chatFrame, i)
             if ok then
-                AddHistoryEntry(entries, msg, nil, nil)
+                AddHistoryEntry(entries, msg, nil, nil, true)
             end
         end
     end
@@ -2053,7 +2079,7 @@ local function ReadMessageHistory(chatFrame, maxLines)
         for i = first, count do
             local ok, historyEntry = pcall(chatFrame.historyBuffer.GetEntryAtIndex, chatFrame.historyBuffer, i)
             if ok then
-                AddHistoryEntry(fallbackEntries, historyEntry)
+                AddHistoryEntry(fallbackEntries, historyEntry, nil, nil, true)
             end
         end
         if HasReadableEntries(fallbackEntries) or #entries == 0 then
@@ -2887,6 +2913,20 @@ local function DumpCopyWindowDiagnostics()
             tostring(get(copyScroll, "GetWidth")), tostring(get(copyScroll, "GetHeight")),
             tostring(get(copyScroll, "GetVerticalScrollRange")), tostring(get(copyScroll, "GetVerticalScroll")))
         line("scroll child is the editbox: %s", tostring(child ~= nil and child == copyEditBox))
+    end
+
+    -- Which tab the window is showing and how much the frame itself admits to
+    -- holding. If the EditBox text matches what Chatify set but the window looks
+    -- empty, the problem is drawing; if this count is zero, it is the data.
+    if copyCurrentFrame then
+        line("source frame: %s (id %s), messages: %s",
+            tostring(GetChatFrameDisplayName(copyCurrentFrame, GetChatFrameID(copyCurrentFrame))),
+            tostring(GetChatFrameID(copyCurrentFrame)),
+            tostring(GetChatFrameMessageCount(copyCurrentFrame)))
+        line("frame excluded from copy: %s",
+            tostring(IsCopyBlockedChatFrame(copyCurrentFrame, GetChatFrameID(copyCurrentFrame))))
+    else
+        line("source frame: none")
     end
 
     return out

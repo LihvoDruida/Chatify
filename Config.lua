@@ -494,6 +494,68 @@ ns.Lists.TimeFormats = {
     [5] = { name = "D.M HH:MM (08.02 12:30)",  format = "%d.%m %H:%M" },
 }
 
+-- Single source for "what does a Chatify timestamp look like right now".
+--
+-- This resolution was written out three times: twice in ChatVisuals and once, as a
+-- hardcoded "%H:%M", in ChatHistory. The hardcoded one is why the History window
+-- dropped the seconds for anyone who had configured HH:MM:SS - the setting was
+-- simply not consulted there.
+--
+-- Returns nil when the user has chosen "None", which means "no timestamp" rather
+-- than "use the default".
+function ns.GetTimestampFormat(db)
+    db = db or ns.db
+    if type(db) ~= "table" then
+        return "%H:%M"
+    end
+
+    local formats = ns.Lists and ns.Lists.TimeFormats
+    if not formats or db.timestampID == nil then
+        return "%H:%M"
+    end
+
+    local formatData = formats[db.timestampID]
+    if type(formatData) ~= "table" then
+        return "%H:%M"
+    end
+
+    -- A nil format is the "None" entry and is meaningful; do not fall back.
+    return formatData.format
+end
+
+-- The clock reading Chatify should stamp a message with, honouring the server-time
+-- preference. Callers that already know when the message arrived pass it in.
+function ns.GetTimestampSeconds(db, when)
+    if tonumber(when) then
+        return tonumber(when)
+    end
+
+    db = db or ns.db
+    if type(db) == "table" and db.useServerTime and type(GetServerTime) == "function" then
+        local ok, serverTime = pcall(GetServerTime)
+        if ok and tonumber(serverTime) then
+            return serverTime
+        end
+    end
+
+    return time()
+end
+
+-- Formatted timestamp, or nil when the user has timestamps switched off.
+function ns.FormatChatTimestamp(db, when)
+    local format = ns.GetTimestampFormat(db)
+    if type(format) ~= "string" or format == "" then
+        return nil
+    end
+
+    local ok, text = pcall(date, format, ns.GetTimestampSeconds(db, when))
+    if ok and type(text) == "string" and text ~= "" then
+        return text
+    end
+
+    return nil
+end
+
 local fontAliasLookup
 local fontUsabilityCache = {}
 local fontProbeSerial = 0
