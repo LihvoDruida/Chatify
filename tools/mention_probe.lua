@@ -156,6 +156,59 @@ else
         selfName == SENDER_LINK .. "Malivil" and short == SENDER_LINK .. "Mal", selfName)
 end
 
+-- 2c. Two rules where one word is a prefix of the other, which is the reported
+--     configuration ("Malivil" and "Mal", both whole-word). A parked message stays
+--     in the queue for a few seconds so it can reach every chat frame, so the short
+--     one must not attach itself to the next line.
+db.mentionRules = {
+    { text = "Malivil", color = "ffd700", sound = "None", channels = "SAY",
+      ignoreCase = true, wholeWord = true, enabled = true },
+    { text = "Mal", color = "ffd700", sound = "None", channels = "SAY",
+      ignoreCase = true, wholeWord = true, enabled = true },
+}
+ns.RefreshMentionRuntime()
+
+-- Whole-word matching itself, with both rules live.
+check("whole word: 'Mal' does not match inside 'malivil'",
+    ns.ApplyMentionRules("malivil", "CHAT_MSG_SAY", "Bob") == "|cffffd700malivil|r",
+    ns.ApplyMentionRules("malivil", "CHAT_MSG_SAY", "Bob"))
+check("whole word: 'yesterday' is not matched by a 'yes' style rule",
+    ns.ApplyMentionRules("yesterday", "CHAT_MSG_SAY", "Bob") == "yesterday")
+
+-- Now the queue. Send "Mal", then "Malivil", without clearing in between.
+ns.StopMentionRenderCapture()
+ns.RefreshMentionRenderCapture()
+local function fireOnly(event, raw, ...)
+    for _, f in ipairs(allFrames) do
+        local handler = f.__scripts and f.__scripts.OnEvent
+        if handler and f.__events and f.__events[event] then
+            handler(f, event, raw, ...)
+        end
+    end
+end
+
+fireOnly("CHAT_MSG_SAY", "Mal", "Malivil-DefiasBrotherhood")
+local firstLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "Mal")
+fireOnly("CHAT_MSG_SAY", "Malivil", "Malivil-DefiasBrotherhood")
+local secondLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "Malivil")
+local thirdLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "normal talk")
+
+if ns.ShouldHighlightMentionsOnRender() then
+    check("queued short message stays on its own line",
+        firstLine == SENDER_LINK .. "|cffffd700Mal|r", firstLine)
+    check("a stale entry does not colour part of a longer word",
+        secondLine == SENDER_LINK .. "|cffffd700Malivil|r", secondLine)
+    check("a stale entry does not touch an unrelated line",
+        thirdLine == SENDER_LINK .. "normal talk", thirdLine)
+end
+
+db.mentionRules = {
+    { text = "Malivil", color = "ffd700", sound = "None",
+      channels = "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL",
+      ignoreCase = true, wholeWord = true, enabled = true },
+}
+ns.RefreshMentionRuntime()
+
 -- 3. Channel scoping still applies: a rule limited to GUILD must not fire in SAY.
 db.mentionRules[1].channels = "GUILD"
 ns.RefreshMentionRuntime()
