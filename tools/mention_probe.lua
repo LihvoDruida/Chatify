@@ -117,6 +117,45 @@ end
 
 check("non-matching line is untouched", miss == "Bob says: nothing to see", miss)
 
+-- 2b. The rendered line contains the player's own name inside Blizzard's sender
+--     link, so the swap must land on the message body and nowhere else. Reported as
+--     raw |Hplayer:...| markup appearing in chat.
+local SENDER_LINK = "|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: "
+
+local ITEM = "|cffa335ee|Hitem:19019::::::::60:::::|h[Thunderfury]|h|r"
+
+local selfName = render("CHAT_MSG_SAY", "Malivil", SENDER_LINK .. "Malivil", "Malivil-DefiasBrotherhood")
+
+db.mentionRules[1].text = "Mal"
+ns.RefreshMentionRuntime()
+local short = render("CHAT_MSG_SAY", "Mal", SENDER_LINK .. "Mal", "Malivil-DefiasBrotherhood")
+db.mentionRules[1].text = "Malivil"
+ns.RefreshMentionRuntime()
+
+local withItem = render("CHAT_MSG_SAY", ITEM .. " for Malivil",
+    SENDER_LINK .. ITEM .. " for Malivil", "Bob")
+
+-- The sender link must survive intact whichever path is in force: on the filter
+-- path nothing touches the rendered line at all, on the render path the swap has to
+-- land on the message body.
+check("sender link is never corrupted",
+    selfName:find("|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: ", 1, true) == 1
+        and short:find("|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: ", 1, true) == 1,
+    selfName)
+
+if ns.ShouldHighlightMentionsOnRender() then
+    check("only the message body is highlighted",
+        selfName == SENDER_LINK .. "|cffffd700Malivil|r", selfName)
+    check("short rule does not corrupt the sender link",
+        short == SENDER_LINK .. "|cffffd700Mal|r", short)
+    check("message opening with an item link is still highlighted",
+        withItem:find("|cffffd700Malivil|r", 1, true) ~= nil
+            and withItem:find("|Hitem:19019", 1, true) ~= nil, withItem)
+else
+    check("render path leaves the line alone entirely",
+        selfName == SENDER_LINK .. "Malivil" and short == SENDER_LINK .. "Mal", selfName)
+end
+
 -- 3. Channel scoping still applies: a rule limited to GUILD must not fire in SAY.
 db.mentionRules[1].channels = "GUILD"
 ns.RefreshMentionRuntime()

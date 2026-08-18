@@ -1250,6 +1250,73 @@ local function MentionCaptureOnEvent(_, event, msg, author, ...)
     mentionRenderQueue[#mentionRenderQueue + 1] = { raw = msg, formatted = output, at = now }
 end
 
+-- Ranges covered by a complete hyperlink block: |H<data>|h<display>|h.
+--
+-- The rendered chat line is not just the message. Blizzard wraps the sender in a
+-- player link, so a line from Malivil reading "Malivil" contains that word three
+-- times: inside the link data, inside the visible [Malivil], and finally as the
+-- message. Anything replaced in the first two positions corrupts the link, which
+-- is what put raw |Hplayer:...| markup on screen.
+local function BuildLinkSpans(text)
+    local spans
+    local init = 1
+    while true do
+        local first, last = string_find(text, "|H.-|h.-|h", init)
+        if not first then
+            break
+        end
+        spans = spans or {}
+        spans[#spans + 1] = { first, last }
+        init = last + 1
+    end
+    return spans
+end
+
+-- A match that *starts* at a link boundary is fine - that is a message which opens
+-- with an item link. A match that starts anywhere after it is inside the link.
+local function StartsInsideLink(spans, position)
+    if not spans then
+        return false
+    end
+
+    for i = 1, #spans do
+        local span = spans[i]
+        if position > span[1] and position <= span[2] then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function FindMessageBodyOccurrence(text, raw)
+    local spans = BuildLinkSpans(text)
+    local bestFirst, bestLast
+    local init = 1
+
+    while true do
+        local first, last = string_find(text, raw, init, true)
+        if not first then
+            break
+        end
+
+        if not StartsInsideLink(spans, first) then
+            -- The message body is the tail of the rendered line, so an occurrence
+            -- that runs to the end of the string is the body and nothing else.
+            if last == #text then
+                return first, last
+            end
+            -- Otherwise keep the last candidate: everything Blizzard puts in front
+            -- of the body (timestamp, channel label, sender) comes earlier.
+            bestFirst, bestLast = first, last
+        end
+
+        init = first + 1
+    end
+
+    return bestFirst, bestLast
+end
+
 function ns.ApplyPendingMentionRender(text)
     if #mentionRenderQueue == 0 or type(text) ~= "string" or text == "" then
         return text
@@ -1261,9 +1328,9 @@ function ns.ApplyPendingMentionRender(text)
         local entry = mentionRenderQueue[i]
         local raw = entry.raw
         if type(raw) == "string" and raw ~= "" then
-            -- Plain find: the raw message is user text and must not be read as a
-            -- Lua pattern.
-            local first, last = string_find(text, raw, 1, true)
+            -- Plain find throughout: the raw message is user text and must never be
+            -- read as a Lua pattern.
+            local first, last = FindMessageBodyOccurrence(text, raw)
             if first then
                 -- The entry is not consumed on use. One message is rendered once per
                 -- chat frame that shows the channel, and every one of those lines

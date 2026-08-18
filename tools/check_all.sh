@@ -55,15 +55,20 @@ if command -v lua5.1 >/dev/null 2>&1; then
     #     that would have caught 0.11.38: on a secret-value build the message
     #     filters are absent, so the highlight has to come from the render path.
     printf '\n=== mention manager (retail) ===\n'
-    CHATIFY_STUB_MODE=retail lua5.1 tools/mention_probe.lua | tail -2 || fail=1
+    # No pipe: `cmd | tail` reports tail's exit status, which is always 0 and hid a
+    # real probe failure once already.
+    CHATIFY_STUB_MODE=retail lua5.1 tools/mention_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
 
     printf '\n=== mention manager (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua | tail -2 || fail=1
+    CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
 
     # 5c. Hooks on public Blizzard chat functions, driven with the argument shapes
     #     real third-party callers use.
     printf '\n=== blizzard hook signatures ===\n'
-    lua5.1 tools/hook_probe.lua | tail -2 || fail=1
+    lua5.1 tools/hook_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
 
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
