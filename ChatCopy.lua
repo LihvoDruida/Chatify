@@ -2767,18 +2767,77 @@ local function DisableNativeCopyGuard()
     nativeCopyGuardFrame = nil
 end
 
-local function CallOriginalSetItemRef(module, link, text, button, chatFrame)
-    local hooks = module and module.hooks
-    local original = hooks and hooks.SetItemRef
-    if type(original) == "function" then
-        return original(link, text, button, chatFrame)
+-- Chatify's own hyperlink types: |Hchatcopy:<id>|h (the clickable timestamp) and
+-- |Hurl:<url>|h (a detected link). Returns true when the link was one of ours.
+local function HandleChatifyLink(link)
+    local safeLink = SafeChatText(link)
+    if not IsNonEmptyString(safeLink) then
+        return false
     end
+
+    if safeLink:sub(1, 9) == "chatcopy:" then
+        local id = tonumber(safeLink:sub(10))
+        local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
+        if id and payload then
+            ShowCopyWindow({ payload }, L("Chatify Copy — selected line"))
+        end
+        return true
+    end
+
+    if safeLink:sub(1, 4) == "url:" then
+        ShowUrlCopyPopup(safeLink:sub(5))
+        return true
+    end
+
+    return false
+end
+
+-- SetItemRef must never be replaced.
+--
+-- Chatify used to take it over with AceHook:RawHook, so every hyperlink click in
+-- the game ran through addon code before reaching Blizzard's handler. That taints
+-- the execution path, and Blizzard's own handlers call protected functions on it.
+-- The visible result was a pair of errors on clicking a Discord name link:
+--
+--     AddOn 'Chatify' tried to call the protected function 'GetDiscordUserName()'
+--     ItemRefHandlers.lua:325: bad argument #2 to 'format' (string expected, got no value)
+--
+-- - the second being the first: the blocked call returned nothing, and Blizzard
+-- formatted the name it never got. Chatify was not involved in the link at all; it
+-- was only in the call stack, and that was enough.
+--
+-- hooksecurefunc runs after the original and taints nothing. Blizzard's dispatch
+-- ignores link types it does not know, so our own links reach the post-hook exactly
+-- as before, and every other link is now handled on a clean path.
+local setItemRefHooked = false
+local linkHandlerEnabled = false
+
+local function InstallLinkHandler()
+    linkHandlerEnabled = true
+
+    if setItemRefHooked then
+        return true
+    end
+
+    if type(hooksecurefunc) ~= "function" or type(SetItemRef) ~= "function" then
+        return false
+    end
+
+    local ok = pcall(hooksecurefunc, "SetItemRef", function(link)
+        if not linkHandlerEnabled then
+            return
+        end
+        -- A hook that errors inside a Blizzard function aborts Blizzard's own
+        -- execution, so this never raises.
+        pcall(HandleChatifyLink, link)
+    end)
+
+    setItemRefHooked = ok and true or false
+    return setItemRefHooked
 end
 
 function CopyModule:OnEnable()
-    if type(SetItemRef) == "function" and (type(self.IsHooked) ~= "function" or not self:IsHooked("SetItemRef")) then
-        pcall(self.RawHook, self, "SetItemRef", true)
-    end
+    InstallLinkHandler()
     EnsureChatCapture()
     EnsureNativeCopyGuard()
     if Chatify and type(Chatify.RegisterChatCommand) == "function" then
@@ -2799,39 +2858,14 @@ function CopyModule:OnEnable()
     end
 end
 
-function CopyModule:SetItemRef(link, text, button, chatFrame)
-    local safeLink = SafeChatText(link)
-    if not IsNonEmptyString(safeLink) then
-        return CallOriginalSetItemRef(self, link, text, button, chatFrame)
-    end
-
-    if safeLink:sub(1, 9) == "chatcopy:" then
-        local id = tonumber(safeLink:sub(10))
-        local payload = (ns.GetCachedChatLine and ns.GetCachedChatLine(id)) or msgCache[id]
-        if id and payload then
-            ShowCopyWindow({ payload }, L("Chatify Copy — selected line"))
-        end
-        return
-    end
-
-    if safeLink:sub(1, 4) == "url:" then
-        ShowUrlCopyPopup(safeLink:sub(5))
-        return
-    end
-
-    return CallOriginalSetItemRef(self, link, text, button, chatFrame)
-end
-
-
 function CopyModule:OnDisable()
     if type(ns.ExitNativeChatCopyMode) == "function" then
         ns.ExitNativeChatCopyMode(true)
     end
     DisableChatCapture()
     DisableNativeCopyGuard()
-    if type(self.IsHooked) == "function" and self:IsHooked("SetItemRef") then
-        pcall(self.Unhook, self, "SetItemRef")
-    end
+    -- hooksecurefunc cannot be undone, so the hook stays and goes quiet instead.
+    linkHandlerEnabled = false
     if Chatify and type(Chatify.UnregisterChatCommand) == "function" then
         pcall(Chatify.UnregisterChatCommand, Chatify, "chatcopy")
     end

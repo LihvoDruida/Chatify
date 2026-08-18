@@ -385,9 +385,48 @@ function M.installLibStub()
         ["AceConsole-3.0"] = { "RegisterChatCommand", "UnregisterChatCommand",
                                "Print", "Printf" },
         ["AceHook-3.0"] = { "Hook", "HookScript", "SecureHook", "SecureHookScript",
-                            "Unhook", "UnhookAll", "IsHooked" },
+                            "Unhook", "UnhookAll", "IsHooked", "RawHook", "RawHookScript" },
         ["AceTimer-3.0"] = { "ScheduleTimer", "ScheduleRepeatingTimer",
                              "CancelTimer", "CancelAllTimers" },
+    }
+
+    -- AceHook:RawHook on a global is modelled for real rather than stubbed to a
+    -- no-op. Replacing a Blizzard global is a taint vector, so a test that cannot
+    -- observe the replacement cannot catch the mistake - which is exactly how a raw
+    -- hook on SetItemRef survived every check until a user reported
+    -- ADDON_ACTION_FORBIDDEN on GetDiscordUserName.
+    local aceHookMethods = {
+        RawHook = function(self, target, handler)
+            if type(target) ~= "string" then
+                return
+            end
+
+            local original = _G[target]
+            if type(original) ~= "function" then
+                return
+            end
+
+            self.hooks = self.hooks or {}
+            self.hooks[target] = original
+
+            local methodName = type(handler) == "string" and handler or target
+            _G[target] = function(...)
+                local fn = self[methodName]
+                if type(fn) == "function" then
+                    return fn(self, ...)
+                end
+                return original(...)
+            end
+        end,
+        IsHooked = function(self, target)
+            return self.hooks ~= nil and self.hooks[target] ~= nil
+        end,
+        Unhook = function(self, target)
+            if self.hooks and self.hooks[target] then
+                _G[target] = self.hooks[target]
+                self.hooks[target] = nil
+            end
+        end,
     }
 
     local function applyEmbeds(target, ...)
@@ -396,7 +435,7 @@ function M.installLibStub()
             local methods = embedMethods[libName]
             if methods then
                 for _, m in ipairs(methods) do
-                    target[m] = target[m] or noop
+                    target[m] = target[m] or aceHookMethods[m] or noop
                 end
             else
                 M.unknown["embed:" .. tostring(libName)] = true

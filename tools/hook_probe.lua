@@ -26,6 +26,25 @@ end
 
 _G.FCF_SetChatWindowFontSize = function() end
 
+-- SetItemRef stands in for Blizzard's link dispatch. The probe asserts Chatify
+-- never replaces it: a raw hook here puts addon code on the path Blizzard's own
+-- handlers use to call protected functions such as GetDiscordUserName.
+local blizzardSetItemRefCalls = 0
+local blizzardSetItemRef = function(link)
+    blizzardSetItemRefCalls = blizzardSetItemRefCalls + 1
+end
+_G.SetItemRef = blizzardSetItemRef
+
+local secureHookedFunctions = {}
+local realHooksecurefunc = _G.hooksecurefunc
+_G.hooksecurefunc = function(a, b)
+    if type(a) == "string" and type(b) == "function" then
+        secureHookedFunctions[a] = secureHookedFunctions[a] or {}
+        table.insert(secureHookedFunctions[a], b)
+    end
+    return realHooksecurefunc(a, b)
+end
+
 local ns = {}
 for line in assert(io.open("Chatify.toc")):lines() do
     line = line:gsub("^\239\187\191", ""):gsub("%s+$", "")
@@ -78,6 +97,28 @@ for i = 1, #fontHooks do
     -- Defensive: a caller that passes nothing useful at all.
     local ok3, err3 = pcall(fn, nil, nil, nil)
     check("hook survives (nil, nil, nil)", ok3, not ok3 and err3 or nil)
+end
+
+-- SetItemRef: never replaced, and our own link types still reach us.
+check("SetItemRef is not replaced by Chatify",
+    _G.SetItemRef == blizzardSetItemRef,
+    _G.SetItemRef ~= blizzardSetItemRef and "global was overwritten" or nil)
+
+local itemRefHooks = secureHookedFunctions["SetItemRef"] or {}
+check("SetItemRef is hooked securely", #itemRefHooks > 0, #itemRefHooks)
+
+local opened = nil
+ns.OpenUrlCopyPopupForTest = nil
+for i = 1, #itemRefHooks do
+    -- An unknown link type must not raise, and must not be claimed as ours.
+    local ok = pcall(itemRefHooks[i], "discorduser:26:2:7738:GUILD:")
+    check("secure hook ignores a foreign link type", ok)
+
+    local okOwn = pcall(itemRefHooks[i], "url:https://example.com")
+    check("secure hook accepts our own link type", okOwn)
+
+    local okNil = pcall(itemRefHooks[i], nil)
+    check("secure hook survives a nil link", okNil)
 end
 
 print(failures == 0 and "\nhook probe: PASS"
