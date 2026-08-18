@@ -760,7 +760,18 @@ function Router:OnEnable()
 
     if not routerHooksInstalled and type(hooksecurefunc) == "function" then
         local function RefreshChatWindowsSoon(candidateFrame)
-            if type(candidateFrame) == "table" then
+            -- Three different Blizzard functions share this hook and only
+            -- FCF_SetTemporaryWindowType puts the chat frame first; the other two
+            -- start with a string. Validate rather than infer, since any addon can
+            -- call these with anything.
+            local isFrame
+            if type(ns.IsChatFrame) == "function" then
+                isFrame = ns.IsChatFrame(candidateFrame)
+            else
+                isFrame = type(candidateFrame) == "table"
+            end
+
+            if isFrame then
                 HookFrame(candidateFrame)
             end
 

@@ -142,19 +142,26 @@ local function GetSafeText(rawText)
 end
 
 function ns.GetEditBox(chatFrame)
-    if not chatFrame then return nil end
+    if type(chatFrame) ~= "table" then return nil end
     if chatFrame.editBox then return chatFrame.editBox end
 
-    local name = chatFrame:GetName()
-    if name then
-        local suffixBox = _G[name .. "EditBox"]
-        if suffixBox then return suffixBox end
+    -- GetName/GetID are called, not assumed. A caller that handed us a table which
+    -- is not a frame used to die here with "attempt to call a nil value", and this
+    -- is a leaf helper that other addons' code paths can reach through our hooks.
+    if type(chatFrame.GetName) == "function" then
+        local okName, name = pcall(chatFrame.GetName, chatFrame)
+        if okName and type(name) == "string" and name ~= "" then
+            local suffixBox = _G[name .. "EditBox"]
+            if suffixBox then return suffixBox end
+        end
     end
 
-    local id = chatFrame:GetID()
-    if id then
-        local idBox = _G["ChatFrame" .. id .. "EditBox"]
-        if idBox then return idBox end
+    if type(chatFrame.GetID) == "function" then
+        local okID, id = pcall(chatFrame.GetID, chatFrame)
+        if okID and id then
+            local idBox = _G["ChatFrame" .. id .. "EditBox"]
+            if idBox then return idBox end
+        end
     end
 
     return ChatFrame1EditBox
@@ -164,7 +171,14 @@ end
 -- 2. FONT STYLING
 -- =========================================================
 local function StyleFrame(frame)
-    if not frame then return end
+    -- Every caller of this function is a hook on a public Blizzard API, so the
+    -- argument is whatever the addon that called that API passed in.
+    if type(ns.IsChatFrame) == "function" then
+        if not ns.IsChatFrame(frame) then return end
+    elseif not frame then
+        return
+    end
+
     local db = GetVisualDB()
     if not db then return end
 
@@ -1361,14 +1375,24 @@ function VisualsModule:OnEnable()
         pcall(self.SecureHook, self, "FCF_OpenNewWindow", function() QueueApplyVisuals(0) end)
     end
     if type(FCF_SetTemporaryWindowType) == "function" then
+        -- FCF_SetTemporaryWindowType(chatFrame, chatType, chatTarget): here the
+        -- frame really is the first argument. StyleFrame validates it anyway.
         pcall(self.SecureHook, self, "FCF_SetTemporaryWindowType", function(chatFrame)
             StyleFrame(chatFrame)
             QueueApplyVisuals(0)
         end)
     end
 
+    -- FCF_SetChatWindowFontSize(self, chatFrame, fontSize).
+    --
+    -- The first argument is the caller, not the frame. Reading it as the frame was
+    -- wrong even with Blizzard's own font-size dropdown, where `self` is the
+    -- dropdown button: the styling silently went to the button and the chat frame
+    -- was never restyled. It only became visible as an error when another addon
+    -- (Prat's Font module) called the API with a plain table as `self`, which has no
+    -- frame methods for ns.GetEditBox to call.
     if type(hooksecurefunc) == "function" and type(FCF_SetChatWindowFontSize) == "function" then
-        pcall(hooksecurefunc, "FCF_SetChatWindowFontSize", function(chatFrame)
+        pcall(hooksecurefunc, "FCF_SetChatWindowFontSize", function(_, chatFrame)
             StyleFrame(chatFrame)
         end)
     end

@@ -2067,6 +2067,28 @@ function ns.TryMakeSafeText(raw)
     return nil
 end
 
+-- Guards every entry point that is handed a "chat frame" by something outside
+-- Chatify.
+--
+-- Blizzard's FCF_* functions are public, so any addon can call them with anything,
+-- and a hook that trusts its argument blindly ends up calling frame methods on
+-- whatever it was given. That is exactly how the FCF_SetChatWindowFontSize hook
+-- failed: the function is declared FCF_SetChatWindowFontSize(self, chatFrame,
+-- fontSize) and Chatify read the first argument, so a caller passing its own module
+-- table as `self` produced "attempt to call a nil value" inside ns.GetEditBox.
+--
+-- The argument index is fixed at the call site; this exists so the next caller that
+-- gets it wrong, in Chatify or in another addon, is a no-op instead of an error.
+function ns.IsChatFrame(frame)
+    if type(frame) ~= "table" then
+        return false
+    end
+
+    return type(frame.AddMessage) == "function"
+        and type(frame.GetName) == "function"
+        and type(frame.GetID) == "function"
+end
+
 function ns.SafeAfter(delay, callback)
     if type(callback) ~= "function" then
         return false

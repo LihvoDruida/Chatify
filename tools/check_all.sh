@@ -60,6 +60,11 @@ if command -v lua5.1 >/dev/null 2>&1; then
     printf '\n=== mention manager (classic) ===\n'
     CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua | tail -2 || fail=1
 
+    # 5c. Hooks on public Blizzard chat functions, driven with the argument shapes
+    #     real third-party callers use.
+    printf '\n=== blizzard hook signatures ===\n'
+    lua5.1 tools/hook_probe.lua | tail -2 || fail=1
+
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
     #    file and one bad value discards both.
