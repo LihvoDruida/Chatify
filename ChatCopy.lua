@@ -1552,13 +1552,13 @@ local function CreateCopyWindow()
         pcall(scrollArea.SetVerticalScroll, scrollArea, offset)
     end)
 
-    -- 12.1 adds Frame:SetOnUpdateMode. RunWhenVisible is the default, so this is
-    -- not a behaviour change; it is stated explicitly so the copy window keeps its
-    -- current cost if the default is ever reconsidered, and it costs nothing on
-    -- clients that lack the API.
-    if type(eb.SetOnUpdateMode) == "function" then
-        pcall(eb.SetOnUpdateMode, eb, "RunWhenVisible")
-    end
+    -- There was a call to eb:SetOnUpdateMode("RunWhenVisible") here, added on the
+    -- assumption that RunWhenVisible is the 12.1 default and that stating it
+    -- explicitly costs nothing. That assumption was never verified against a client,
+    -- the call is pcall-wrapped so a rejected argument would be silent, and the
+    -- symptom being chased is a display that only refreshes on input. Removed:
+    -- an unverified call on the exact path under investigation is a variable, not a
+    -- safeguard.
     eb:SetScript("OnTextChanged", function(self, userInput)
         if userInput and not copySettingText then
             local cursor = self:GetCursorPosition() or 0
@@ -1636,7 +1636,6 @@ local function SetCopyEditText(text)
         copyContent:SetText(copyTextValue)
         copyContent:SetCursorPosition(0)
         copyContent:HighlightText(0, 0)
-        copyContent:ClearFocus()
         copySettingText = false
     end
 end
@@ -1790,12 +1789,34 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
         copyHint:SetText(entries.__chatifyHint or (copyWindowMode == "history" and L("This chat tab has no saved history yet.") or L("This chat tab has no messages to copy.")))
     end
 
-    if copyEditBox then
-        copyEditBox:ClearFocus()
-        copyEditBox:HighlightText(0, 0)
-    end
     if copyScroll and copyScroll.SetVerticalScroll then
         copyScroll:SetVerticalScroll(0)
+    end
+
+    -- Take keyboard focus rather than dropping it.
+    --
+    -- Every report about this window describes the same thing: the contents are
+    -- whatever they were before, and clicking into the box is what makes the current
+    -- contents appear. Blank on open, unchanged after a tab switch, and the previous
+    -- window's text after switching between Copy and History are all that one
+    -- symptom - the text is set, the display is not regenerated until the box is
+    -- interacted with.
+    --
+    -- Focus is the interaction Chatify can perform itself. Deferred by a frame
+    -- because it has to happen after the text and the layout, not alongside them.
+    --
+    -- This is reasoned from the reported behaviour, not from a confirmed mechanism.
+    -- /chatcopy diag exists to settle that.
+    if type(ns.ScheduleUnique) == "function" then
+        ns.ScheduleUnique("ChatifyCopyFocus", 0, function()
+            if copyEditBox and copyFrame and copyFrame:IsShown() then
+                copyEditBox:SetCursorPosition(0)
+                copyEditBox:HighlightText(0, 0)
+                copyEditBox:SetFocus()
+            end
+        end)
+    elseif copyEditBox then
+        copyEditBox:SetFocus()
     end
 end
 
@@ -2812,6 +2833,67 @@ end
 local setItemRefHooked = false
 local linkHandlerEnabled = false
 
+-- Reports what the copy window actually looks like on the client.
+--
+-- Fixes for this window have been reasoned from reported symptoms rather than from
+-- measurements, and at least one round of them was wrong. This prints the facts
+-- that would have settled it: whether the FrameXML scrolling-edit helpers still
+-- exist on this build, what the EditBox believes its text and size are, what the
+-- scroll frame believes about its child, and whether the box holds focus.
+-- Everything is read through pcall so the dump itself cannot error.
+local function DumpCopyWindowDiagnostics()
+    local out = {}
+    local function line(fmt, ...)
+        local ok, text = pcall(string.format, fmt, ...)
+        out[#out + 1] = ok and text or fmt
+    end
+
+    local function get(frame, method)
+        if type(frame) ~= "table" or type(frame[method]) ~= "function" then
+            return nil
+        end
+        local ok, value = pcall(frame[method], frame)
+        if ok then
+            return value
+        end
+        return nil
+    end
+
+    line("interface: %s", tostring(type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or "?"))
+    line("ScrollingEdit_OnUpdate: %s", type(_G.ScrollingEdit_OnUpdate))
+    line("ScrollingEdit_OnCursorChanged: %s", type(_G.ScrollingEdit_OnCursorChanged))
+
+    if not copyFrame then
+        line("window: never created")
+        return out
+    end
+
+    line("window shown: %s, mode: %s", tostring(get(copyFrame, "IsShown")), tostring(copyWindowMode))
+
+    if copyEditBox then
+        local text = get(copyEditBox, "GetText") or ""
+        line("SetOnUpdateMode available: %s", type(copyEditBox.SetOnUpdateMode))
+        line("editbox text: %d chars, expected %d, match: %s",
+            #text, #(copyTextValue or ""), tostring(text == (copyTextValue or "")))
+        line("editbox size: %sx%s, visible: %s, focus: %s",
+            tostring(get(copyEditBox, "GetWidth")), tostring(get(copyEditBox, "GetHeight")),
+            tostring(get(copyEditBox, "IsVisible")), tostring(get(copyEditBox, "HasFocus")))
+        line("cursor: %s", tostring(get(copyEditBox, "GetCursorPosition")))
+    end
+
+    if copyScroll then
+        local child = get(copyScroll, "GetScrollChild")
+        line("scroll size: %sx%s, range: %s, offset: %s",
+            tostring(get(copyScroll, "GetWidth")), tostring(get(copyScroll, "GetHeight")),
+            tostring(get(copyScroll, "GetVerticalScrollRange")), tostring(get(copyScroll, "GetVerticalScroll")))
+        line("scroll child is the editbox: %s", tostring(child ~= nil and child == copyEditBox))
+    end
+
+    return out
+end
+
+ns.DumpCopyWindowDiagnostics = DumpCopyWindowDiagnostics
+
 local function InstallLinkHandler()
     linkHandlerEnabled = true
 
@@ -2847,6 +2929,15 @@ function CopyModule:OnEnable()
         pcall(Chatify.RegisterChatCommand, Chatify, "chatcopy", function(input)
             local command = type(input) == "string" and input:lower():match("^%s*(.-)%s*$") or ""
             local frame = (type(ns.GetSelectedChatFrame) == "function" and ns.GetSelectedChatFrame()) or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+
+            if command == "diag" then
+                local report = DumpCopyWindowDiagnostics()
+                PrintChatifySystemMessage(L("Copy window diagnostics:"))
+                for i = 1, #report do
+                    PrintChatifySystemMessage(report[i])
+                end
+                return
+            end
 
             if command == "full" or command == "all" then
                 ns.OpenChatCopyWindow(frame, 5000)

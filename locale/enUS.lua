@@ -40,6 +40,7 @@ Locale:RegisterLocale("enUS", {
     ["Chat History"] = "Chat History",
     ["Chat Tabs Setup"] = "Chat Tabs Setup",
     ["Chat %d"] = "Chat %d",
+    ["Copy window diagnostics:"] = "Copy window diagnostics:",
     ["Chatify Copy"] = "Chatify Copy",
     ["Chatify Copy — selected line"] = "Chatify Copy — selected line",
     ["Chatify Settings"] = "Chatify Settings",

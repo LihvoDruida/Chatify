@@ -1,3 +1,93 @@
+#### 0.11.44
+
+The copy window fixes shipped in 0.11.39 did not work. Reported again against that build, with one new detail that changes the diagnosis.
+
+What was wrong with the 0.11.39 fix
+- It treated the blank window as a scroll-frame layout problem: the scroll child was filled before it was resized and its rect was never recomputed. That reasoning was plausible and it was wrong. Rect handling was tightened and nothing changed on the client.
+- The detail that settles it: closing Copy and opening History shows the *previous* window's text until you click into the box. A stale layout cannot produce old text. The text is set and the display is simply not regenerated until the box is interacted with.
+- That single behaviour accounts for every symptom filed separately: blank on open, unchanged after a tab switch, previous contents after switching windows, the caret and Select All appearing one action late. Dragging to select may well be working already and merely invisible for the same reason.
+
+Changed
+- The window now takes keyboard focus itself, one frame after the text and layout land, instead of clearing focus. Focus is the interaction the user was performing manually, so Chatify performs it. Escape closes the window as before.
+- Removed the eb:SetOnUpdateMode("RunWhenVisible") call added in an earlier round. It was written on an unverified assumption about the 12.1 default, it is pcall-wrapped so a rejected argument would be silent, and it sits on the exact path under investigation. An unverified call there is a variable, not a safeguard.
+
+Added
+- /chatcopy diag prints what the window actually looks like on the client: whether the FrameXML scrolling-edit helpers still exist on this build, the EditBox's text length against what Chatify set, its size, visibility and focus state, and the scroll frame's range, offset and child. Every read goes through pcall so the dump cannot itself error.
+
+This release is reasoned from the reported behaviour, not from a confirmed mechanism. If the window still misbehaves, /chatcopy diag output taken with it open is what will settle it.
+
+#### 0.11.43
+
+Second half of the 0.11.39 render-path regression: a short mention rule colouring part of a longer word.
+
+Fixed
+- With rules for both "Malivil" and "Mal", the word "Malivil" came out with only its first three letters coloured, making a whole-word rule look like it was matching a partial word. Whole-word matching was never wrong - ns.ApplyMentionRules refuses "Mal" inside "malivil" correctly, in every mode. The fault was in where the render path put the highlight.
+- A parked message stays in the queue for a few seconds so it can reach every chat frame that shows the channel. The swap searched the rendered line for that message as a substring, so the entry left over from a previous line ("Mal") found itself inside the next one and coloured three letters of "Malivil". 0.11.42 fixed the same matching mistake where it corrupted the sender link; this is the remaining case.
+- The swap now requires the parked message to be the whole body of the line, which is what it always is - everything Blizzard puts around it comes first. A fragment match is no longer possible. Where two parked messages could both end the line, the longer one wins, since that can only happen when one is a suffix of the other.
+
+Testing
+- tools/mention_probe.lua now runs the reported two-rule configuration: it asserts whole-word matching directly, then sends "Mal" followed by "Malivil" without clearing the queue and checks each line carries only its own highlight. Run against 0.11.42 the middle case fails with |cffffd700Mal|rivil.
+
+#### 0.11.42
+
+Fixes mention highlighting corrupting the sender link. Introduced in 0.11.39 with the render-time mention path.
+
+Fixed
+- A mention whose word also appears in your own character name put raw |Hplayer:...| markup on screen instead of a chat line. The render path swaps the raw message for the coloured one inside the line Blizzard built, and it took the first match - but the rendered line contains the sender's name three times: in the link data, in the visible [Name], and only then as the message. A colour code inserted into the link data breaks the link, so the game printed the markup instead of drawing it.
+- Same cause behind the sender name being highlighted instead of the message text: the second of those three positions is the link's display text.
+- The swap now targets the message body only. Matches that start inside a hyperlink block are skipped, and of the rest the one running to the end of the line wins, since everything Blizzard puts in front of the body - timestamp, channel label, sender - comes earlier. A match that starts exactly at a link boundary is still accepted, so a message opening with an item link is highlighted as before.
+
+Testing
+- tools/mention_probe.lua now renders the exact line from the report, plus the shorter-rule variant where the word sits inside the link data, and a message opening with an item link. Run against 0.11.41 all three fail with visibly broken markup.
+- check_all.sh piped the probes through `tail`, so the pipeline reported tail's exit status and a failing probe was announced as "All checks passed". Fixed; the failure above is what surfaced it.
+
+#### 0.11.41
+
+Chatify no longer replaces SetItemRef. Reported as two errors on clicking a Discord name link in chat.
+
+Fixed
+- Chatify took over the global SetItemRef with AceHook:RawHook, so every hyperlink click in the game ran through addon code before reaching Blizzard's handler. That taints the execution path, and Blizzard's own handlers call protected functions on it. Clicking a Discord name link produced "AddOn 'Chatify' tried to call the protected function 'GetDiscordUserName()'" followed by "bad argument #2 to 'format' (string expected, got no value)" - the second being a consequence of the first, since the blocked call returned nothing and Blizzard formatted the name it never got.
+- Chatify was not involved in that link at all. Being in the call stack was enough.
+- Link dispatch is now a hooksecurefunc post-hook, which taints nothing. Blizzard's dispatch ignores link types it does not know, so Chatify's own |Hchatcopy:| timestamps and |Hurl:| links reach the handler exactly as before, and every other link is now handled on a clean path.
+- The handler is wrapped in pcall: a hook that errors inside a Blizzard function aborts Blizzard's own execution.
+
+Testing
+- tools/stub/wow_env.lua now models AceHook:RawHook on a global for real instead of stubbing it to a no-op. A test that cannot observe a Blizzard global being replaced cannot catch a taint vector, which is how this survived every check until a user reported it.
+- tools/hook_probe.lua asserts SetItemRef is never replaced and that our own link types still reach the secure hook. Run against 0.11.40 it fails on both.
+
+#### 0.11.40
+
+Fixes a hook that read the wrong argument from a Blizzard API. Reported with a full trace by a user running Prat alongside Chatify.
+
+Fixed
+- Chatify hooked FCF_SetChatWindowFontSize as function(chatFrame), but the function is declared FCF_SetChatWindowFontSize(self, chatFrame, fontSize). The first argument is the caller, not the frame, so the wrong object was styled. It now reads the second.
+- This was wrong even without a second chat addon installed. When Blizzard's own font-size dropdown calls the API, `self` is the dropdown button, so Chatify styled the button and never restyled the chat frame. It only became visible as an error when Prat's Font module called the API with a plain module table as `self`, which has no frame methods for ns.GetEditBox to call.
+- ns.GetEditBox no longer assumes the object it is given is a frame. It checks GetName/GetID before calling them, so a bad argument returns nil instead of raising.
+- Added ns.IsChatFrame and applied it to every entry point that receives a "chat frame" from outside Chatify: the two StyleFrame hooks and the router's window-refresh hook, which is shared by three Blizzard functions of which only one puts the chat frame first.
+
+Testing
+- tools/hook_probe.lua drives the hooks with the argument shapes real callers use - Prat's, Blizzard's dropdown, and all-nil - and is wired into check_all.sh. Run against 0.11.39 it reproduces the reported error exactly.
+
+#### 0.11.39
+
+Three user-reported bugs: the Mention Manager was silently doing nothing on Retail, and the Copy / History window was largely unusable with a mouse.
+
+Fixed - Mention Manager
+- Mentions are highlighted on modern Retail again. ns.ApplyMentionRules only ever runs from inside a chat message-event filter, and on 12.0+ those filters are not installed by default, so nothing ever called it. The rules matched perfectly and were never consulted; the options panel still showed them as active. The mention *sound* had a fallback since 0.11.3x, the highlight had none.
+- The highlight now has one. Chatify's own event frame matches the rule with the full event context, so per-channel scoping still resolves correctly, and parks the coloured message; the AddMessage wrapper then swaps it into the line Blizzard built. Nothing is attached to Blizzard's chat dispatch, so no taint is introduced and the Safest filter mode stays safe. Only messages that actually matched a rule are ever parked, so an ordinary chat line costs one comparison.
+- Exactly one of the two paths is ever live, keyed on whether the filters are actually installed rather than on whether they are currently permitted. Nothing is highlighted twice, and there is no gap while the lockdown gate flips mid-session.
+- The Mention Manager tab now says which path is in force on 12.0+.
+
+Fixed - Copy and History window
+- Text can be selected by dragging again. An OnMouseDown handler called SetFocus() on every click, which reset the cursor and discarded the selection anchor the click had just placed. It was also redundant: the EditBox already takes focus when clicked.
+- The window no longer opens blank until the first click. The scroll child was filled before it was resized and its rect was never recomputed afterwards, so the scroll frame laid the content out against the 1px placeholder height the EditBox is created with. The child is now sized first, the rect is refreshed after the text lands, and once more on the next frame - the first pass runs in the same frame as Show(), when the anchors are not resolved yet and GetWidth() cannot answer honestly.
+- The caret and the selection no longer render one action behind. ScrollingEdit_OnCursorChanged / ScrollingEdit_OnUpdate were called under a plain `if`, so on a client without those FrameXML globals both handlers were silently no-ops. The same cursor-following algorithm is now implemented locally as a fallback, and the child rect is refreshed on cursor changes too.
+- Select All shows the selection immediately. Highlighting in the same frame as SetFocus is unreliable, because a selection is only drawn while the box holds focus and the focus change has not been applied yet; it is now reasserted a frame later.
+- All of the above applied to the History window as well, which is the same window in a different mode.
+
+Testing
+- tools/mention_probe.lua drives the whole mention path in both client shapes - chat event first, AddMessage second - and is wired into check_all.sh. It reproduces the 0.11.38 bug in one run and is the check that would have caught it.
+
 #### 0.11.21
 
 Maximises what works on Midnight (12.0+) while keeping the secret-value guards, plus two latent crashes found by an addon-wide scan.
