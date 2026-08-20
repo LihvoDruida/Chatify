@@ -256,9 +256,19 @@ function M.install(mode)
     --
     -- classic: no secret-value API at all. Most likely to expose an unguarded
     --   Retail-only call.
-    -- retail: the API exists and a marked value is genuinely inaccessible, so
-    --   any code that reads a payload without checking first will error here
-    --   the same way it errors in an encounter.
+    -- retail: the API exists and marked values are reported as secret.
+    --
+    -- IMPORTANT, and this stub used to claim otherwise: reading or comparing a
+    -- marked value here does NOT error the way it does in game. The sentinel is an
+    -- ordinary Lua string, so `msg == ""`, `#msg` and `msg:sub()` all succeed. In
+    -- game those operations raise "attempt to compare/index a secret string value"
+    -- once execution is tainted, and Lua 5.1 offers no way to build a value that
+    -- both reports type() == "string" and errors on comparison.
+    --
+    -- So what is testable here is the outcome - a secret payload must be rejected,
+    -- and must come back byte-identical rather than rewritten - not the error. Guard
+    -- *ordering* (the guard running before anything touches the payload) cannot be
+    -- caught by this harness at all and has to be held by review.
     if M.mode == "retail" then
         local secrets = setmetatable({}, { __mode = "k" })
         M.markSecret = function(value)
@@ -267,14 +277,9 @@ function M.install(mode)
         end
 
         -- The sentinel is a real string, because that is what a secret value is
-        -- in game: type() reports "string" and ordinary string operations work,
-        -- which is precisely why a type check is not a guard. A table would have
-        -- been filtered out by every `type(text) == "string"` branch and proved
-        -- nothing.
-        --
-        -- What is asserted is therefore the contract rather than an error: a
-        -- secret payload must come back byte-identical, having been passed
-        -- through rather than rewritten.
+        -- in game: type() reports "string", which is precisely why a type check is
+        -- not a guard. A table would have been filtered out by every
+        -- `type(text) == "string"` branch and proved nothing.
         local secretString = "\1CHATIFY_SECRET_PAYLOAD\1"
         secrets[secretString] = true
         M.secretString = secretString

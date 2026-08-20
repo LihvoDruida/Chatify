@@ -209,6 +209,32 @@ db.mentionRules = {
 }
 ns.RefreshMentionRuntime()
 
+-- 2d. A secret payload must be rejected by the capture frame, and must be rejected
+--     by the guard rather than by a later check that has already read it.
+--
+--     The harness cannot reproduce the in-game error - see the note in wow_env.lua,
+--     a marked value is an ordinary Lua string here and comparing it succeeds. What
+--     is asserted is that the guard was consulted and nothing was queued.
+if env.markSecret and env.secretString then
+    local guardCalls = 0
+    local realGuard = ns.CanMutateChatPayload
+    ns.CanMutateChatPayload = function(...)
+        guardCalls = guardCalls + 1
+        return realGuard(...)
+    end
+
+    ns.StopMentionRenderCapture()
+    ns.RefreshMentionRenderCapture()
+    fireOnly("CHAT_MSG_GUILD", env.secretString, env.markSecret("Someone-Realm"))
+
+    check("secret payload consults the guard", guardCalls > 0, guardCalls)
+    check("secret payload is never queued",
+        ns.ApplyPendingMentionRender("Guild line: " .. env.secretString)
+            == "Guild line: " .. env.secretString)
+
+    ns.CanMutateChatPayload = realGuard
+end
+
 -- 3. Channel scoping still applies: a rule limited to GUILD must not fire in SAY.
 db.mentionRules[1].channels = "GUILD"
 ns.RefreshMentionRuntime()

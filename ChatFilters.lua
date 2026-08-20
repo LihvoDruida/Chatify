@@ -1184,21 +1184,31 @@ function ns.ShouldHighlightMentionsOnRender()
 end
 
 local function MentionCaptureOnEvent(_, event, msg, author, ...)
-    if not ns.ShouldHighlightMentionsOnRender() then
-        return
-    end
-
-    if type(msg) ~= "string" or msg == "" then
-        return
-    end
-
-    -- Same guard the filters use: never read a payload that is secret or otherwise
-    -- inaccessible during chat lockdown.
+    -- Secretness is decided first, before anything reads or compares the payload.
+    --
+    -- type() reports "string" for a secret string value, so the previous order -
+    -- type check, then msg == "" - reached the comparison with the guard still
+    -- ahead of it. Comparing a secret raises, and since Chatify had already tainted
+    -- the execution by being on the stack, every guild message during a Mythic+ run
+    -- produced "attempt to compare local 'msg' (a secret string value)".
+    --
+    -- ns.CanMutateChatPayload exists precisely to be called before any string
+    -- operation on the payload; it was simply called one step too late.
     if type(ns.CanMutateChatPayload) == "function" then
         if not ns.CanMutateChatPayload(event, msg, author, ...) then
             return
         end
     elseif IsSecretValue(msg) or IsSecretValue(author) then
+        return
+    elseif type(msg) ~= "string" then
+        return
+    end
+
+    if not ns.ShouldHighlightMentionsOnRender() then
+        return
+    end
+
+    if msg == "" then
         return
     end
 
