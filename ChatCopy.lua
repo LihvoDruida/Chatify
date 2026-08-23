@@ -2705,6 +2705,10 @@ local function GetCaptureEventsForClient()
 end
 
 local function OnCaptureEvent(_, event, msg, author, ...)
+    if type(ns.NoteChatEntryPoint) == "function" then
+        ns.NoteChatEntryPoint("copy capture", event)
+    end
+
     if type(ns.ShouldBypassChatCaptureEvent) == "function" and ns.ShouldBypassChatCaptureEvent(event) then
         return
     end
@@ -2715,6 +2719,10 @@ local function OnCaptureEvent(_, event, msg, author, ...)
         end
     elseif type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(msg, author, ...) then
         return
+    end
+
+    if type(ns.NoteChatEntryCleared) == "function" then
+        ns.NoteChatEntryCleared("copy capture")
     end
 
     local safeMsg = SafeChatText(msg)

@@ -51,6 +51,13 @@ if command -v lua5.1 >/dev/null 2>&1; then
 
     printf '\n=== load test (retail, secret values) ===\n'
     CHATIFY_STUB_MODE=retail lua5.1 tools/stub/load_test.lua | tail -3 || fail=1
+    # 5a2. Guard ordering on chat entry points. This is a static check because the
+    #      runtime harness cannot model it: a marked secret in wow_env.lua is an
+    #      ordinary Lua string and comparing it succeeds there while it raises in
+    #      game.
+    printf '\n=== secret-guard ordering ===\n'
+    python3 tools/secret_guard_audit.py || fail=1
+
     # 5b. Mention Manager end to end, in both client shapes. This is the check
     #     that would have caught 0.11.38: on a secret-value build the message
     #     filters are absent, so the highlight has to come from the render path.

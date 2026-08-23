@@ -365,6 +365,10 @@ end
 -- EVENT HANDLER
 -- =========================================================
 function History:OnChatEvent(event, message, author, ...)
+    if type(ns.NoteChatEntryPoint) == "function" then
+        ns.NoteChatEntryPoint("history capture", event)
+    end
+
     local db = GetHistoryDB()
     if not db or db.enableHistory == false then return end
     if not IsHistoryEventAllowed(event) then return end
@@ -379,6 +383,10 @@ function History:OnChatEvent(event, message, author, ...)
         end
     elseif type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(message, author, ...) then
         return
+    end
+
+    if type(ns.NoteChatEntryCleared) == "function" then
+        ns.NoteChatEntryCleared("history capture")
     end
 
     local safeMessage = GetSafeText(message)

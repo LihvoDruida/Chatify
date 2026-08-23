@@ -41,6 +41,7 @@ Locale:RegisterLocale("ukUA", {
     ["Chat Tabs Setup"] = "Налаштування вкладок чату",
     ["Chat %d"] = "Чат %d",
     ["Copy window diagnostics:"] = "Діагностика вікна копіювання:",
+    ["Chat entry points, most recent first:"] = "Точки входу в чат, найновіші зверху:",
     ["Chatify Copy"] = "Копіювання Chatify",
     ["Chatify Copy — selected line"] = "Копіювання Chatify — вибраний рядок",
     ["Chatify Settings"] = "Налаштування Chatify",

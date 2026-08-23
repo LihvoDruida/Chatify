@@ -918,6 +918,10 @@ local function InstallChannelLabelHook(frame)
 
     local wrapper = function(self, text, ...)
         local output = text
+        if type(ns.NoteChatEntryPoint) == "function" then
+            ns.NoteChatEntryPoint("AddMessage wrapper", "ADDMESSAGE")
+        end
+
         if type(text) == "string" then
             -- Secret values must be handed through untouched: reading one to build
             -- a replacement string is what produces "string conversion on a secret
@@ -928,6 +932,10 @@ local function InstallChannelLabelHook(frame)
                 safe = okSecret and not isSecret
             end
             if safe then
+                if type(ns.NoteChatEntryCleared) == "function" then
+                    ns.NoteChatEntryCleared("AddMessage wrapper")
+                end
+
                 if ChannelLabelsWanted() then
                     local ok, rewritten = pcall(ns.ApplyChannelLabels, output)
                     if ok and type(rewritten) == "string" then

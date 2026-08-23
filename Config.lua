@@ -1177,6 +1177,80 @@ function ns.ShouldBypassWhisperMutation(eventName)
     return ns.InChatMessagingLockdown()
 end
 
+-- === Chat entry-point breadcrumbs ===
+--
+-- When a secret value is touched inside an encounter, the resulting error carries
+-- nothing usable: debugstack() and debuglocals() come back as secrets themselves,
+-- so the report reads "execution tainted by 'Chatify'" and names no file or line.
+-- Two of these have already been diagnosed by reading code and guessing.
+--
+-- So Chatify leaves its own trail. Every handler that receives a chat payload
+-- records that it was entered, and records again once its guard has cleared the
+-- payload. The handler that appears last with cleared = true is the one that went
+-- on to touch the value.
+--
+-- Only the event name is ever stored. That is Blizzard's own constant string and is
+-- never secret; no part of the payload is read here, which would defeat the point.
+local chatEntryTrace = {}
+local CHAT_TRACE_LIMIT = 24
+
+local function ChatTraceNow()
+    return type(GetTime) == "function" and GetTime() or 0
+end
+
+function ns.NoteChatEntryPoint(name, eventName)
+    if type(name) ~= "string" then
+        return
+    end
+
+    local event = type(eventName) == "string" and eventName or "?"
+    local last = chatEntryTrace[#chatEntryTrace]
+    if last and last.name == name and last.event == event and not last.cleared then
+        last.count = (last.count or 1) + 1
+        last.at = ChatTraceNow()
+        return
+    end
+
+    if #chatEntryTrace >= CHAT_TRACE_LIMIT then
+        table.remove(chatEntryTrace, 1)
+    end
+
+    chatEntryTrace[#chatEntryTrace + 1] = {
+        name = name,
+        event = event,
+        count = 1,
+        cleared = false,
+        at = ChatTraceNow(),
+    }
+end
+
+-- Called after the guard has accepted the payload, i.e. from here on the handler is
+-- doing string work on it.
+function ns.NoteChatEntryCleared(name)
+    local last = chatEntryTrace[#chatEntryTrace]
+    if last and last.name == name then
+        last.cleared = true
+    end
+end
+
+function ns.GetChatEntryTrace()
+    local out = {}
+    for i = #chatEntryTrace, 1, -1 do
+        local entry = chatEntryTrace[i]
+        out[#out + 1] = string.format("%s  %s  x%d  %s",
+            entry.cleared and "PAST GUARD" or "bailed    ",
+            entry.name,
+            entry.count or 1,
+            entry.event)
+    end
+
+    if #out == 0 then
+        out[1] = "no chat entry points recorded yet"
+    end
+
+    return out
+end
+
 function ns.CanMutateChatPayload(eventName, msg, author, ...)
     -- Prat-style guard: decide before doing ANY string operation on the payload.
     if type(eventName) == "string" and ns.ShouldBypassWhisperMutation(eventName) then

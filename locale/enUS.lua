@@ -41,6 +41,7 @@ Locale:RegisterLocale("enUS", {
     ["Chat Tabs Setup"] = "Chat Tabs Setup",
     ["Chat %d"] = "Chat %d",
     ["Copy window diagnostics:"] = "Copy window diagnostics:",
+    ["Chat entry points, most recent first:"] = "Chat entry points, most recent first:",
     ["Chatify Copy"] = "Chatify Copy",
     ["Chatify Copy — selected line"] = "Chatify Copy — selected line",
     ["Chatify Settings"] = "Chatify Settings",

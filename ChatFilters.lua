@@ -1184,6 +1184,10 @@ function ns.ShouldHighlightMentionsOnRender()
 end
 
 local function MentionCaptureOnEvent(_, event, msg, author, ...)
+    if type(ns.NoteChatEntryPoint) == "function" then
+        ns.NoteChatEntryPoint("mention capture", event)
+    end
+
     -- Secretness is decided first, before anything reads or compares the payload.
     --
     -- type() reports "string" for a secret string value, so the previous order -
@@ -1202,6 +1206,10 @@ local function MentionCaptureOnEvent(_, event, msg, author, ...)
         return
     elseif type(msg) ~= "string" then
         return
+    end
+
+    if type(ns.NoteChatEntryCleared) == "function" then
+        ns.NoteChatEntryCleared("mention capture")
     end
 
     if not ns.ShouldHighlightMentionsOnRender() then

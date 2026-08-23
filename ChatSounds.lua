@@ -284,6 +284,10 @@ local function TryMentionFallback(event, safeMsg, safeAuthor, ...)
 end
 
 function Sounds:OnEvent(event, msg, author, ...)
+    if type(ns.NoteChatEntryPoint) == "function" then
+        ns.NoteChatEntryPoint("sounds", event)
+    end
+
     local profile, db = GetSoundConfig()
     local normalSoundsEnabled = db and db.enable == true
 
@@ -325,6 +329,10 @@ function Sounds:OnEvent(event, msg, author, ...)
         -- registers for on secret-value builds.
         tinsert(messageTimes, now)
         UpdateAdaptiveThrottle()
+    end
+
+    if type(ns.NoteChatEntryCleared) == "function" then
+        ns.NoteChatEntryCleared("sounds")
     end
 
     local safeMsg = GetSafeText(msg)

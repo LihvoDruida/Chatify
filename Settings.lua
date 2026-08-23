@@ -2146,6 +2146,37 @@ end
 --
 -- Read it at the START of a session, before changing anything: "loaded from
 -- disk" being false on a character that has used Chatify before is the finding.
+-- Which of Chatify's chat entry points last got past its secret-value guard.
+--
+-- An error raised on a secret value inside an encounter reports no file and no
+-- line: debugstack() and debuglocals() come back as secrets themselves, and all the
+-- user sees is "execution tainted by 'Chatify'". This prints the trail Chatify
+-- keeps for itself. The most recent line marked PAST GUARD is the handler that went
+-- on to do string work on the payload.
+--
+-- Run it immediately after seeing the error; the trail holds the last two dozen
+-- activations and nothing else.
+function Chatify:PrintChatEntryTrace()
+    local function say(line)
+        local frame = DEFAULT_CHAT_FRAME
+        if frame and type(frame.AddMessage) == "function" then
+            pcall(frame.AddMessage, frame, "|cffffd200Chatify:|r " .. tostring(line))
+        end
+    end
+
+    say(L("Chat entry points, most recent first:"))
+
+    if type(ns.GetChatEntryTrace) ~= "function" then
+        say("  trace unavailable")
+        return
+    end
+
+    local trace = ns.GetChatEntryTrace()
+    for i = 1, #trace do
+        say("  " .. trace[i])
+    end
+end
+
 function Chatify:PrintSavedVariablesReport()
     local function say(line)
         local frame = DEFAULT_CHAT_FRAME
@@ -2301,6 +2332,7 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatify", "OpenConfig")
     self:RegisterChatCommand("cfy", "OpenConfig")
     self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
+    self:RegisterChatCommand("chatifytrace", "PrintChatEntryTrace")
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after
