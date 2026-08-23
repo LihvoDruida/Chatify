@@ -83,25 +83,21 @@ end
 local direct = ns.ApplyMentionRules("hey malivil can you inv", "CHAT_MSG_SAY", "Bob")
 check("rule matches through ApplyMentionRules", direct:find("|cffffd700", 1, true) ~= nil, direct)
 
--- 2. The render path: chat event, then the line Blizzard would build.
-local function render(event, raw, rendered, ...)
-    ns.StopMentionRenderCapture()
-    ns.RefreshMentionRenderCapture()
-    -- Drive the capture frame the way the client does.
-    for _, f in ipairs(allFrames) do
-        local handler = f.__scripts and f.__scripts.OnEvent
-        if handler and f.__events and f.__events[event] then
-            handler(f, event, raw, ...)
-        end
-    end
-    return ns.ApplyPendingMentionRender(rendered)
+-- 2. The render path. Blizzard's chat frames draw the line before any addon frame
+--    sees the event, so the highlight is applied to the rendered line directly and
+--    nothing is carried over from a previous message.
+local function render(rendered)
+    return ns.HighlightMentionsInRenderedLine(rendered)
 end
 
-local say = render("CHAT_MSG_SAY", "hey Malivil can you inv",
-    "Bob says: hey Malivil can you inv", "Bob")
-local chan = render("CHAT_MSG_CHANNEL", "MALIVIL come here",
-    "[2. General] Bob: MALIVIL come here", "Bob", "", 0, 2, "", 0, 2, "General")
-local miss = render("CHAT_MSG_SAY", "nothing to see", "Bob says: nothing to see", "Bob")
+local SENDER_LINK = "|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: "
+local GUILD_LINK = "|Hplayer:Bob-Realm:11:GUILD:|h[Bob]|h: "
+local CHANNEL_LINK = "|Hchannel:channel:2|h[2. General]|h |Hplayer:Bob-Realm:12:CHANNEL:2|h[Bob]|h: "
+local ITEM = "|cffa335ee|Hitem:19019::::::::60:::::|h[Thunderfury]|h|r"
+
+local say = render(SENDER_LINK .. "hey Malivil can you inv")
+local chan = render(CHANNEL_LINK .. "MALIVIL come here")
+local miss = render(SENDER_LINK .. "nothing to see")
 
 if ns.ShouldHighlightMentionsOnRender() then
     check("SAY highlight reaches the rendered line",
@@ -109,57 +105,30 @@ if ns.ShouldHighlightMentionsOnRender() then
     check("CHANNEL highlight reaches the rendered line",
         chan:find("|cffffd700MALIVIL|r", 1, true) ~= nil, chan)
 else
-    -- The filter path is in force, so the render path must stay out of the way or
-    -- every mention would be coloured twice.
     check("render path idle while filters are installed",
         say:find("|cffffd700", 1, true) == nil and chan:find("|cffffd700", 1, true) == nil, say)
 end
 
-check("non-matching line is untouched", miss == "Bob says: nothing to see", miss)
+check("non-matching line is untouched", miss == SENDER_LINK .. "nothing to see", miss)
 
--- 2b. The rendered line contains the player's own name inside Blizzard's sender
---     link, so the swap must land on the message body and nowhere else. Reported as
---     raw |Hplayer:...| markup appearing in chat.
-local SENDER_LINK = "|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: "
-
-local ITEM = "|cffa335ee|Hitem:19019::::::::60:::::|h[Thunderfury]|h|r"
-
-local selfName = render("CHAT_MSG_SAY", "Malivil", SENDER_LINK .. "Malivil", "Malivil-DefiasBrotherhood")
-
-db.mentionRules[1].text = "Mal"
-ns.RefreshMentionRuntime()
-local short = render("CHAT_MSG_SAY", "Mal", SENDER_LINK .. "Mal", "Malivil-DefiasBrotherhood")
-db.mentionRules[1].text = "Malivil"
-ns.RefreshMentionRuntime()
-
-local withItem = render("CHAT_MSG_SAY", ITEM .. " for Malivil",
-    SENDER_LINK .. ITEM .. " for Malivil", "Bob")
-
--- The sender link must survive intact whichever path is in force: on the filter
--- path nothing touches the rendered line at all, on the render path the swap has to
--- land on the message body.
-check("sender link is never corrupted",
-    selfName:find("|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: ", 1, true) == 1
-        and short:find("|Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: ", 1, true) == 1,
-    selfName)
-
+-- 2a. The first message of a given casing must be highlighted. The parking design
+--     could only highlight the second identical one, because the event arrived
+--     after the line had already been drawn.
 if ns.ShouldHighlightMentionsOnRender() then
-    check("only the message body is highlighted",
-        selfName == SENDER_LINK .. "|cffffd700Malivil|r", selfName)
-    check("short rule does not corrupt the sender link",
-        short == SENDER_LINK .. "|cffffd700Mal|r", short)
-    check("message opening with an item link is still highlighted",
-        withItem:find("|cffffd700Malivil|r", 1, true) ~= nil
-            and withItem:find("|Hitem:19019", 1, true) ~= nil, withItem)
-else
-    check("render path leaves the line alone entirely",
-        selfName == SENDER_LINK .. "Malivil" and short == SENDER_LINK .. "Mal", selfName)
+    db.mentionRules = {
+        { text = "hi", color = "ffd700", sound = "None", channels = "SAY",
+          ignoreCase = true, wholeWord = true, enabled = true },
+    }
+    ns.RefreshMentionRuntime()
+
+    check("first 'hi' is highlighted",
+        render(SENDER_LINK .. "hi") == SENDER_LINK .. "|cffffd700hi|r",
+        render(SENDER_LINK .. "hi"))
+    check("first 'Hi' of a new casing is highlighted",
+        render(SENDER_LINK .. "Hi") == SENDER_LINK .. "|cffffd700Hi|r",
+        render(SENDER_LINK .. "Hi"))
 end
 
--- 2c. Two rules where one word is a prefix of the other, which is the reported
---     configuration ("Malivil" and "Mal", both whole-word). A parked message stays
---     in the queue for a few seconds so it can reach every chat frame, so the short
---     one must not attach itself to the next line.
 db.mentionRules = {
     { text = "Malivil", color = "ffd700", sound = "None", channels = "SAY",
       ignoreCase = true, wholeWord = true, enabled = true },
@@ -168,38 +137,35 @@ db.mentionRules = {
 }
 ns.RefreshMentionRuntime()
 
--- Whole-word matching itself, with both rules live.
+-- 2b. The sender's own name sits inside Blizzard's player link. Colouring there
+--     breaks the link and prints raw |Hplayer:...| markup.
+local selfName = render(SENDER_LINK .. "Malivil")
+local short = render(SENDER_LINK .. "Mal")
+local withItem = render(SENDER_LINK .. ITEM .. " for Malivil")
+
+check("sender link is never corrupted",
+    selfName:find(SENDER_LINK, 1, true) == 1 and short:find(SENDER_LINK, 1, true) == 1,
+    selfName)
+
 check("whole word: 'Mal' does not match inside 'malivil'",
     ns.ApplyMentionRules("malivil", "CHAT_MSG_SAY", "Bob") == "|cffffd700malivil|r",
     ns.ApplyMentionRules("malivil", "CHAT_MSG_SAY", "Bob"))
-check("whole word: 'yesterday' is not matched by a 'yes' style rule",
+check("whole word: a 'yes' style rule does not match 'yesterday'",
     ns.ApplyMentionRules("yesterday", "CHAT_MSG_SAY", "Bob") == "yesterday")
 
--- Now the queue. Send "Mal", then "Malivil", without clearing in between.
-ns.StopMentionRenderCapture()
-ns.RefreshMentionRenderCapture()
-local function fireOnly(event, raw, ...)
-    for _, f in ipairs(allFrames) do
-        local handler = f.__scripts and f.__scripts.OnEvent
-        if handler and f.__events and f.__events[event] then
-            handler(f, event, raw, ...)
-        end
-    end
-end
-
-fireOnly("CHAT_MSG_SAY", "Mal", "Malivil-DefiasBrotherhood")
-local firstLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "Mal")
-fireOnly("CHAT_MSG_SAY", "Malivil", "Malivil-DefiasBrotherhood")
-local secondLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "Malivil")
-local thirdLine = ns.ApplyPendingMentionRender(SENDER_LINK .. "normal talk")
-
 if ns.ShouldHighlightMentionsOnRender() then
-    check("queued short message stays on its own line",
-        firstLine == SENDER_LINK .. "|cffffd700Mal|r", firstLine)
-    check("a stale entry does not colour part of a longer word",
-        secondLine == SENDER_LINK .. "|cffffd700Malivil|r", secondLine)
-    check("a stale entry does not touch an unrelated line",
-        thirdLine == SENDER_LINK .. "normal talk", thirdLine)
+    check("only the message body is highlighted",
+        selfName == SENDER_LINK .. "|cffffd700Malivil|r", selfName)
+    check("a short rule does not colour part of a longer word",
+        selfName:find("|cffffd700Mal|rivil", 1, true) == nil, selfName)
+    check("message containing an item link keeps the link intact",
+        withItem:find("|cffffd700Malivil|r", 1, true) ~= nil
+            and withItem:find("|Hitem:19019", 1, true) ~= nil, withItem)
+    check("a GUILD line is not highlighted by a SAY-only rule",
+        render(GUILD_LINK .. "Malivil") == GUILD_LINK .. "Malivil",
+        render(GUILD_LINK .. "Malivil"))
+    check("a system line with no sender link is left alone",
+        render("Total time played: 141 days") == "Total time played: 141 days")
 end
 
 db.mentionRules = {
@@ -209,38 +175,17 @@ db.mentionRules = {
 }
 ns.RefreshMentionRuntime()
 
--- 2d. A secret payload must be rejected by the capture frame, and must be rejected
---     by the guard rather than by a later check that has already read it.
---
---     The harness cannot reproduce the in-game error - see the note in wow_env.lua,
---     a marked value is an ordinary Lua string here and comparing it succeeds. What
---     is asserted is that the guard was consulted and nothing was queued.
-if env.markSecret and env.secretString then
-    local guardCalls = 0
-    local realGuard = ns.CanMutateChatPayload
-    ns.CanMutateChatPayload = function(...)
-        guardCalls = guardCalls + 1
-        return realGuard(...)
-    end
-
-    ns.StopMentionRenderCapture()
-    ns.RefreshMentionRenderCapture()
-    fireOnly("CHAT_MSG_GUILD", env.secretString, env.markSecret("Someone-Realm"))
-
-    check("secret payload consults the guard", guardCalls > 0, guardCalls)
-    check("secret payload is never queued",
-        ns.ApplyPendingMentionRender("Guild line: " .. env.secretString)
-            == "Guild line: " .. env.secretString)
-
-    ns.CanMutateChatPayload = realGuard
-end
-
--- 3. Channel scoping still applies: a rule limited to GUILD must not fire in SAY.
+-- 3. Channel scoping still applies on the filter path, which is what runs on
+--    clients where the message-event filters are available.
 db.mentionRules[1].channels = "GUILD"
 ns.RefreshMentionRuntime()
-local scoped = render("CHAT_MSG_SAY", "hey Malivil", "Bob says: hey Malivil", "Bob")
 check("rule scoped to GUILD does not fire in SAY",
-    scoped == "Bob says: hey Malivil", scoped)
+    ns.ApplyMentionRules("hey Malivil", "CHAT_MSG_SAY", "Bob") == "hey Malivil",
+    ns.ApplyMentionRules("hey Malivil", "CHAT_MSG_SAY", "Bob"))
+check("rule scoped to GUILD does fire in GUILD",
+    ns.ApplyMentionRules("hey Malivil", "CHAT_MSG_GUILD", "Bob")
+        == "hey |cffffd700Malivil|r",
+    ns.ApplyMentionRules("hey Malivil", "CHAT_MSG_GUILD", "Bob"))
 
 print(failures == 0 and "\nmention probe: PASS" or ("\nmention probe: " .. failures .. " FAILURE(S)"))
 os.exit(failures == 0 and 0 or 1)

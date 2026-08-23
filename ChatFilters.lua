@@ -1098,58 +1098,54 @@ end
 --
 -- ns.ApplyMentionRules only ever runs from inside a chat message-event filter. On
 -- 12.0+ Chatify does not install those filters by default, because a filter closure
--- on Blizzard's chat dispatch is what silences chat inside encounters. The mention
--- *sound* already had a fallback (ChatSounds.TryMentionFallback); the highlight had
--- none, so the whole Mention Manager was silently inert on modern Retail while the
--- options panel still showed the rules as configured.
+-- on Blizzard's chat dispatch is what silences chat inside encounters. So the
+-- highlight has to be applied where the line is drawn: in the AddMessage wrapper.
 --
--- The highlight cannot simply be moved onto an event frame: at that point Blizzard
--- has not built the chat line yet, and the line it eventually builds is not the raw
--- message. So the work is split. The match and the colouring happen here, on
--- Chatify's own event frame, where the full event context is available and
--- per-channel scoping still resolves correctly. The coloured result is parked, and
--- the AddMessage wrapper in ChatVisuals swaps the raw message for the coloured one
--- inside the line Blizzard hands it.
+-- The first three attempts at this parked the coloured message on a chat event and
+-- swapped it into the rendered line afterwards. That design cannot work, and the
+-- reason is dispatch order: Blizzard's chat frames register for CHAT_MSG_* while the
+-- default UI loads, long before any addon, so they receive the event and draw the
+-- line *before* Chatify's own frame is called. The parked entry always arrived one
+-- line too late. It was then found by the *next* message with identical text, which
+-- is exactly what was reported - the first "hi" plain, the second "hi" highlighted,
+-- and "Hi" starting the count again because the queue was keyed on the exact string.
 --
--- Nothing about this touches Blizzard's dispatch, so it cannot taint anything.
+-- The two corruption bugs before that (a colour code inserted into the sender link,
+-- and a short rule colouring three letters of a longer word) were the same design
+-- failing in other ways: a substring swap has no idea which part of a rendered line
+-- it is looking at.
 --
--- Only messages that actually matched a rule are ever parked, so on an ordinary
--- chat line the queue is empty and the wrapper returns on its first comparison.
-local mentionRenderQueue = {}
-local MENTION_RENDER_TTL = 8
-local MENTION_RENDER_LIMIT = 12
-local mentionCaptureFrame
-
-local MentionCaptureEvents = {
-    "CHAT_MSG_SAY",
-    "CHAT_MSG_YELL",
-    "CHAT_MSG_GUILD",
-    "CHAT_MSG_OFFICER",
-    "CHAT_MSG_PARTY",
-    "CHAT_MSG_PARTY_LEADER",
-    "CHAT_MSG_RAID",
-    "CHAT_MSG_RAID_LEADER",
-    "CHAT_MSG_RAID_WARNING",
-    "CHAT_MSG_INSTANCE_CHAT",
-    "CHAT_MSG_INSTANCE_CHAT_LEADER",
-    "CHAT_MSG_CHANNEL",
-    "CHAT_MSG_COMMUNITIES_CHANNEL",
-    "CHAT_MSG_WHISPER",
-    "CHAT_MSG_BN_WHISPER",
-    "CHAT_MSG_BN_CONVERSATION",
+-- So nothing is parked. The rules are matched against the line itself, and the
+-- channel is read out of the sender hyperlink Blizzard already put there:
+--
+--     |Hplayer:Malivil-DefiasBrotherhood:9:SAY:|h[Malivil]|h says: hi
+--                                        ^^^^ chat type
+--
+-- TransformPlainTextSegments copies hyperlink blocks through untouched, so the
+-- sender name inside the link is never a candidate and the markup cannot be broken.
+--
+-- The mention *sound* stays on ChatSounds' event frame, where arriving late does not
+-- matter and the real event context is available.
+local RENDER_LINK_CHAT_TYPES = {
+    SAY = "CHAT_MSG_SAY",
+    YELL = "CHAT_MSG_YELL",
+    GUILD = "CHAT_MSG_GUILD",
+    OFFICER = "CHAT_MSG_OFFICER",
+    PARTY = "CHAT_MSG_PARTY",
+    PARTY_LEADER = "CHAT_MSG_PARTY_LEADER",
+    RAID = "CHAT_MSG_RAID",
+    RAID_LEADER = "CHAT_MSG_RAID_LEADER",
+    RAID_WARNING = "CHAT_MSG_RAID_WARNING",
+    INSTANCE_CHAT = "CHAT_MSG_INSTANCE_CHAT",
+    INSTANCE_CHAT_LEADER = "CHAT_MSG_INSTANCE_CHAT_LEADER",
+    WHISPER = "CHAT_MSG_WHISPER",
+    WHISPER_INFORM = "CHAT_MSG_WHISPER_INFORM",
+    BN_WHISPER = "CHAT_MSG_BN_WHISPER",
+    BN_WHISPER_INFORM = "CHAT_MSG_BN_WHISPER_INFORM",
+    BN_CONVERSATION = "CHAT_MSG_BN_CONVERSATION",
+    CHANNEL = "CHAT_MSG_CHANNEL",
+    COMMUNITIES_CHANNEL = "CHAT_MSG_COMMUNITIES_CHANNEL",
 }
-
-local function MentionNow()
-    return type(GetTime) == "function" and GetTime() or 0
-end
-
-local function PruneMentionRenderQueue(now)
-    for i = #mentionRenderQueue, 1, -1 do
-        if (now - (mentionRenderQueue[i].at or 0)) > MENTION_RENDER_TTL then
-            table.remove(mentionRenderQueue, i)
-        end
-    end
-end
 
 function ns.AreMessageFiltersInstalled()
     return filtersInstalled and true or false
@@ -1183,194 +1179,86 @@ function ns.ShouldHighlightMentionsOnRender()
     return HasActiveMentionRules(DB())
 end
 
-local function MentionCaptureOnEvent(_, event, msg, author, ...)
-    if type(ns.NoteChatEntryPoint) == "function" then
-        ns.NoteChatEntryPoint("mention capture", event)
+-- The synthetic event name a rule should be scoped against, read out of the sender
+-- hyperlink. Returns nil when the line has no sender link at all - a system message,
+-- an addon print, or a line whose sender was withheld - and in that case no rule is
+-- applied, because guessing at the channel is worse than not highlighting.
+local function GetRenderedLineEvent(text)
+    local chatType = text:match("|H[Bb][Nn]player:[^|]-:%d+:([A-Z_]+)")
+        or text:match("|Hplayer:[^|]-:%d+:([A-Z_]+)")
+    if chatType then
+        return RENDER_LINK_CHAT_TYPES[chatType]
     end
 
-    -- Secretness is decided first, before anything reads or compares the payload.
-    --
-    -- type() reports "string" for a secret string value, so the previous order -
-    -- type check, then msg == "" - reached the comparison with the guard still
-    -- ahead of it. Comparing a secret raises, and since Chatify had already tainted
-    -- the execution by being on the stack, every guild message during a Mythic+ run
-    -- produced "attempt to compare local 'msg' (a secret string value)".
-    --
-    -- ns.CanMutateChatPayload exists precisely to be called before any string
-    -- operation on the payload; it was simply called one step too late.
-    if type(ns.CanMutateChatPayload) == "function" then
-        if not ns.CanMutateChatPayload(event, msg, author, ...) then
-            return
-        end
-    elseif IsSecretValue(msg) or IsSecretValue(author) then
-        return
-    elseif type(msg) ~= "string" then
-        return
+    -- Community streams render without a player chat-type field.
+    if string_find(text, "|Hchannel:community:", 1, true)
+        or string_find(text, "|Hchannel:Community:", 1, true) then
+        return "CHAT_MSG_COMMUNITIES_CHANNEL"
     end
 
-    if type(ns.NoteChatEntryCleared) == "function" then
-        ns.NoteChatEntryCleared("mention capture")
+    return nil
+end
+
+-- Extra arguments GetEventCategory expects for numbered channels, recovered from the
+-- channel hyperlink so that a rule scoped to a specific channel still resolves.
+local function GetRenderedChannelName(text)
+    local name = text:match("|Hchannel:channel:%d+|h%[([^%]]*)%]")
+    if name then
+        -- Blizzard renders "2. General"; the category matcher wants the name.
+        return name:match("^%d+%.%s*(.+)$") or name
+    end
+    return nil
+end
+
+function ns.HighlightMentionsInRenderedLine(text)
+    if type(text) ~= "string" or text == "" then
+        return text
     end
 
     if not ns.ShouldHighlightMentionsOnRender() then
-        return
+        return text
     end
 
-    if msg == "" then
-        return
+    local event = GetRenderedLineEvent(text)
+    if not event then
+        return text
     end
 
     local rules = GetMentionRules(DB())
     if not rules then
-        return
-    end
-
-    local output = msg
-    local matched = false
-    for i = 1, #rules do
-        local rule = rules[i]
-        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule)
-            and MentionRuleAppliesToEvent(rule, event, ...) then
-            local hit = false
-            output = TransformPlainTextSegments(output, function(segment)
-                if not hit and SegmentContainsRule(segment, rule) then
-                    hit = true
-                end
-                return HighlightMentionRuleInSegment(segment, rule)
-            end)
-            if hit then
-                matched = true
-            end
-        end
-    end
-
-    -- The sound is deliberately not queued here. ChatSounds owns the mention sound
-    -- whenever the filter path is absent, and announcing it from both places is the
-    -- double-notification the post-message sound model exists to avoid.
-    if not matched or output == msg then
-        return
-    end
-
-    local now = MentionNow()
-    PruneMentionRenderQueue(now)
-
-    for i = 1, #mentionRenderQueue do
-        if mentionRenderQueue[i].raw == msg then
-            mentionRenderQueue[i].formatted = output
-            mentionRenderQueue[i].at = now
-            return
-        end
-    end
-
-    if #mentionRenderQueue >= MENTION_RENDER_LIMIT then
-        table.remove(mentionRenderQueue, 1)
-    end
-    mentionRenderQueue[#mentionRenderQueue + 1] = { raw = msg, formatted = output, at = now }
-end
-
--- Where the swap is allowed to land.
---
--- A parked entry holds the *entire* message, and the message is the tail of the
--- rendered line: everything Blizzard puts around it - timestamp, channel label,
--- sender link - comes first. So the only correct target is the end of the line, and
--- the match has to be the whole body rather than a fragment of it.
---
--- Matching anywhere a substring happened to appear is what produced both reported
--- symptoms. The parked message stays in the queue for a few seconds so it can be
--- applied to every chat frame showing the channel, and a short entry such as "Mal"
--- would then find itself inside the *next* line: first in the sender link data,
--- which broke the link and printed raw |Hplayer:...| markup, and after that fix
--- inside the word "Malivil", colouring three letters of it and making a whole-word
--- rule look like it was matching a partial word.
-local function FindMessageBodyOccurrence(text, raw)
-    local last = #text
-    while last > 0 and string_find(text, "^%s", last) do
-        last = last - 1
-    end
-
-    local first = last - #raw + 1
-    if first < 1 or text:sub(first, last) ~= raw then
-        return nil
-    end
-
-    return first, last
-end
-
-function ns.ApplyPendingMentionRender(text)
-    if #mentionRenderQueue == 0 or type(text) ~= "string" or text == "" then
         return text
     end
 
-    PruneMentionRenderQueue(MentionNow())
+    local channelName = event == "CHAT_MSG_CHANNEL" and GetRenderedChannelName(text) or nil
 
-    -- Longest wins. Two parked messages can both end the line only when one is a
-    -- suffix of the other, and then the longer one is the actual message.
-    local bestEntry, bestFirst, bestLast
-    for i = 1, #mentionRenderQueue do
-        local entry = mentionRenderQueue[i]
-        local raw = entry.raw
-        if type(raw) == "string" and raw ~= ""
-            and (not bestEntry or #raw > #bestEntry.raw) then
-            local first, last = FindMessageBodyOccurrence(text, raw)
-            if first then
-                bestEntry, bestFirst, bestLast = entry, first, last
-            end
+    local output = text
+    for i = 1, #rules do
+        local rule = rules[i]
+        if type(rule) == "table" and rule.enabled ~= false and RuleText(rule)
+            and MentionRuleAppliesToEvent(rule, event, channelName) then
+            output = TransformPlainTextSegments(output, function(segment)
+                return HighlightMentionRuleInSegment(segment, rule)
+            end)
         end
     end
 
-    if bestEntry then
-        -- The entry is not consumed on use. One message is rendered once per chat
-        -- frame that shows the channel, and every one of those lines should carry
-        -- the highlight; the TTL alone retires it.
-        return text:sub(1, bestFirst - 1) .. bestEntry.formatted .. text:sub(bestLast + 1)
-    end
-
-    return text
+    return output
 end
 
-function ns.StopMentionRenderCapture()
-    if mentionCaptureFrame then
-        pcall(mentionCaptureFrame.UnregisterAllEvents, mentionCaptureFrame)
-    end
-    mentionRenderQueue = {}
-end
-
-function ns.RefreshMentionRenderCapture()
-    local wanted = ns.ShouldHighlightMentionsOnRender()
-
-    if not wanted then
-        ns.StopMentionRenderCapture()
-        return false
-    end
-
-    if not mentionCaptureFrame then
-        if type(CreateFrame) ~= "function" then
-            return false
-        end
-        mentionCaptureFrame = CreateFrame("Frame")
-        mentionCaptureFrame:SetScript("OnEvent", MentionCaptureOnEvent)
-    end
-
-    for i = 1, #MentionCaptureEvents do
-        local eventName = MentionCaptureEvents[i]
-        if type(ns.IsEventSupported) ~= "function" or ns.IsEventSupported(eventName) then
-            pcall(mentionCaptureFrame.RegisterEvent, mentionCaptureFrame, eventName)
-        end
-    end
-
-    return true
-end
-
--- Single entry point for "the mention configuration changed". Both halves have to
--- move together: the capture frame produces the highlight and the AddMessage
--- wrapper applies it, so installing one without the other does nothing at all.
+-- Kept as the single "mention configuration changed" entry point. The capture frame
+-- it used to manage is gone; all that remains is re-resolving the AddMessage
+-- wrapper, which is what actually applies the highlight now.
 function ns.RefreshMentionRuntime()
-    if type(ns.RefreshMentionRenderCapture) == "function" then
-        ns.RefreshMentionRenderCapture()
-    end
     if type(ns.RefreshChannelLabelHook) == "function" then
         pcall(ns.RefreshChannelLabelHook)
     end
+end
+
+function ns.RefreshMentionRenderCapture()
+    return ns.ShouldHighlightMentionsOnRender()
+end
+
+function ns.StopMentionRenderCapture()
 end
 
 function ns.FormatLinksOnly(msg)

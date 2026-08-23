@@ -946,10 +946,9 @@ local function InstallChannelLabelHook(frame)
                 -- Deliberately after the labels. The label templates match on the
                 -- phrasing Blizzard wrote around the player name ("Bob whispers: "),
                 -- and a colour code inserted into that name first would stop them
-                -- matching. Colouring last cannot break anything the other way: the
-                -- swap is a plain substring replacement of the raw message.
-                if type(ns.ApplyPendingMentionRender) == "function" then
-                    local okMention, highlighted = pcall(ns.ApplyPendingMentionRender, output)
+                -- matching.
+                if type(ns.HighlightMentionsInRenderedLine) == "function" then
+                    local okMention, highlighted = pcall(ns.HighlightMentionsInRenderedLine, output)
                     if okMention and type(highlighted) == "string" then
                         output = highlighted
                     end
