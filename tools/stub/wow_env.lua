@@ -302,6 +302,30 @@ function M.install(mode)
         G.WOW_PROJECT_ID = 1
         G.WOW_PROJECT_MAINLINE = 1
         G.ChatFrameUtil = {
+            -- The renamed membership test. Present here so the shim path in
+            -- ChatHistory is actually exercised; without it the history probe
+            -- passed entirely through the frame.channelList fallback and proved
+            -- nothing about the rename.
+            ContainsChannel = function(frame, channelName)
+                if type(frame) ~= "table" or type(channelName) ~= "string" then
+                    return false
+                end
+                -- Falls back to the legacy per-frame table so a test can describe a
+                -- frame's channels either way and get the same answer.
+                local list = frame.stubSubscribedChannels
+                if type(list) ~= "table" then
+                    list = frame.channelList
+                end
+                if type(list) ~= "table" then
+                    return false
+                end
+                for i = 1, #list do
+                    if list[i]:lower() == channelName:lower() then
+                        return true
+                    end
+                end
+                return false
+            end,
             AddMessageEventFilter = function() return true end,
             RemoveMessageEventFilter = function() return true end,
             OpenChat = noop,

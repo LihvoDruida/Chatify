@@ -1836,7 +1836,9 @@ local function ActivateChatType(def, useAlt)
         pcall(_G.ChatEdit_SetLastActiveWindow, frame)
     end
 
-    local openChat = _G.ChatFrame_OpenChat
+    -- Resolved through the shim: ChatFrame_OpenChat is ChatFrameUtil.OpenChat on
+    -- current clients, and a direct global read returns nil there without saying so.
+    local openChat = ns.GetChatAPI("ChatFrame_OpenChat", "OpenChat") or _G.ChatFrame_OpenChat
     if type(openChat) ~= "function" and type(ns.CallChatAPI) == "function" then
         openChat = function(text, chatFrame)
             return ns.CallChatAPI("ChatFrame_OpenChat", "OpenChat", text, chatFrame)

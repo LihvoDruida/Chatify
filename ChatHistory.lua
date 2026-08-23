@@ -1,6 +1,7 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
 local History = Chatify:NewModule("History", "AceEvent-3.0")
+local strlower = string.lower
 
 -- =========================================================
 -- EVENT → TYPE MAP
@@ -151,7 +152,16 @@ local function AppendRestoredMessage(frame, text, ...)
     end
 end
 
-local function InvalidateTargetFrameCache()
+-- Exposed so a test - and a user running /chatifytrace after changing tabs - can
+-- force the routing decision to be made again instead of reading a stale answer.
+local InvalidateTargetFrameCache
+ns.InvalidateChatifyHistoryFrameCache = function()
+    if type(InvalidateTargetFrameCache) == "function" then
+        InvalidateTargetFrameCache()
+    end
+end
+
+function InvalidateTargetFrameCache()
     targetFrameCache = {}
 end
 
@@ -166,12 +176,70 @@ local function GetMaxChatWindows()
     return math.max(1, math.min(total, 20))
 end
 
-local function GetTargetFrames(event)
-    local cached = targetFrameCache[event]
-    if cached then
-        return cached
+-- Whether this chat frame is actually subscribed to a specific numbered channel.
+--
+-- Returns nil for "cannot tell", which is not the same as false. Every chat frame
+-- that shows any numbered channel is registered for the single CHAT_MSG_CHANNEL
+-- event, so event registration alone says nothing about *which* channel - which is
+-- why a message in [1. General] used to be filed into every history tab. Blizzard
+-- does the real routing from the frame's channel list, so that is what is read
+-- here.
+-- Whether `frame` is subscribed to the channel a message came from.
+--
+-- Returns true, false, or nil for "this client would not say". The nil case matters:
+-- the caller treats it as "keep the frame", because filing a message into every tab
+-- is a smaller failure than dropping it from history entirely. That fallback is also
+-- how this bug hid - on 12.x every test below was answering nil, so every frame was
+-- kept and the message appeared in all history tabs.
+--
+-- The direct global reference was the cause. ChatFrame_ContainsChannel moved into
+-- the ChatFrameUtil namespace along with the rest of the ChatFrame_* API, so on a
+-- current client `type(ChatFrame_ContainsChannel) == "function"` is false and the
+-- test was skipped without a word. ns.GetChatAPI resolves either spelling; it exists
+-- precisely for this rename and simply was not used here.
+local function FrameReceivesChannel(frame, channelBaseName, zoneChannelID)
+    if type(channelBaseName) == "string" and channelBaseName ~= "" then
+        local ok, contains = ns.CallChatAPI(
+            "ChatFrame_ContainsChannel", "ContainsChannel", frame, channelBaseName)
+        if ok and contains ~= nil then
+            return contains and true or false
+        end
     end
 
+    local decided = false
+
+    -- Zone channels (General, Trade, LocalDefense...) are tracked by id.
+    local zoneID = tonumber(zoneChannelID)
+    if zoneID and type(frame.zoneChannelList) == "table" then
+        decided = true
+        for i = 1, #frame.zoneChannelList do
+            if tonumber(frame.zoneChannelList[i]) == zoneID then
+                return true
+            end
+        end
+    end
+
+    -- Custom channels are tracked by name.
+    if type(channelBaseName) == "string" and channelBaseName ~= ""
+        and type(frame.channelList) == "table" then
+        decided = true
+        local wanted = strlower(channelBaseName)
+        for i = 1, #frame.channelList do
+            local entry = frame.channelList[i]
+            if type(entry) == "string" and strlower(entry) == wanted then
+                return true
+            end
+        end
+    end
+
+    if decided then
+        return false
+    end
+
+    return nil
+end
+
+local function CollectRegisteredFrames(event)
     local frames = {}
     for i = 1, GetMaxChatWindows() do
         local frame = _G["ChatFrame"..i]
@@ -182,8 +250,42 @@ local function GetTargetFrames(event)
             end
         end
     end
+    return frames
+end
 
-    targetFrameCache[event] = frames
+local function GetTargetFrames(event, channelBaseName, zoneChannelID)
+    -- Numbered channels need their own cache entry: the answer depends on which
+    -- channel the message came from, not only on the event.
+    local cacheKey = event
+    if event == "CHAT_MSG_CHANNEL" then
+        cacheKey = event .. "\029" .. tostring(channelBaseName or zoneChannelID or "?")
+    end
+
+    local cached = targetFrameCache[cacheKey]
+    if cached then
+        return cached
+    end
+
+    local frames = CollectRegisteredFrames(event)
+
+    if event == "CHAT_MSG_CHANNEL" and #frames > 0 then
+        local narrowed = {}
+        for i = 1, #frames do
+            local frame = _G["ChatFrame"..frames[i]]
+            if frame and FrameReceivesChannel(frame, channelBaseName, zoneChannelID) ~= false then
+                narrowed[#narrowed + 1] = frames[i]
+            end
+        end
+
+        -- Only narrow when something survived. If every frame answered "no", the
+        -- channel lists were not readable on this client and dropping the message
+        -- from history entirely would be a worse failure than filing it too widely.
+        if #narrowed > 0 then
+            frames = narrowed
+        end
+    end
+
+    targetFrameCache[cacheKey] = frames
     return frames
 end
 
@@ -396,7 +498,15 @@ function History:OnChatEvent(event, message, author, ...)
     local typeKey = activeEventTypeMap[event]
     if not typeKey then return end
 
-    local targetFrames = GetTargetFrames(event)
+    -- CHAT_MSG_CHANNEL carries the channel identity in its arguments: arg7 is the
+    -- zone channel id and arg9 is the channel's base name.
+    local zoneChannelID, channelBaseName
+    if event == "CHAT_MSG_CHANNEL" then
+        zoneChannelID = select(5, ...)
+        channelBaseName = select(7, ...)
+    end
+
+    local targetFrames = GetTargetFrames(event, channelBaseName, zoneChannelID)
     if #targetFrames == 0 then return end
 
     local limit = tonumber(db.historyLimit) or 250

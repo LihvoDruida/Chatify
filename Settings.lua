@@ -2529,19 +2529,21 @@ end
 local function SafeRemoveAllMessageGroups(frame)
     if not frame then return end
     if type(frame.RemoveAllMessageGroups) == "function" then pcall(frame.RemoveAllMessageGroups, frame); return end
-    if type(ChatFrame_RemoveAllMessageGroups) == "function" then pcall(ChatFrame_RemoveAllMessageGroups, frame) end
+    -- Third: the ChatFrameUtil spelling. Same rename that hid the history channel
+    -- routing bug; a direct global reference is silently false on a current client.
+    ns.CallChatAPI("ChatFrame_RemoveAllMessageGroups", "RemoveAllMessageGroups", frame)
 end
 
 local function SafeRemoveAllChannels(frame)
     if not frame then return end
     if type(frame.RemoveAllChannels) == "function" then pcall(frame.RemoveAllChannels, frame); return end
-    if type(ChatFrame_RemoveAllChannels) == "function" then pcall(ChatFrame_RemoveAllChannels, frame) end
+    ns.CallChatAPI("ChatFrame_RemoveAllChannels", "RemoveAllChannels", frame)
 end
 
 local function SafeAddMessageGroup(frame, group)
     if not frame or type(group) ~= "string" or group == "" then return end
     if type(frame.AddMessageGroup) == "function" then pcall(frame.AddMessageGroup, frame, group); return end
-    if type(ChatFrame_AddMessageGroup) == "function" then pcall(ChatFrame_AddMessageGroup, frame, group) end
+    ns.CallChatAPI("ChatFrame_AddMessageGroup", "AddMessageGroup", frame, group)
 end
 
 local function ConfigureTabFrame(frame, groups)

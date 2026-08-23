@@ -71,6 +71,10 @@ if command -v lua5.1 >/dev/null 2>&1; then
     CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
 
+    printf '\n=== history routing ===\n'
+    lua5.1 tools/history_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
     printf '\n=== copy window content ===\n'
     lua5.1 tools/copy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
