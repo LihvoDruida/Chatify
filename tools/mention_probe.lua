@@ -105,7 +105,7 @@ if ns.ShouldHighlightMentionsOnRender() then
     check("CHANNEL highlight reaches the rendered line",
         chan:find("|cffffd700MALIVIL|r", 1, true) ~= nil, chan)
 else
-    check("render path idle while filters are installed",
+    check("render path idle when it has nowhere to run",
         say:find("|cffffd700", 1, true) == nil and chan:find("|cffffd700", 1, true) == nil, say)
 end
 

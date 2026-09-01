@@ -1875,6 +1875,40 @@ function ns.CanUseMessageEventFilters()
     return not ns.InChatTaintRiskWindow()
 end
 
+-- Whether Chatify may replace frame.AddMessage on Blizzard's chat frames.
+--
+-- This is a harder question than the filter one, and it has to be answered
+-- separately, because the two taints do not behave the same way.
+--
+-- A message-event filter taints the execution that runs it. Withdraw the filter and
+-- the next dispatch starts clean again, which is what ns.CanUseMessageEventFilters
+-- and the "Balanced" mode are built on.
+--
+-- Replacing frame.AddMessage taints the *table field*. Blizzard's
+-- ChatFrameMixin:MessageEventHandler reads self.AddMessage at
+-- ChatFrameOverrides.lua:667 and calls ChatFrameUtil.SetLastTellTarget five lines
+-- later, and SetLastTellTarget does strupper(target) on a whisper sender that is a
+-- secret string inside instanced content. Reading a tainted field is enough to
+-- taint the execution, so that strupper raises
+-- "attempt to perform string conversion on a secret string value".
+--
+-- Withdrawing the wrapper does not undo it. Restoring the original is itself a
+-- write from tainted code, so the field stays tainted until the next /reload. The
+-- only version of this that is actually safe is never writing the field at all.
+--
+-- So the wrapper is allowed only where the user has already accepted that Chatify
+-- sits permanently on Blizzard's chat dispatch: any non-secret-value client, or
+-- "Maximum features" on 12.0+. It is deliberately NOT gated on
+-- ns.InChatTaintRiskWindow: a gate that lets the wrapper install in the open world
+-- has already lost by the time the player zones into a key.
+function ns.CanReplaceChatFrameAddMessage()
+    if not ns.IsRetailSecretValueBuild() then
+        return true
+    end
+
+    return ns.GetRetailChatFilterMode() == "full"
+end
+
 -- Modules register a callback here; it fires whenever the lockdown state flips so
 -- they can install or withdraw their filters.
 local filterRefreshHandlers = {}

@@ -206,12 +206,26 @@ local function GetRetailSafeDescription()
     local db = Chatify and Chatify.db and Chatify.db.profile
     local status = type(ns.GetRetailSafeModeStatus) == "function" and ns.GetRetailSafeModeStatus(db) or { active = false }
     local mode = status.active and "|cff33ff99active|r" or "|cff888888inactive|r"
+
+    -- Mention highlighting and short channel names are the two features that need
+    -- Chatify to rewrite a line after Blizzard has built it, and on 12.0+ that means
+    -- owning frame.AddMessage. Stating it here rather than leaving the user to
+    -- discover that a rule they configured never fires.
+    local rewrite = "available"
+    if type(ns.CanReplaceChatFrameAddMessage) == "function" then
+        local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
+        if ok and not allowed then
+            rewrite = "|cff888888unavailable (needs Maximum features)|r"
+        end
+    end
+
     return table.concat({
         "|cffffd200Retail Safe Mode:|r " .. mode,
         "History: " .. (status.history or "available"),
         "Virtual Chat: " .. (status.virtualChat or "available"),
         "Whisper Auto Reply: " .. (status.whisperAutoReply or "available"),
         "Native Copy: " .. (status.nativeCopy or "optional"),
+        "Mentions & channel labels: " .. rewrite,
     }, "\n")
 end
 
@@ -430,7 +444,7 @@ function Chatify:GetOptions()
                             retailChatFilterMode = {
                                 order = 4,
                                 name = T("Chat filters on Midnight (12.0+)"),
-                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because any chat filter can taint Blizzard's chat dispatch for the rest of the session, which shows up as player messages never appearing during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
+                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because anything Chatify puts on Blizzard's chat dispatch can taint it, which shows up as player messages never appearing during a raid encounter, or as a whisper error inside a Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere and is the only mode in which mention highlighting and short channel names work on 12.0+, at the cost of those errors. Requires /reload."),
                                 type = "select",
                                 width = "full",
                                 values = function()
@@ -2175,6 +2189,41 @@ function Chatify:PrintChatEntryTrace()
     for i = 1, #trace do
         say("  " .. trace[i])
     end
+
+    -- Who owns frame.AddMessage.
+    --
+    -- The whisper error reported against 0.11.49 came from this field: Blizzard
+    -- reads it at ChatFrameOverrides.lua:667 and calls SetLastTellTarget on a secret
+    -- sender five lines later, so whoever tainted the field is named in an error
+    -- raised by Blizzard's code. Chatify no longer writes it on 12.0+ outside
+    -- "Maximum features", so a name here that is still Chatify means the field was
+    -- tainted before the current build and needs a /reload; any other name is the
+    -- addon to report it to.
+    if type(issecurevariable) ~= "function" then
+        return
+    end
+
+    say(L("Chat frame AddMessage ownership:"))
+
+    local count = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
+        or NUM_CHAT_WINDOWS or 10
+    local clean = 0
+    for i = 1, count do
+        local frame = _G["ChatFrame" .. i]
+        if frame then
+            local ok, secure, owner = pcall(issecurevariable, frame, "AddMessage")
+            if not ok then
+                say("  ChatFrame" .. i .. ": could not be read")
+            elseif secure then
+                clean = clean + 1
+            else
+                say("  ChatFrame" .. i .. ": tainted by " ..
+                    (owner ~= nil and owner ~= "" and tostring(owner) or "a macro"))
+            end
+        end
+    end
+
+    say("  " .. clean .. " chat frame(s) still secure")
 end
 
 function Chatify:PrintSavedVariablesReport()

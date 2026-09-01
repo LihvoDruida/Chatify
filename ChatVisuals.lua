@@ -886,9 +886,14 @@ local function ChannelLabelsWanted()
     return BuildChannelLabelMap(db).active
 end
 
--- True only on clients where the message-event filters are absent, which is where
--- ns.ApplyMentionRules never runs and this wrapper is the only thing that can put
--- the highlight on screen. See the render-time mention block in ChatFilters.lua.
+-- True only on clients where the message-event filters are absent AND Chatify is
+-- allowed to own frame.AddMessage, which is where ns.ApplyMentionRules never runs
+-- and this wrapper is the only thing that can put the highlight on screen. See the
+-- render-time mention block in ChatFilters.lua.
+--
+-- On a 12.0+ client in "Safest" or "Balanced" both halves are false at once: the
+-- filters are withheld and so is the wrapper, so mention highlighting has no route
+-- to the screen there at all. That is the trade the mode is making.
 local function MentionHighlightWanted()
     if RouterOwnsAddMessage() then
         return false
@@ -901,12 +906,37 @@ local function MentionHighlightWanted()
     return ok and wanted and true or false
 end
 
+-- The wrapper is a taint vector before it is a feature, so the permission question
+-- is asked before the feature question. See ns.CanReplaceChatFrameAddMessage: on a
+-- 12.0+ client anything short of "Maximum features" means this hook never installs,
+-- because a single installation taints frame.AddMessage for the rest of the session
+-- and breaks Blizzard's own whisper handling inside instanced content.
+local function RenderHookAllowed()
+    if type(ns.CanReplaceChatFrameAddMessage) ~= "function" then
+        return true
+    end
+
+    local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
+    return (not ok) or (allowed and true or false)
+end
+
 local function RenderHookWanted()
+    if not RenderHookAllowed() then
+        return false
+    end
+
     return ChannelLabelsWanted() or MentionHighlightWanted()
 end
 
 local function InstallChannelLabelHook(frame)
     if not frame or type(frame.AddMessage) ~= "function" then
+        return
+    end
+
+    -- Asserted again at the point of the write, not only at the call site. Every
+    -- other guard in this file can be bypassed by a future caller reaching for
+    -- InstallChannelLabelHook directly; this one cannot.
+    if not RenderHookAllowed() then
         return
     end
     if channelHookWrapper[frame] and frame.AddMessage == channelHookWrapper[frame] then

@@ -1171,9 +1171,24 @@ end
 -- is keyed on whether the filters are *actually installed*, not on whether they are
 -- currently allowed, so there is neither a gap nor an overlap when the lockdown gate
 -- flips mid-session.
+--
+-- The render path also needs somewhere to run. It only ever executes inside the
+-- AddMessage wrapper in ChatVisuals, and on a 12.0+ client that wrapper is refused
+-- unless the user picked "Maximum features" (ns.CanReplaceChatFrameAddMessage).
+-- Reporting true where the wrapper cannot exist would leave the two halves
+-- disagreeing about who owns the highlight, and every caller of
+-- ns.HighlightMentionsInRenderedLine would be told to expect a colour that nothing
+-- is going to apply.
 function ns.ShouldHighlightMentionsOnRender()
     if filtersInstalled then
         return false
+    end
+
+    if type(ns.CanReplaceChatFrameAddMessage) == "function" then
+        local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
+        if ok and not allowed then
+            return false
+        end
     end
 
     return HasActiveMentionRules(DB())

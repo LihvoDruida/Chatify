@@ -85,6 +85,17 @@ if command -v lua5.1 >/dev/null 2>&1; then
     lua5.1 tools/hook_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
 
+    # 5d. The taint that cannot be withdrawn: frame.AddMessage. Replacing it once on
+    #     a 12.x client taints the field until /reload, and Blizzard reads it five
+    #     lines before calling SetLastTellTarget on a secret whisper sender.
+    printf '\n=== render hook taint (retail) ===\n'
+    CHATIFY_STUB_MODE=retail lua5.1 tools/render_taint_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
+    printf '\n=== render hook taint (classic) ===\n'
+    CHATIFY_STUB_MODE=classic lua5.1 tools/render_taint_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
     #    file and one bad value discards both.
