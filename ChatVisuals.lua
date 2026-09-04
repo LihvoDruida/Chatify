@@ -891,9 +891,10 @@ end
 -- and this wrapper is the only thing that can put the highlight on screen. See the
 -- render-time mention block in ChatFilters.lua.
 --
--- On a 12.0+ client in "Safest" or "Balanced" both halves are false at once: the
--- filters are withheld and so is the wrapper, so mention highlighting has no route
--- to the screen there at all. That is the trade the mode is making.
+-- On a 12.0+ client in "Safest" or "Balanced" the filters are withheld and this
+-- wrapper is the entire mention feature. It is permitted there as of 0.11.51,
+-- because ns.EnsureLastTellTargetGuard removes the one thing the wrapper's taint
+-- could break.
 local function MentionHighlightWanted()
     if RouterOwnsAddMessage() then
         return false
@@ -940,6 +941,20 @@ local function InstallChannelLabelHook(frame)
         return
     end
     if channelHookWrapper[frame] and frame.AddMessage == channelHookWrapper[frame] then
+        return
+    end
+
+    -- Ordered before the write, not after it. The window between taking over
+    -- AddMessage and guarding SetLastTellTarget is a window in which a whisper can
+    -- arrive and raise, and on a login into a Mythic+ group that window is not
+    -- theoretical. If the guard cannot be installed we do not take the frame at all;
+    -- ns.CanReplaceChatFrameAddMessage should already have said no, and this is the
+    -- second place that answer is enforced.
+    if type(ns.EnsureLastTellTargetGuard) == "function"
+        and type(ns.IsRetailSecretValueBuild) == "function"
+        and ns.IsRetailSecretValueBuild()
+        and not ns.EnsureLastTellTargetGuard()
+        and ns.GetRetailChatFilterMode() ~= "full" then
         return
     end
 

@@ -1,3 +1,72 @@
+#### 0.11.51
+
+Restores mention highlighting and short channel names on 12.x, which 0.11.50 removed. If you rolled back to 0.11.49 to get them, this is the build to take instead.
+
+Why 0.11.50 was wrong
+- 0.11.50 fixed the whisper error correctly but paid far too much for it. It tied the AddMessage wrapper to the retail filter mode, and since that mode defaults to Safest on 12.0+, both features silently stopped working for every player on Retail.
+- The two things do not deserve the same price. A message-event filter runs at ChatFrameOverrides.lua:304, upstream of MessageFormatter at 660 and ChatHistory_GetAccessID at 661, which is why a filter can stop a message appearing at all during an encounter and why the filters are withheld by default.
+- The AddMessage wrapper taints from line 667 down. Everything downstream of 667 is SetLastTellTarget, PlaySound, FlashClientIcon and FlashTabIfNotShown, and exactly one of those touches a secret value. The wrapper was charged the filters' price for a blast radius of one function.
+
+What this does instead
+- New guard on ChatFrameUtil.SetLastTellTarget, installed on secret-value clients immediately before the first chat frame's AddMessage is taken over. A whisper sender that is a secret string is skipped instead of being handed to Blizzard's strupper comparison, which is what raised in 0.11.49.
+- Asking whether a value is secret is permitted from tainted code; only converting it is not. That is the whole mechanism.
+- The wrapper is therefore allowed again in every mode, and mentions and short channel names work as they did in 0.11.49.
+
+What it costs
+- Inside instanced content, /r will not target someone whose name the game is hiding. This is not a regression: the unguarded version raised inside Blizzard's comparison loop, before reaching the assignment that would have stored the name, so that reply target was already lost. The error is gone; the outcome is the same.
+- The settings status block now says so directly rather than leaving a reply that goes nowhere to look like a bug.
+
+Two deliberate asymmetries
+- The guard is installed only when a wrapper is actually installed. On a profile with no mention rules and no short channel names nothing taints the dispatch, Blizzard reaches line 672 clean and records the hidden name itself. Guarding unconditionally would take away a working /r to prevent an error that cannot happen.
+- Once installed, the guard is never removed. Putting Blizzard's function back would leave the field tainted but unguarded, which is 0.11.49 again. Taint cannot be undone at runtime, so the correct move is to keep the guard.
+
+Ordering
+- The guard goes in before the AddMessage write, not after. The gap between the two is a window in which a whisper can raise, and on a login straight into a Mythic+ group that window is not theoretical.
+
+Testing
+- tools/render_taint_probe.lua rewritten around the new invariant: wherever Chatify owns AddMessage on a secret-value client, SetLastTellTarget must already be guarded, a secret sender must be swallowed without reaching Blizzard's comparison, and an ordinary sender must still be recorded. Run against 0.11.49 it fails two assertions and reproduces the reported error text; run against 0.11.50 it fails four, starting with the wrapper being absent.
+- The stub now models ChatFrameUtil.SetLastTellTarget. It raises on a secret target unconditionally, because Lua 5.1 cannot model taint, and the stub says so at the definition: the probe proves the guard intercepts the call, not that the game would have raised at that moment.
+
+Known limitation
+- If you update mid-session the error will continue until you /reload. The field was already tainted before this build loaded and nothing at runtime can clear it.
+
+#### 0.11.50
+
+Fixes the whisper error reported during Mythic+ and other instanced content:
+
+    attempt to perform string conversion on a secret string value
+    (execution tainted by 'Chatify')
+    ChatFrameUtil.lua:567: in function 'SetLastTellTarget'
+
+Introduced in 0.11.39 with the render-time mention path.
+
+What was actually happening
+- The error is raised inside Blizzard's code, not Chatify's. MessageEventHandler reads self.AddMessage at ChatFrameOverrides.lua:667 and calls ChatFrameUtil.SetLastTellTarget five lines later, and SetLastTellTarget does strupper(target) on the whisper sender. Inside instanced content that sender is a secret string, and a secret string can only be converted while the execution path is clean.
+- Chatify's channel-label wrapper replaced frame.AddMessage on every chat window. Reading a tainted table field is enough to taint the execution, so the field written at load time is what made the strupper raise on a whisper twenty minutes later. Nothing Chatify does with the message text was involved; sitting on the field was the whole fault.
+- 0.11.39 added that wrapper as the fallback for render-time mention highlighting, precisely because the message-event filters are withheld on 12.x. The filters have been gated on the taint risk window since 0.11.21. The wrapper never got the same treatment and was installed unconditionally, so on a default 12.x profile with one Mention Manager rule all ten chat windows were taken over.
+
+Why withdrawing it was not the fix
+- Restoring frame.AddMessage is itself a write from tainted code, so the field stays tainted until the next /reload. A gate that installs the wrapper in the open world and removes it at the instance portal has already lost. The invariant has to be about the write, not about when the wrapper runs.
+
+Changed
+- New gate ns.CanReplaceChatFrameAddMessage. Chatify writes frame.AddMessage only on clients without secret values, or on 12.0+ when the user has chosen "Maximum features". It is deliberately not tied to ns.InChatTaintRiskWindow, for the reason above.
+- ChatVisuals asks the gate both when deciding whether the hook is wanted and again at the point of the write, so a future caller reaching for the installer directly cannot bypass it.
+- ns.ShouldHighlightMentionsOnRender agrees with the gate. Previously it reported true wherever the filters were absent, which on 12.x meant advertising a highlight that nothing was going to apply.
+- ChatRouter already refused to hook AddMessage on secret-value builds. ChatVisuals was the only remaining writer.
+
+What this costs
+- On 12.0+ in "Safest" and "Balanced", mention highlighting and short channel names no longer appear. Both need Chatify to rewrite a line after Blizzard has built it, and on those clients there is no way to do that without sitting on the chat dispatch: the message-event filters taint the same function forty lines earlier than AddMessage does. Choosing "Maximum features" restores both, with the errors that mode has always warned about.
+- ScrollingMessageFrame:TransformMessages was considered as a taint-free route and rejected. It walks the entire history buffer per call and would hand secret entries to a tainted transform, trading this error for a worse one.
+- Everything else is unaffected: history, copy, sounds, auto-reply and spam filtering run on Chatify's own event frames and never touch Blizzard's dispatch.
+
+Diagnostics
+- /chatifytrace now names the owner of frame.AddMessage on each chat window via issecurevariable. After this build a report that still shows Chatify there means the field was tainted before the update and needs a /reload; any other name is the addon to report it to.
+- The retail status block in the settings states whether mentions and channel labels can currently be applied, instead of leaving the user to discover that a configured rule never fires.
+
+Testing
+- tools/render_taint_probe.lua asserts the invariant directly: on a secret-value stub no chat window's AddMessage may be replaced under the shipped defaults or under "Balanced", and it must be replaced again under "Maximum features" and on Classic. Run against 0.11.49 it fails four assertions and lists all ten windows as taken over.
+- Wired into check_all.sh in both client shapes.
+
 #### 0.11.44
 
 The copy window fixes shipped in 0.11.39 did not work. Reported again against that build, with one new detail that changes the diagnosis.

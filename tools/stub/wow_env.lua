@@ -334,6 +334,24 @@ function M.install(mode)
             IsWindowIDCombatLog = function(id) return id == 2 end,
             GetLastActiveWindow = function() return G.ChatFrame1EditBox end,
             SetLastActiveWindow = noop,
+
+            -- Modelled on ChatFrameUtil.lua:560-575. Blizzard walks the remembered
+            -- tells comparing strupper(target) against each entry, so a secret
+            -- target raises on the first iteration.
+            --
+            -- LIMITATION, and it matters for what this can prove: the real client
+            -- raises only when the execution path is tainted, and Lua 5.1 has no
+            -- notion of taint, so this raises on a secret target unconditionally.
+            -- That makes it a valid test of "did the guard stop the call reaching
+            -- here" and NOT a test of when the game would have raised. A probe that
+            -- reads a pass here as "no error in game" is reading it wrong.
+            SetLastTellTarget = function(target, chatType)
+                if secrets[target] then
+                    error("attempt to perform string conversion on a secret string value", 2)
+                end
+                M.lastTellTarget = { target = target, chatType = chatType }
+                return true
+            end,
         }
     else
         G.issecretvalue = nil

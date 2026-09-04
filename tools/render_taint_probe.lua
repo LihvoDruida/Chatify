@@ -1,4 +1,4 @@
--- Regression probe for the one taint vector that cannot be withdrawn.
+-- Regression probe for the AddMessage taint and the guard that contains it.
 --
 --     lua5.1 tools/render_taint_probe.lua                    (retail, secret values)
 --     CHATIFY_STUB_MODE=classic lua5.1 tools/render_taint_probe.lua
@@ -10,20 +10,26 @@
 --   ChatFrameUtil.lua:567: in function 'SetLastTellTarget'
 --   ChatFrameOverrides.lua:672: in function 'MessageEventHandler'
 --
--- Blizzard's MessageEventHandler calls self:AddMessage at line 667 and
--- ChatFrameUtil.SetLastTellTarget at line 672, and SetLastTellTarget does
--- strupper(target) on a whisper sender that is a secret string inside instanced
--- content. Chatify's channel-label / render-time-mention wrapper replaced
--- frame.AddMessage, so reading that field at 667 tainted the execution and the
--- strupper five lines later raised.
+-- Blizzard's MessageEventHandler reads self.AddMessage at line 667 and calls
+-- ChatFrameUtil.SetLastTellTarget at 672. Reading a tainted table field taints the
+-- execution, so Chatify's channel-label wrapper made the strupper(target) inside
+-- SetLastTellTarget raise on a whisper sender that is a secret string.
 --
--- Removing the wrapper afterwards does not help: restoring the original is itself a
--- write from tainted code, so the field stays tainted until /reload. The invariant
--- is therefore about the WRITE, not about the wrapper's behaviour: on a
--- secret-value build the field must never be written at all, unless the user
--- explicitly chose "Maximum features" and accepted the consequence.
+-- 0.11.50 answered that by refusing the wrapper, which cost mention highlighting and
+-- short channel names on every 12.x client and drew the report that reverting to
+-- 0.11.49 restored them. 0.11.51 answers it at the victim instead: everything
+-- downstream of line 667 is SetLastTellTarget, PlaySound, FlashClientIcon and
+-- FlashTabIfNotShown, and only the first touches a secret.
 --
--- Run against 0.11.49 the "retail default" case below fails.
+-- So the invariant is no longer "the field is never written". It is: wherever
+-- Chatify owns AddMessage on a secret-value client, SetLastTellTarget must already
+-- be guarded, and the guard must swallow a secret target without reaching Blizzard's
+-- comparison.
+--
+-- CAVEAT on what a PASS here means. The stub raises on a secret target
+-- unconditionally, because Lua 5.1 cannot model taint (see the note on
+-- SetLastTellTarget in tools/stub/wow_env.lua). These assertions prove the guard
+-- intercepts the call. They do not prove the in-game taint analysis behind it.
 
 package.path = "tools/stub/?.lua;" .. package.path
 local env = require("wow_env")
@@ -50,14 +56,27 @@ end
 
 local addon = LibStub("AceAddon-3.0"):GetAddon(addonName)
 pcall(addon.OnInitialize, addon)
+
+local db = addon.db and addon.db.profile
+ns.db = db
+
+-- Case 2's profile has to be in place before anything enables, because the shipped
+-- defaults arm the wrapper on their own (short channel names are on out of the box)
+-- and the guard is a once-per-session install. Clearing the settings after OnEnable
+-- would be measuring a session that had already armed and disarmed.
+local idleCase = os.getenv("CHATIFY_PROBE_CASE") == "guard-scope"
+if idleCase and db then
+    db.enableMentionManager = false
+    db.shortChannels = false
+    db.mentionRules = {}
+    db.channelModes, db.channelLabels, db.channelLabelsNamed = {}, {}, {}
+end
+
 pcall(addon.OnEnable, addon)
 for _, mod in pairs(addon.modules or {}) do
     pcall(mod.OnInitialize, mod)
     pcall(mod.OnEnable, mod)
 end
-
-local db = addon.db and addon.db.profile
-ns.db = db
 
 local failures = 0
 local function check(label, ok, detail)
@@ -118,12 +137,39 @@ local function gateAllows()
     return allowed and true or false
 end
 
+local function guardInstalled()
+    if type(ns.IsLastTellTargetGuarded) ~= "function" then
+        return false, "guard function does not exist"
+    end
+    local ok, guarded = pcall(ns.IsLastTellTargetGuarded)
+    if not ok then
+        return false, "guard query raised"
+    end
+    return guarded and true or false
+end
+
 local retail = ns.IsRetailSecretValueBuild()
 print("mode                       :", mode)
 print("IsRetailSecretValueBuild   :", retail)
 
--- 1. Shipped defaults. On 12.x this resolves to "Safest", which is where the
---    reported error came from.
+-- Sub-run entry point for case 2 below. The guard is a once-per-session install, so
+-- "was it installed on a profile that never armed the wrapper" cannot be asked in a
+-- process that has already armed it. A fresh interpreter is the only honest answer.
+if idleCase then
+    applyVisuals()
+
+    local wrapped = replacedFrames()
+    local guarded = guardInstalled()
+    if #wrapped == 0 and guarded == false then
+        print("idle-case OK")
+        os.exit(0)
+    end
+    print("idle-case FAIL  wrapped=" .. #wrapped .. " guarded=" .. tostring(guarded))
+    os.exit(1)
+end
+
+-- 1. Shipped defaults. On 12.x this is "Safest", which is where 0.11.49 crashed and
+--    where 0.11.50 silently dropped both features.
 armEverything()
 applyVisuals()
 
@@ -131,42 +177,74 @@ print("GetRetailChatFilterMode    :", ns.GetRetailChatFilterMode())
 print("CanReplaceAddMessage       :", select(1, gateAllows()), select(2, gateAllows()) or "")
 
 local taken = replacedFrames()
+check("default mode: the wrapper is installed",
+    #taken > 0, #taken == 0 and "no frame was wrapped" or table.concat(taken, ", "))
+-- On Classic the filters are installed and they own the highlight, so the render
+-- path standing down there is correct rather than a fault. What must hold on both is
+-- that exactly one of the two routes is live.
 if retail then
-    check("default mode: no chat frame AddMessage is replaced",
-        #taken == 0, #taken > 0 and table.concat(taken, ", ") or nil)
-    local allowed, why = gateAllows()
-    check("default mode: the gate itself says no", allowed == false, why)
-    check("default mode: render-time mentions stand down",
-        ns.ShouldHighlightMentionsOnRender() == false)
+    check("default mode: mentions reach the screen via the render path",
+        ns.ShouldHighlightMentionsOnRender() == true)
 else
-    check("classic: the wrapper is installed as before",
-        #taken > 0, #taken == 0 and "no frame was wrapped" or table.concat(taken, ", "))
-    check("classic: the gate allows it", (gateAllows()) == true)
+    check("classic: mentions reach the screen via the filters",
+        ns.ShouldHighlightMentionsOnRender() == false)
 end
 
--- 2. "Balanced". The mode that withdraws filters inside instances must NOT be read
---    as permission to own AddMessage: a wrapper installed in the open world has
---    already tainted the field by the time the player zones in.
 if retail then
-    db.retailChatFilterMode = "lockdown"
-    db.retailChatFilterModeUserSet = true
-    armEverything()
-    applyVisuals()
+    -- The whole point of 0.11.51: the wrapper is allowed back only because the one
+    -- thing its taint could break is already neutralised by the time it is written.
+    local guarded, guardWhy = guardInstalled()
+    check("default mode: SetLastTellTarget is guarded first", guarded == true, guardWhy)
 
-    taken = replacedFrames()
-    check("balanced mode: still no AddMessage is replaced",
-        #taken == 0, #taken > 0 and table.concat(taken, ", ") or nil)
+    -- A secret sender must be swallowed. Unguarded, the stub raises exactly as
+    -- ChatFrameUtil.lua:567 does.
+    env.secretString = env.secretString or "\1CHATIFY_SECRET_PAYLOAD\1"
+    env.lastTellTarget = nil
+    local ok, err = pcall(ChatFrameUtil.SetLastTellTarget, env.secretString, "WHISPER")
+    check("secret whisper sender does not raise", ok, not ok and tostring(err) or nil)
+    check("secret sender never reaches Blizzard's comparison",
+        env.lastTellTarget == nil,
+        env.lastTellTarget and "it was recorded anyway" or nil)
+
+    -- ...and an ordinary sender must still be recorded, or /r breaks everywhere
+    -- instead of only inside instanced content.
+    env.lastTellTarget = nil
+    local ok2 = pcall(ChatFrameUtil.SetLastTellTarget, "Svampollon-ArgentDawn", "WHISPER")
+    check("ordinary whisper sender is passed through", ok2
+        and env.lastTellTarget ~= nil
+        and env.lastTellTarget.target == "Svampollon-ArgentDawn"
+        and env.lastTellTarget.chatType == "WHISPER")
+else
+    -- Installing it here would take away a working /r to prevent an error that
+    -- cannot occur on a client without secret values.
+    check("classic: no SetLastTellTarget guard is installed",
+        (guardInstalled()) == false)
 end
 
--- 3. "Maximum features". The documented opt-in: the user is told this can break
---    chat in encounters, and this is the shape that breaking takes.
+-- 2. The guard is installed only alongside a wrapper. On a profile with nothing to
+--    render there is no taint, Blizzard reaches line 672 clean and records the
+--    secret target itself; guarding unconditionally would be a straight loss.
+if retail then
+    local fresh = "guard-scope"
+    local cmd = ("CHATIFY_STUB_MODE=retail CHATIFY_PROBE_CASE=%s lua5.1 tools/render_taint_probe.lua"):format(fresh)
+    if os.getenv("CHATIFY_PROBE_CASE") ~= fresh then
+        local pipe = io.popen(cmd .. " 2>&1")
+        local out = pipe:read("*a")
+        local okRun = pipe:close()
+        check("idle profile: guard is not installed without a wrapper",
+            okRun and out:find("idle-case OK", 1, true) ~= nil,
+            not okRun and "sub-run failed" or nil)
+    end
+end
+
+-- 3. "Maximum features" keeps working as before.
 db.retailChatFilterMode = "full"
 db.retailChatFilterModeUserSet = true
 armEverything()
 applyVisuals()
 
 taken = replacedFrames()
-check("maximum features: the wrapper is available again",
+check("maximum features: the wrapper is available",
     #taken > 0, #taken == 0 and "no frame was wrapped" or table.concat(taken, ", "))
 
 print(failures == 0 and "\nrender taint probe: PASS"

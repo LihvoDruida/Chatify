@@ -209,24 +209,38 @@ local function GetRetailSafeDescription()
 
     -- Mention highlighting and short channel names are the two features that need
     -- Chatify to rewrite a line after Blizzard has built it, and on 12.0+ that means
-    -- owning frame.AddMessage. Stating it here rather than leaving the user to
-    -- discover that a rule they configured never fires.
+    -- owning frame.AddMessage. Reporting the state here rather than leaving the user
+    -- to discover that a rule they configured never fires.
     local rewrite = "available"
     if type(ns.CanReplaceChatFrameAddMessage) == "function" then
         local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
         if ok and not allowed then
-            rewrite = "|cff888888unavailable (needs Maximum features)|r"
+            rewrite = "|cff888888unavailable on this client|r"
         end
     end
 
-    return table.concat({
+    -- Named plainly because it is the one thing the player will notice going wrong:
+    -- a reply that goes nowhere is otherwise indistinguishable from a bug.
+    local reply
+    if type(ns.IsLastTellTargetGuarded) == "function" then
+        local ok, guarded = pcall(ns.IsLastTellTargetGuarded)
+        if ok and guarded then
+            reply = "|cffffd200/r skips hidden names in instances|r"
+        end
+    end
+
+    local lines = {
         "|cffffd200Retail Safe Mode:|r " .. mode,
         "History: " .. (status.history or "available"),
         "Virtual Chat: " .. (status.virtualChat or "available"),
         "Whisper Auto Reply: " .. (status.whisperAutoReply or "available"),
         "Native Copy: " .. (status.nativeCopy or "optional"),
         "Mentions & channel labels: " .. rewrite,
-    }, "\n")
+    }
+    if reply then
+        lines[#lines + 1] = "Whisper reply: " .. reply
+    end
+    return table.concat(lines, "\n")
 end
 
 local function GetSpamLogDescription()
@@ -444,7 +458,7 @@ function Chatify:GetOptions()
                             retailChatFilterMode = {
                                 order = 4,
                                 name = T("Chat filters on Midnight (12.0+)"),
-                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. Safest is the default on 12.0+ because anything Chatify puts on Blizzard's chat dispatch can taint it, which shows up as player messages never appearing during a raid encounter, or as a whisper error inside a Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere and is the only mode in which mention highlighting and short channel names work on 12.0+, at the cost of those errors. Requires /reload."),
+                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. This covers the message-event filters only; mention highlighting and short channel names work in every mode. Safest is the default on 12.0+ because a filter runs early enough in Blizzard's chat handling to stop a message appearing at all during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
                                 type = "select",
                                 width = "full",
                                 values = function()

@@ -1878,35 +1878,107 @@ end
 -- Whether Chatify may replace frame.AddMessage on Blizzard's chat frames.
 --
 -- This is a harder question than the filter one, and it has to be answered
--- separately, because the two taints do not behave the same way.
+-- separately, because the two taints do not land in the same place.
 --
--- A message-event filter taints the execution that runs it. Withdraw the filter and
--- the next dispatch starts clean again, which is what ns.CanUseMessageEventFilters
--- and the "Balanced" mode are built on.
+--     660:  local msg = MessageFormatter(arg1)
+--     661:  local accessID = ChatHistory_GetAccessID(...)
+--     667:  self:AddMessage(msg, ..., accessID, typeID, event, eventArgs, ...)
+--     672:  ChatFrameUtil.SetLastTellTarget(arg2, type)
+--     684:  ChatFrameUtil.FlashTabIfNotShown(...)
 --
--- Replacing frame.AddMessage taints the *table field*. Blizzard's
--- ChatFrameMixin:MessageEventHandler reads self.AddMessage at
--- ChatFrameOverrides.lua:667 and calls ChatFrameUtil.SetLastTellTarget five lines
--- later, and SetLastTellTarget does strupper(target) on a whisper sender that is a
--- secret string inside instanced content. Reading a tainted field is enough to
--- taint the execution, so that strupper raises
--- "attempt to perform string conversion on a secret string value".
+-- A message-event filter runs at line 304, upstream of all of that, which is why
+-- filters can make a message never appear at all during an encounter and why
+-- ns.CanUseMessageEventFilters withholds them by default on 12.0+.
 --
--- Withdrawing the wrapper does not undo it. Restoring the original is itself a
--- write from tainted code, so the field stays tainted until the next /reload. The
--- only version of this that is actually safe is never writing the field at all.
+-- Replacing frame.AddMessage taints from line 667 down, and reading a tainted table
+-- field is enough to taint the execution. Everything downstream of 667 is listed
+-- above, and exactly one entry in it touches a secret: SetLastTellTarget, which does
+-- strupper(target) on a whisper sender that is a secret string inside instanced
+-- content. That single call is what raised
+-- "attempt to perform string conversion on a secret string value" in 0.11.49.
 --
--- So the wrapper is allowed only where the user has already accepted that Chatify
--- sits permanently on Blizzard's chat dispatch: any non-secret-value client, or
--- "Maximum features" on 12.0+. It is deliberately NOT gated on
--- ns.InChatTaintRiskWindow: a gate that lets the wrapper install in the open world
--- has already lost by the time the player zones into a key.
+-- 0.11.50 answered that by tying the wrapper to the filter mode. That was too blunt:
+-- it charged the wrapper the filters' price and took mention highlighting and short
+-- channel names away from every 12.x player to protect one whisper convenience.
+-- ns.EnsureLastTellTargetGuard neutralises the one victim instead, so the wrapper is
+-- allowed again wherever that guard can be installed.
+--
+-- Note that withdrawing the wrapper still does not undo it: restoring the original
+-- is itself a write from tainted code, so the field stays tainted until /reload.
+-- That is why the guard, once installed, is never removed either.
 function ns.CanReplaceChatFrameAddMessage()
     if not ns.IsRetailSecretValueBuild() then
         return true
     end
 
-    return ns.GetRetailChatFilterMode() == "full"
+    -- If the guard cannot be built on this client, fall back to the 0.11.50
+    -- position: the wrapper is only for someone who explicitly accepted the errors.
+    if not ns.CanGuardLastTellTarget() then
+        return ns.GetRetailChatFilterMode() == "full"
+    end
+
+    return true
+end
+
+-- Everything the guard in ns.EnsureLastTellTargetGuard needs in order to exist.
+function ns.CanGuardLastTellTarget()
+    if type(issecretvalue) ~= "function" then
+        -- Without this we cannot tell a secret sender from an ordinary one, and a
+        -- guard that skipped every target would break /r everywhere.
+        return false
+    end
+
+    local util = _G.ChatFrameUtil
+    return type(util) == "table" and type(util.SetLastTellTarget) == "function"
+end
+
+local lastTellTargetGuarded = false
+
+-- Installed only when Chatify has actually taken over a chat frame's AddMessage, and
+-- never removed afterwards.
+--
+-- The asymmetry is deliberate. Restoring Blizzard's SetLastTellTarget would leave the
+-- field tainted but unguarded, which is the 0.11.49 crash again. Once this is in
+-- place, keeping it is strictly better than putting the original back.
+--
+-- Installing it unconditionally would be worse than not installing it at all: on a
+-- session where no wrapper exists the dispatch reaches line 672 clean, Blizzard
+-- records the secret target itself and /r works. Taking that away to prevent an error
+-- that cannot occur is a straight loss.
+function ns.EnsureLastTellTargetGuard()
+    if lastTellTargetGuarded or not ns.IsRetailSecretValueBuild() then
+        return lastTellTargetGuarded
+    end
+
+    if not ns.CanGuardLastTellTarget() then
+        return false
+    end
+
+    local util = _G.ChatFrameUtil
+    local original = util.SetLastTellTarget
+
+    util.SetLastTellTarget = function(target, chatType)
+        -- Asking whether a value is secret is permitted from tainted code; only
+        -- converting it is not. Blizzard's loop compares strupper(target) against
+        -- each remembered tell, so a secret target cannot survive the first
+        -- iteration once we are on the stack.
+        --
+        -- Skipping costs the reply target for this whisper. It is not a regression:
+        -- the unguarded version raises inside that same loop, before ever reaching
+        -- the assignment that would have stored it.
+        if ns.IsSecretValue(target) then
+            return
+        end
+
+        return original(target, chatType)
+    end
+
+    lastTellTargetGuarded = true
+    return true
+end
+
+function ns.IsLastTellTargetGuarded()
+    return lastTellTargetGuarded
 end
 
 -- Modules register a callback here; it fires whenever the lockdown state flips so
