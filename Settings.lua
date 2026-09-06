@@ -2196,7 +2196,7 @@ end
 --
 -- Lua cannot observe taint and the stub cannot model it, so this prints the facts and
 -- leaves the conclusion to whoever reads it in game.
-function Chatify:PrintChatTaintReport()
+function Chatify:PrintChatTaintReport(input)
     local function say(line)
         local frame = DEFAULT_CHAT_FRAME
         if frame and type(frame.AddMessage) == "function" then
@@ -2210,7 +2210,31 @@ function Chatify:PrintChatTaintReport()
         say("  " .. report[i].label .. ": " .. tostring(report[i].value))
     end
 
+    local arg = tostring(input or ""):lower():gsub("^%s*(.-)%s*$", "%1")
+    local db = self.db and self.db.profile
+
+    -- Arranging the experiment by hand means finding the filter mode in the options,
+    -- and there is no switch at all for the wrapper since 0.11.51 made it
+    -- unconditional. Both are set here so the test is one command rather than a hunt.
+    if arg == "filtertest" and db then
+        db.retailChatFilterMode = "full"
+        db.retailChatFilterModeUserSet = true
+        db.disableRenderHook = true
+        say(T("Filter test armed: filters on, AddMessage wrapper off. Type /reload, then whisper someone inside instanced content."))
+        say(T("Undo with /chatifytaint reset."))
+        return
+    end
+
+    if arg == "reset" and db then
+        db.retailChatFilterMode = "off"
+        db.retailChatFilterModeUserSet = false
+        db.disableRenderHook = false
+        say(T("Filter test cleared. Type /reload to return to normal settings."))
+        return
+    end
+
     say(T("Run this inside a Mythic+ or rated instance, whisper someone, then run it again."))
+    say(T("Arm the filter experiment with /chatifytaint filtertest."))
 end
 
 function Chatify:PrintChatEntryTrace()

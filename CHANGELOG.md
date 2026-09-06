@@ -1,5 +1,31 @@
 #### 0.11.55
 
+Stops wrapping the combat log window, and adds the lever the filter experiment needs.
+
+Combat log
+- /chatifytrace on a live raid reported all ten chat windows tainted by Chatify, including ChatFrame2. The combat log carries no player chat, so neither channel labels nor mention highlighting had anything to do there; that frame was being tainted for no feature at all.
+- Detected via FCF_IsWindowIDCombatLog / ChatFrameUtil.IsWindowIDCombatLog through ns.GetChatAPI. Answered defensively: if the client cannot say which window is the combat log, the frame is wrapped as before, because skipping a window that does carry chat is the worse mistake.
+- The probe asserts both directions. A skip that is too eager fails the same visible way as the bug it was meant to fix.
+
+Diagnostic lever
+- 0.11.51 made the AddMessage wrapper unconditional on 12.0+, which quietly removed the only way to run the experiment docs/own_handler_scope.md section 0 depends on: filters on, wrapper off, whisper inside instanced content. The question could not be answered because there was no longer a switch.
+- New profile key disableRenderHook, off by default and not in the options UI. /chatifytaint filtertest sets it together with Maximum filters; /chatifytaint reset undoes both.
+- /chatifytaint now also reports whether the lever is set, so a later report cannot be misread as normal behaviour.
+
+A distinction the probe forced
+- The first version of the lever test set the flag after login and asserted no window was wrapped. It failed, correctly. Withdrawing the hook is not the same as never installing it: restoring Blizzard's function is itself a write, the field stays tainted, and rawget still finds something there.
+- The test now arms the flag before anything enables, in a separate interpreter, which is the only shape that matches what happens in game. It is also why /chatifytaint filtertest asks for a /reload rather than taking effect immediately.
+
+Field report, 0.11.54 in a Heroic encounter
+- Both taint-isolation mechanisms are present on the live client: securecallfunction, canaccessvalue, and the 12.x filter registry. The reading of Blizzard's source in 0.11.53 applies to this build.
+- A full 3m23s boss encounter with the wrapper owning nine windows produced no whisper error. The 0.11.51 guard holds under the conditions that broke 0.11.49.
+- Secret payloads are pervasive during encounters. The copy window recorded roughly 25 protected-line placeholders in one pull, and the entry trace shows the sounds, history and copy guards bailing on ordinary CHAT_MSG_RAID and CHAT_MSG_SYSTEM lines.
+
+Known inconsistency, not yet addressed
+- Copy keeps a placeholder for a secret line; history drops it entirely. So a fight's history has silent gaps where the copy window at least shows something was there. Worth making consistent, but it is a separate change.
+
+#### 0.11.55
+
 Stops wrapping the combat log window.
 
 - /chatifytrace on a live raid reported all ten chat windows as tainted by Chatify, including ChatFrame2. The combat log carries no player chat, so neither channel labels nor mention highlighting had anything to do there; that frame was being tainted for no feature at all.

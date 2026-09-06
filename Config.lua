@@ -904,6 +904,14 @@ ns.defaults = {
         retailChatFilterMode = "lockdown",
         retailChatFilterModeUserSet = false,
 
+        -- Diagnostic lever, off by default and not exposed in the options UI.
+        --
+        -- 0.11.51 made the AddMessage wrapper unconditional on 12.0+, which removed
+        -- the only way to run the experiment that docs/own_handler_scope.md section 0
+        -- depends on: filters on, wrapper off, whisper inside instanced content. Set
+        -- via /chatifytaint filtertest, cleared via /chatifytaint reset.
+        disableRenderHook = false,
+
         -- === SOUNDS ===
         sounds = {
             enable = true,
@@ -1907,6 +1915,13 @@ end
 -- is itself a write from tainted code, so the field stays tainted until /reload.
 -- That is why the guard, once installed, is never removed either.
 function ns.CanReplaceChatFrameAddMessage()
+    -- Checked before anything else so the diagnostic lever works on every client, not
+    -- only the ones with secret values.
+    local db = ns.db
+    if type(db) == "table" and db.disableRenderHook then
+        return false
+    end
+
     if not ns.IsRetailSecretValueBuild() then
         return true
     end
@@ -2017,6 +2032,8 @@ function ns.GetChatTaintReport()
     add("Chatify filter mode", tostring(ns.GetRetailChatFilterMode()))
     add("Filters currently allowed", ns.CanUseMessageEventFilters() and "yes" or "no")
     add("AddMessage wrapper allowed", ns.CanReplaceChatFrameAddMessage() and "yes" or "no")
+    add("Render hook disabled for test",
+        (type(ns.db) == "table" and ns.db.disableRenderHook) and "yes" or "no")
     add("SetLastTellTarget guarded", ns.IsLastTellTargetGuarded() and "yes" or "no")
 
     if type(issecurevariable) == "function" and type(util) == "table" then

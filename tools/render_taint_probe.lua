@@ -65,12 +65,22 @@ ns.db = db
 -- defaults arm the wrapper on their own (short channel names are on out of the box)
 -- and the guard is a once-per-session install. Clearing the settings after OnEnable
 -- would be measuring a session that had already armed and disarmed.
-local idleCase = os.getenv("CHATIFY_PROBE_CASE") == "guard-scope"
+local probeCase = os.getenv("CHATIFY_PROBE_CASE")
+local idleCase = probeCase == "guard-scope"
+local leverCase = probeCase == "lever"
 if idleCase and db then
     db.enableMentionManager = false
     db.shortChannels = false
     db.mentionRules = {}
     db.channelModes, db.channelLabels, db.channelLabelsNamed = {}, {}, {}
+elseif leverCase and db then
+    -- Armed before anything enables. Setting it afterwards only proves the hook can be
+    -- withdrawn, and a withdrawn hook is not an unwritten field: restoring Blizzard's
+    -- function is still a write, the field stays tainted, and rawget still finds
+    -- something there. That is exactly why /chatifytaint filtertest asks for a reload.
+    db.disableRenderHook = true
+    db.retailChatFilterMode = "full"
+    db.retailChatFilterModeUserSet = true
 end
 
 pcall(addon.OnEnable, addon)
@@ -156,6 +166,18 @@ print("IsRetailSecretValueBuild   :", retail)
 -- Sub-run entry point for case 2 below. The guard is a once-per-session install, so
 -- "was it installed on a profile that never armed the wrapper" cannot be asked in a
 -- process that has already armed it. A fresh interpreter is the only honest answer.
+if leverCase then
+    armEverything()
+    applyVisuals()
+    local wrapped = replacedFrames()
+    if #wrapped == 0 then
+        print("lever-case OK")
+        os.exit(0)
+    end
+    print("lever-case FAIL  wrapped=" .. table.concat(wrapped, ", "))
+    os.exit(1)
+end
+
 if idleCase then
     applyVisuals()
 
@@ -267,6 +289,24 @@ if combatLogID then
     check("every other window is still wrapped", others > 0, others .. " wrapped")
 else
     check("stub reports a combat log window", false, "none found")
+end
+
+-- 2c. The diagnostic lever. 0.11.51 made the wrapper unconditional on 12.0+, which
+--     removed the only way to run the experiment in docs/own_handler_scope.md section
+--     0: filters on, wrapper off. Without this the question cannot be answered at all,
+--     so the lever is load-bearing rather than a convenience.
+db.disableRenderHook = true
+check("the gate reports the lever", (gateAllows()) == false)
+db.disableRenderHook = false
+
+do
+    local cmd = ("CHATIFY_STUB_MODE=%s CHATIFY_PROBE_CASE=lever lua5.1 tools/render_taint_probe.lua"):format(mode)
+    local pipe = io.popen(cmd .. " 2>&1")
+    local out = pipe:read("*a")
+    local okRun = pipe:close()
+    check("armed before login, no window is ever wrapped",
+        okRun and out:find("lever-case OK", 1, true) ~= nil,
+        (not okRun) and out:match("lever%-case FAIL[^\n]*") or nil)
 end
 
 -- 3. "Maximum features" keeps working as before.
