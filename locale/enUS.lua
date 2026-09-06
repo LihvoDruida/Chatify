@@ -43,6 +43,8 @@ Locale:RegisterLocale("enUS", {
     ["Copy window diagnostics:"] = "Copy window diagnostics:",
     ["Chat entry points, most recent first:"] = "Chat entry points, most recent first:",
     ["Chat frame AddMessage ownership:"] = "Chat frame AddMessage ownership:",
+    ["Chat taint report:"] = "Chat taint report:",
+    ["Run this inside a Mythic+ or rated instance, whisper someone, then run it again."] = "Run this inside a Mythic+ or rated instance, whisper someone, then run it again.",
     ["Chatify Copy"] = "Chatify Copy",
     ["Chatify Copy — selected line"] = "Chatify Copy — selected line",
     ["Chatify Settings"] = "Chatify Settings",

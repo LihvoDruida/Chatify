@@ -2184,6 +2184,35 @@ end
 --
 -- Run it immediately after seeing the error; the trail holds the last two dozen
 -- activations and nothing else.
+-- Prints what the client can tell us about chat taint.
+--
+-- The open question behind docs/own_handler_scope.md is whether a message-event filter
+-- can still taint Blizzard's chat dispatch on 12.x. Blizzard's ChatFrameFilters.lua
+-- says it cannot: an addon filter is skipped outright when any argument is a secret,
+-- and it is invoked through securecallfunction, which restores the caller's taint.
+-- If that holds at runtime then Chatify has been withholding filters since 0.11.21
+-- against a hazard that no longer exists, and the filter is the right home for mention
+-- highlighting rather than the AddMessage wrapper.
+--
+-- Lua cannot observe taint and the stub cannot model it, so this prints the facts and
+-- leaves the conclusion to whoever reads it in game.
+function Chatify:PrintChatTaintReport()
+    local function say(line)
+        local frame = DEFAULT_CHAT_FRAME
+        if frame and type(frame.AddMessage) == "function" then
+            pcall(frame.AddMessage, frame, "|cffffd200Chatify:|r " .. tostring(line))
+        end
+    end
+
+    say(L("Chat taint report:"))
+    local report = ns.GetChatTaintReport()
+    for i = 1, #report do
+        say("  " .. report[i].label .. ": " .. tostring(report[i].value))
+    end
+
+    say(L("Run this inside a Mythic+ or rated instance, whisper someone, then run it again."))
+end
+
 function Chatify:PrintChatEntryTrace()
     local function say(line)
         local frame = DEFAULT_CHAT_FRAME
@@ -2396,6 +2425,7 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("cfy", "OpenConfig")
     self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
     self:RegisterChatCommand("chatifytrace", "PrintChatEntryTrace")
+    self:RegisterChatCommand("chatifytaint", "PrintChatTaintReport")
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after

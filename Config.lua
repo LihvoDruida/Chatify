@@ -1981,6 +1981,55 @@ function ns.IsLastTellTargetGuarded()
     return lastTellTargetGuarded
 end
 
+-- What the client can actually tell us about chat taint, gathered in one place.
+--
+-- This exists because the central question in docs/own_handler_scope.md is not
+-- answerable offline. Reading Blizzard's ChatFrameFilters.lua shows that on 12.x an
+-- addon's message-event filter is wrapped so that it is SKIPPED ENTIRELY when any
+-- argument is a secret (canaccessvalue) and is invoked through securecallfunction,
+-- which restores the caller's taint afterwards. If both hold at runtime then a filter
+-- cannot be the cause of the whisper error, and Chatify's default of withholding
+-- filters on 12.0+ is defending against a hazard Blizzard has since closed.
+--
+-- Lua cannot observe taint, and the stub cannot model it, so none of that is provable
+-- from tooling. What IS queryable is which of those mechanisms the running client has
+-- and who currently owns the fields involved. That is what this returns; the
+-- conclusion is drawn by a person looking at the output in game, not here.
+function ns.GetChatTaintReport()
+    local report = {}
+
+    local function add(label, value)
+        report[#report + 1] = { label = label, value = value }
+    end
+
+    add("Client has secret values", ns.IsRetailSecretValueBuild() and "yes" or "no")
+    add("securecallfunction", type(securecallfunction) == "function" and "present" or "absent")
+    add("canaccessvalue", type(canaccessvalue) == "function" and "present" or "absent")
+    add("issecretvalue", type(issecretvalue) == "function" and "present" or "absent")
+
+    -- The 12.x filter registry. Its presence is what makes the two mechanisms above
+    -- relevant to filters specifically rather than to the client in general.
+    local util = _G.ChatFrameUtil
+    local hasRegistry = type(util) == "table"
+        and type(util.GetMessageEventFilters) == "function"
+    add("Filter registry (12.x)", hasRegistry and "present" or "absent")
+
+    add("Chatify filter mode", tostring(ns.GetRetailChatFilterMode()))
+    add("Filters currently allowed", ns.CanUseMessageEventFilters() and "yes" or "no")
+    add("AddMessage wrapper allowed", ns.CanReplaceChatFrameAddMessage() and "yes" or "no")
+    add("SetLastTellTarget guarded", ns.IsLastTellTargetGuarded() and "yes" or "no")
+
+    if type(issecurevariable) == "function" and type(util) == "table" then
+        local ok, secure, owner = pcall(issecurevariable, util, "SetLastTellTarget")
+        if ok then
+            add("SetLastTellTarget owner",
+                secure and "secure" or (owner ~= nil and owner ~= "" and tostring(owner) or "tainted"))
+        end
+    end
+
+    return report
+end
+
 -- Modules register a callback here; it fires whenever the lockdown state flips so
 -- they can install or withdraw their filters.
 local filterRefreshHandlers = {}

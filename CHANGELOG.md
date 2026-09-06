@@ -1,3 +1,30 @@
+#### 0.11.53
+
+Diagnostics only. No behaviour change.
+
+Step 3 of docs/own_handler_scope.md was going to be the own MessageEventHandler. It is on hold, because reading Blizzard's Shared/ChatFrameFilters.lua turned up evidence that the premise behind the whole approach may be wrong.
+
+The finding
+- Chatify has withheld message-event filters on 12.0+ since 0.11.21, on the belief that a filter taints Blizzard's chat dispatch from line 304, upstream of MessageFormatter and ChatHistory_GetAccessID. That is why mention highlighting had to go through the AddMessage wrapper at all, and why the wrapper caused the 0.11.49 whisper error.
+- Blizzard's filter registry has two mechanisms that contradict that belief. An addon's filter is wrapped so it only runs if canaccessvalue() passes on the arguments, meaning a whisper with a secret sender never reaches the filter at all. And the call is made through securecallfunction, which restores the caller's taint when it returns. Blizzard's own comment at AddFilter states the intent: the closure captures the addon's taint at creation and the secret check exists because the callback is expected to be tainted.
+- If both hold at runtime, the filter is the correct home for mention highlighting and short channel names, the AddMessage wrapper is unnecessary, the SetLastTellTarget guard is unnecessary, and so is the own handler.
+
+What is not settled
+- Whether a filter that returns a rewritten string hands a tainted value to line 660 onward. securecallfunction restores taint from the call; it says nothing about values the call returns, and reading a tainted value taints the reader. On the secret path this cannot arise, because the filter is never invoked. On an ordinary message it might.
+- It is also possible the original 0.11.21 observation predates these mechanisms.
+- Lua cannot observe taint and the stub cannot model it. This is not answerable from tooling, which is why the next step is a diagnostic rather than more code.
+
+Added
+- /chatifytaint reports what the running client can actually tell us: whether securecallfunction, canaccessvalue and issecretvalue exist, whether the 12.x filter registry is present, the current filter mode, whether the AddMessage wrapper is allowed, whether SetLastTellTarget is guarded, and who owns it.
+- To settle the question: run it in the open world, then inside a Mythic+ or rated instance after receiving a whisper, with the filter mode set to Maximum and the AddMessage wrapper off. If no error appears, the filter path is clean and step 3 should be abandoned rather than finished.
+
+Regression caught during this change
+- The edit that added the taint report initially deleted ns.IsLastTellTargetGuarded, the accessor the 0.11.51 guard reports through. The symbol check did not catch it, because the caller was added in the same edit; the render taint probe would have. Restored, and both probes re-run clean.
+- The first version of the new command called ns.Print, which does not exist. Caught by the symbol check and the static audit, both of which named the line.
+
+Not changed
+- The render path, the AddMessage wrapper, the SetLastTellTarget guard and the proxy from 0.11.52 are all as they were. Mention highlighting and short channel names work exactly as in 0.11.51.
+
 #### 0.11.52
 
 Groundwork only. No user-visible change: the render path, the AddMessage wrapper and the SetLastTellTarget guard from 0.11.51 are all untouched.

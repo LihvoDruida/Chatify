@@ -43,6 +43,8 @@ Locale:RegisterLocale("ukUA", {
     ["Copy window diagnostics:"] = "Діагностика вікна копіювання:",
     ["Chat entry points, most recent first:"] = "Точки входу в чат, найновіші зверху:",
     ["Chat frame AddMessage ownership:"] = "Власник AddMessage у вікнах чату:",
+    ["Chat taint report:"] = "Звіт про забруднення чату:",
+    ["Run this inside a Mythic+ or rated instance, whisper someone, then run it again."] = "Виконайте це всередині Mythic+ чи рейтингового підземелля, надішліть шепіт, потім виконайте ще раз.",
     ["Chatify Copy"] = "Копіювання Chatify",
     ["Chatify Copy — selected line"] = "Копіювання Chatify — вибраний рядок",
     ["Chatify Settings"] = "Налаштування Chatify",

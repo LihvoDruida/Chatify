@@ -1,6 +1,10 @@
 # Own MessageEventHandler — scope inventory
 
-Status: **assessment only. No code written.**
+Status: **assessment. Step 3 is on hold — see section 0.**
+
+> **Update (0.11.53).** Reading Blizzard's `ChatFrameFilters.lua` turned up evidence
+> that the premise behind this whole project may be wrong. Section 0 records it. Do
+> not start writing the handler until it is settled in-client.
 
 Purpose: establish what a Chatify-owned `MessageEventHandler` has to cover before any
 of it is written, so the decision to proceed or stop is made against measurements
@@ -11,6 +15,56 @@ Sources measured: Blizzard's published UI source, `Gethe/wow-ui-source`, branche
 `classic_titan` (`Classic/ChatFrameOverrides.lua`). Prat was **not** consulted for any
 of this and must not be: Prat is GPL, Chatify is MIT, and its
 `addon/MessageEventHandler.lua` has deliberately not been opened.
+
+---
+
+## 0. The premise may be wrong
+
+The reason Chatify injects at `AddMessage` rather than at a message-event filter is a
+belief, held since 0.11.21, that a filter taints Blizzard's chat dispatch: it runs at
+`ChatFrameOverrides.lua:304`, upstream of `MessageFormatter` (660) and
+`ChatHistory_GetAccessID` (661), and the observed symptom was messages never appearing
+during an encounter.
+
+Blizzard's current `Shared/ChatFrameFilters.lua` shows two mechanisms that contradict
+that, both in the message-event filter registry:
+
+1. **An addon filter is skipped entirely when any argument is a secret.**
+   `registry:AddFilter` wraps the callback so it only runs `if canaccessvalue(...)`.
+   On a whisper with a secret sender, a Chatify filter would therefore never be
+   invoked at all, and so could not taint anything.
+
+2. **The call is made through `securecallfunction`.** `ProcessFilters` invokes the
+   wrapped callback that way, which restores the caller's taint after the call
+   returns. Blizzard's own comment at `AddFilter` states the design intent: the
+   closure captures the addon's taint at creation, re-activates it during the call,
+   and the secret check exists precisely because the callback is expected to be
+   tainted.
+
+The registry is also built on `SecureTypes.CreateSecureMap()` and
+`CreateSecureFiltersArray()`.
+
+If both hold at runtime, then on 12.x a message-event filter cannot cause the whisper
+error, the filter is the correct home for mention highlighting and short channel names,
+and most of this document is unnecessary: there would be no reason to own the handler,
+because the sanctioned extension point already gives structured access to every event
+argument with no taint cost.
+
+**What is not settled.** Whether a filter that *returns* a rewritten string hands a
+tainted value to line 660 onward. `securecallfunction` restores taint from the call;
+it says nothing about values the call returns, and reading a tainted value taints the
+reader. On the secret path this cannot arise — mechanism 1 means the filter never runs
+— but on an ordinary message it might. Lua cannot observe taint and the stub cannot
+model it, so this is not answerable from tooling.
+
+It is also possible the original 0.11.21 observation predates these mechanisms, or came
+from something other than filters.
+
+**How to settle it.** `/chatifytaint` reports which mechanisms the running client has
+and who owns the fields involved. Run it in the open world, then inside a Mythic+ or
+rated instance after receiving a whisper, with `retailChatFilterMode` set to Maximum
+and the AddMessage wrapper off. If no error appears, the filter path is clean and step
+3 should be abandoned in favour of moving the render features onto filters.
 
 ---
 
