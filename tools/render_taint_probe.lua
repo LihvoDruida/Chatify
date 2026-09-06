@@ -38,12 +38,13 @@ env.install(mode)
 
 -- Blizzard's own AddMessage, recorded before a single line of Chatify is loaded.
 -- Every assertion below is "is this still the function the client installed".
-local pristine = {}
-for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
-    local frame = _G["ChatFrame" .. i]
-    if frame then
-        pristine[i] = frame.AddMessage
-    end
+-- rawget throughout, not a plain index. The stub's frame metatable answers unknown
+-- capitalised keys with a fresh closure each time, so identity comparison silently
+-- means nothing for any method it does not define. AddMessage happens to be a real
+-- stub method today, which is the only reason the plain-index version of this probe
+-- was measuring anything; that is too fragile to leave in place.
+local function frameOwnsAddMessage(frame)
+    return rawget(frame, "AddMessage") ~= nil
 end
 
 local ns, addonName = {}, "Chatify"
@@ -90,7 +91,7 @@ local function replacedFrames()
     local out = {}
     for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
         local frame = _G["ChatFrame" .. i]
-        if frame and pristine[i] and frame.AddMessage ~= pristine[i] then
+        if frame and frameOwnsAddMessage(frame) then
             out[#out + 1] = "ChatFrame" .. i
         end
     end

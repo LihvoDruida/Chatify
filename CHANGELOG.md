@@ -1,3 +1,32 @@
+#### 0.11.52
+
+Groundwork only. No user-visible change: the render path, the AddMessage wrapper and the SetLastTellTarget guard from 0.11.51 are all untouched.
+
+This is steps 1 and 2 of docs/own_handler_scope.md, which sizes the work of Chatify owning its own MessageEventHandler instead of writing frame.AddMessage.
+
+Added
+- ChatProxy.lua: a stand-in chat frame that Blizzard's message formatting can be run against, so the formatted line can be captured without writing a field on a real chat frame. The proxy is Chatify's own frame, so replacing its AddMessage taints nothing Blizzard reads.
+- The field blacklist is derived from Blizzard's own ScrollingMessageFrame source (historyBuffer, visibleLines, the font-string and texture pools, layout and scroll state), not from any other addon.
+- Routing state is copied by allowlist rather than blacklist. A blacklist has to be complete to be safe and degrades silently as Blizzard adds fields; an allowlist fails by making the proxy behave unlike the real frame, which a parity probe can catch.
+
+Deliberately not wired to anything
+- Blizzard's handler is not a pure function of its arguments: it allocates history IDs via ChatHistory_GetAccessID, sets the last tell target, plays the whisper sound and flashes tabs. Running it on a proxy while the real handler also runs would double all of that.
+- So a proxy can only ever replace the real handler, never run beside it. That is step 3 and it is not started. The probe asserts the module stays inert by checking that no chat frame's MessageEventHandler has been written.
+
+Testing
+- tools/proxy_probe.lua: capture returns the formatted line plus the event and eventArgs that the render hook cannot see at ChatFrameOverrides.lua:667; the real frame is not written to; routing fields arrive; state does not leak between two frames sharing the proxy; display internals are never adopted; a secret payload comes back byte-identical and still secret; and proxy output matches a direct run. That last one is the parity gate a future own handler will be measured against.
+
+Probe bug found and fixed
+- The stub's frame metatable returns a fresh closure for any unknown capitalised key, so comparing frame.Something against a recorded baseline is always unequal and any such assertion passes or fails for the wrong reason. tools/render_taint_probe.lua was asking its question that way; it only measured anything because AddMessage happens to be one of the few methods the stub defines for real. Both probes now use rawget, which asks the question that actually matters: did anything write this field.
+- Re-verified afterwards: the hardened probe still fails 2 assertions against 0.11.49 and 4 against 0.11.50.
+
+Scope
+- docs/own_handler_scope.md records the measurement: 421 lines and 88 branches on Retail, 380 and 79 on Classic Era, 43 message types plus 8 prefix families, and an external call surface that is identical across flavours. Only GUILD, GUILD_DISCORD and PING are Retail-only.
+- Three problems are named there and none is solved yet: owning the handler means owning ProcessMessageEventFilters and therefore every other addon's chat filters; the censored-message path is asynchronous and crosses the boundary of a single call; and FCFManager_ShouldSuppressMessage decides whether a message appears at all, so an error there drops messages silently.
+
+Limits of the harness
+- The stub cannot model taint and its ChatFrameUtil is a handful of functions. Parity here means the proxy is a faithful stand-in for a frame, not that output matches the game. The second question is answerable only in-client.
+
 #### 0.11.51
 
 Restores mention highlighting and short channel names on 12.x, which 0.11.50 removed. If you rolled back to 0.11.49 to get them, this is the build to take instead.

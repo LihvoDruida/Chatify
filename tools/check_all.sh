@@ -96,6 +96,17 @@ if command -v lua5.1 >/dev/null 2>&1; then
     CHATIFY_STUB_MODE=classic lua5.1 tools/render_taint_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
 
+    # 5e. Proxy capture and parity. Also asserts the proxy stays unwired: running
+    #     Blizzard's handler on a proxy alongside the real one would double history
+    #     IDs, whisper sounds and tab flashes.
+    printf '\n=== proxy capture (retail) ===\n'
+    CHATIFY_STUB_MODE=retail lua5.1 tools/proxy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
+    printf '\n=== proxy capture (classic) ===\n'
+    CHATIFY_STUB_MODE=classic lua5.1 tools/proxy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
     #    file and one bad value discards both.
