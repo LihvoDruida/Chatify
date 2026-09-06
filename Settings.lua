@@ -2204,13 +2204,13 @@ function Chatify:PrintChatTaintReport()
         end
     end
 
-    say(L("Chat taint report:"))
+    say(T("Chat taint report:"))
     local report = ns.GetChatTaintReport()
     for i = 1, #report do
         say("  " .. report[i].label .. ": " .. tostring(report[i].value))
     end
 
-    say(L("Run this inside a Mythic+ or rated instance, whisper someone, then run it again."))
+    say(T("Run this inside a Mythic+ or rated instance, whisper someone, then run it again."))
 end
 
 function Chatify:PrintChatEntryTrace()
@@ -2221,7 +2221,7 @@ function Chatify:PrintChatEntryTrace()
         end
     end
 
-    say(L("Chat entry points, most recent first:"))
+    say(T("Chat entry points, most recent first:"))
 
     if type(ns.GetChatEntryTrace) ~= "function" then
         say("  trace unavailable")
@@ -2246,7 +2246,7 @@ function Chatify:PrintChatEntryTrace()
         return
     end
 
-    say(L("Chat frame AddMessage ownership:"))
+    say(T("Chat frame AddMessage ownership:"))
 
     local count = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
         or NUM_CHAT_WINDOWS or 10

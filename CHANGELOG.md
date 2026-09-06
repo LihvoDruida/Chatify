@@ -1,3 +1,31 @@
+#### 0.11.54
+
+Fixes /chatifytaint and /chatifytrace, both of which raised on their first line:
+
+    Settings.lua:2207: attempt to call a nil value
+    (*temporary)="Chat taint report:"
+
+The bug
+- Settings.lua declares its translator as `local T`. Four diagnostic printers called `L(...)`, which is a global, which is nil, so each died before printing anything.
+- This is older than the report. /chatifytrace shipped in 0.11.49 with the same mistake and has never once produced output. It was recommended twice in the meantime as the way to find out who owns frame.AddMessage after the whisper fix; that advice was useless, and anyone who followed it got an error instead of an answer.
+- 0.11.53 did not introduce it, but did add two more call sites to a printer that could never run, which is how it finally surfaced.
+
+Why CI missed it
+- The symbol check tracks ns.* references; L is not one.
+- The static audit checks profile defaults.
+- Both load tests import every file, which proves the chunks compile and their top-level code runs. A wrong upvalue inside a function body survives that untouched.
+- No probe had ever called a command handler. The commands were the only part of the addon with no coverage at all, which is why the oldest bug in the file was living there.
+
+Added
+- tools/command_probe.lua invokes every registered slash command with a bare call and with arguments, and requires that it neither raises nor prints nothing. It hooks RegisterChatCommand to collect the handlers as the addon registers them, so a command added later is covered without editing the probe.
+- The assertion is deliberately shallow and broad: a wrong upvalue, a renamed helper and a nil method all fail the same way, and this catches the family rather than one instance. What the commands print belongs in the probes for the features themselves.
+- Run against 0.11.53 it fails 4 assertions; against 0.11.49, 3.
+- Wired into check_all.sh in both client shapes.
+
+Not changed
+- Behaviour is otherwise identical to 0.11.53. The render path, the AddMessage wrapper, the SetLastTellTarget guard and the proxy are untouched.
+- The open question in docs/own_handler_scope.md section 0 still stands, and /chatifytaint can now actually answer it.
+
 #### 0.11.53
 
 Diagnostics only. No behaviour change.

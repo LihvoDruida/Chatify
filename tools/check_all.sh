@@ -107,6 +107,18 @@ if command -v lua5.1 >/dev/null 2>&1; then
     CHATIFY_STUB_MODE=classic lua5.1 tools/proxy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
 
+    # 5f. Slash commands are actually invoked. The load tests import every file, which
+    #     proves the chunks compile; a wrong upvalue inside a function body survives
+    #     that untouched. /chatifytrace was dead from 0.11.49 to 0.11.53 for exactly
+    #     that reason and nothing in CI noticed.
+    printf '\n=== slash commands (retail) ===\n'
+    CHATIFY_STUB_MODE=retail lua5.1 tools/command_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
+    printf '\n=== slash commands (classic) ===\n'
+    CHATIFY_STUB_MODE=classic lua5.1 tools/command_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
+    tail -2 /tmp/chatify_probe.log
+
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
     #    file and one bad value discards both.
