@@ -238,6 +238,37 @@ if retail then
     end
 end
 
+-- 2b. The combat log window is left alone. It carries no player chat, so wrapping it
+--     taints a frame for no feature at all. The stub reports ChatFrame2 as the combat
+--     log, matching the client default.
+local combatLogID
+if type(FCF_IsWindowIDCombatLog) == "function" then
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+        if FCF_IsWindowIDCombatLog(i) then combatLogID = i end
+    end
+end
+
+if combatLogID then
+    armEverything()
+    applyVisuals()
+    local logFrame = _G["ChatFrame" .. combatLogID]
+    check("the combat log window is not wrapped",
+        logFrame ~= nil and rawget(logFrame, "AddMessage") == nil,
+        "ChatFrame" .. combatLogID)
+
+    -- Guards against the skip being too eager: every other frame must still be taken.
+    local others = 0
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+        if i ~= combatLogID and _G["ChatFrame" .. i]
+            and rawget(_G["ChatFrame" .. i], "AddMessage") ~= nil then
+            others = others + 1
+        end
+    end
+    check("every other window is still wrapped", others > 0, others .. " wrapped")
+else
+    check("stub reports a combat log window", false, "none found")
+end
+
 -- 3. "Maximum features" keeps working as before.
 db.retailChatFilterMode = "full"
 db.retailChatFilterModeUserSet = true

@@ -929,8 +929,39 @@ local function RenderHookWanted()
     return ChannelLabelsWanted() or MentionHighlightWanted()
 end
 
+-- The combat log window carries no player chat, so neither channel labels nor mention
+-- highlighting has anything to do there. Wrapping it was pure cost: /chatifytrace on a
+-- live raid reported all ten frames tainted by Chatify, and ChatFrame2 was one of them
+-- for no benefit at all.
+--
+-- Answered defensively. If the client cannot tell us which window is the combat log we
+-- wrap it as before, because skipping a frame that does carry chat would silently drop
+-- the features on it, which is the worse of the two mistakes.
+local function IsCombatLogFrame(frame)
+    if type(frame) ~= "table" or type(frame.GetID) ~= "function" then
+        return false
+    end
+
+    local fn = ns.GetChatAPI and ns.GetChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog")
+    if type(fn) ~= "function" then
+        return false
+    end
+
+    local okID, id = pcall(frame.GetID, frame)
+    if not okID or type(id) ~= "number" then
+        return false
+    end
+
+    local ok, isCombatLog = pcall(fn, id)
+    return ok and isCombatLog and true or false
+end
+
 local function InstallChannelLabelHook(frame)
     if not frame or type(frame.AddMessage) ~= "function" then
+        return
+    end
+
+    if IsCombatLogFrame(frame) then
         return
     end
 

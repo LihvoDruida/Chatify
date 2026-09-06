@@ -1,3 +1,17 @@
+#### 0.11.55
+
+Stops wrapping the combat log window.
+
+- /chatifytrace on a live raid reported all ten chat windows as tainted by Chatify, including ChatFrame2. The combat log carries no player chat, so neither channel labels nor mention highlighting had anything to do there; that frame was being tainted for no feature at all.
+- Detected via FCF_IsWindowIDCombatLog / ChatFrameUtil.IsWindowIDCombatLog, resolved through ns.GetChatAPI so it works across flavours.
+- Answered defensively: if the client cannot say which window is the combat log, the frame is wrapped as before. Skipping a window that does carry chat would silently drop both features on it, which is the worse of the two mistakes.
+
+Testing
+- tools/render_taint_probe.lua now asserts both directions: the combat log window is not wrapped, and every other window still is. The second half matters more than the first - a skip that is too eager fails the same visible way as the bug it was meant to fix.
+
+Note on reading /chatifytrace
+- "tainted by Chatify" on the remaining windows is expected and is not a fault. Chatify owns AddMessage there by design since 0.11.51, and the SetLastTellTarget guard is what makes that safe. The line to watch for is a name that is not Chatify.
+
 #### 0.11.54
 
 Fixes /chatifytaint and /chatifytrace, both of which raised on their first line:
