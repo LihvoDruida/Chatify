@@ -463,6 +463,59 @@ function ns.GetChatifyHistoryEntriesForFrame(chatFrame, maxLines)
     return entries
 end
 
+-- A secret line still happened, and history should say so.
+--
+-- Before this, a message Chatify could not read was dropped outright, so a boss fight
+-- left silent gaps: /chatifytrace on a live pull showed the history guard bailing on
+-- ordinary CHAT_MSG_RAID and CHAT_MSG_SYSTEM lines, roughly twenty-five of them in one
+-- encounter. The copy window has always recorded a placeholder for the same lines, so
+-- the two features disagreed about whether anything had been there at all.
+--
+-- Consecutive placeholders collapse into the first one. This is not cosmetic. History
+-- is capped per frame and persisted to SavedVariables, so a burst of twenty-five
+-- markers would push twenty-five real lines out of the buffer and do it again every
+-- pull. Marking that a gap exists is useful; letting the marks evict the surviving
+-- chat would be a worse bug than the one being fixed.
+local lastWasProtected = {}
+
+local function RecordProtectedLine(event)
+    local db = GetHistoryDB()
+    if not db or db.enableHistory == false or db.historyKeepProtected == false then
+        return
+    end
+
+    -- Routed by event alone. The channel arguments are exactly what could not be read
+    -- here, and GetTargetFrames compares them, which on a secret value raises.
+    local targetFrames = GetTargetFrames(event)
+    if not targetFrames or #targetFrames == 0 then
+        return
+    end
+
+    local limit = tonumber(db.historyLimit) or 250
+    local label = L("Protected chat line omitted.")
+    local okFormatted, line = pcall(FormatMessage, "|cff888888" .. label .. "|r")
+    if not okFormatted or type(line) ~= "string" then
+        return
+    end
+
+    for _, chatID in ipairs(targetFrames) do
+        chatID = NormalizeFrameID(chatID)
+        if chatID and not lastWasProtected[chatID] then
+            AddFrameHistory(chatID, line, limit)
+            lastWasProtected[chatID] = true
+        end
+    end
+end
+
+-- Called on every readable line, so the next unreadable one starts a fresh gap marker
+-- rather than being swallowed by the previous one.
+local function ClearProtectedRun(chatID)
+    chatID = NormalizeFrameID(chatID)
+    if chatID then
+        lastWasProtected[chatID] = nil
+    end
+end
+
 -- =========================================================
 -- EVENT HANDLER
 -- =========================================================
@@ -481,9 +534,11 @@ function History:OnChatEvent(event, message, author, ...)
 
     if type(ns.CanMutateChatPayload) == "function" then
         if not ns.CanMutateChatPayload(event, message, author, ...) then
+            RecordProtectedLine(event)
             return
         end
     elseif type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(message, author, ...) then
+        RecordProtectedLine(event)
         return
     end
 
@@ -492,7 +547,10 @@ function History:OnChatEvent(event, message, author, ...)
     end
 
     local safeMessage = GetSafeText(message)
-    if not safeMessage then return end
+    if not safeMessage then
+        RecordProtectedLine(event)
+        return
+    end
     local safeAuthor = GetSafeText(author)
 
     local typeKey = activeEventTypeMap[event]
@@ -526,6 +584,7 @@ function History:OnChatEvent(event, message, author, ...)
         chatID = NormalizeFrameID(chatID)
         if chatID then
             AddFrameHistory(chatID, fullMessage, limit)
+            ClearProtectedRun(chatID)
         end
     end
 end

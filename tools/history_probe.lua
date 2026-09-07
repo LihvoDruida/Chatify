@@ -9,7 +9,8 @@
 
 package.path = "tools/stub/?.lua;" .. package.path
 local env = require("wow_env")
-env.install(os.getenv("CHATIFY_STUB_MODE") or "retail")
+local mode = os.getenv("CHATIFY_STUB_MODE") or "retail"
+env.install(mode)
 
 local ns = {}
 for line in assert(io.open("Chatify.toc")):lines() do
@@ -112,6 +113,61 @@ if _G.ChatFrameUtil and type(_G.ChatFrameUtil.ContainsChannel) == "function" the
         entryCount(3) == base[3] + 1, entryCount(3) - base[3])
     check("renamed API keeps the line out of other frames",
         entryCount(1) == base[1] and entryCount(2) == base[2])
+end
+
+-- Unreadable lines leave a marker rather than a silent gap.
+--
+-- On a live Heroic pull the history guard bailed on roughly twenty-five ordinary
+-- CHAT_MSG_RAID and CHAT_MSG_SYSTEM lines, and every one of them vanished without
+-- trace, while the copy window recorded a placeholder for the same lines. The two
+-- features disagreed about whether anything had been there.
+--
+-- Only meaningful where the stub can mark a value secret.
+if mode == "retail" and env.secretString then
+    for i = 1, 3 do
+        local frame = _G["ChatFrame" .. i]
+        frame.IsEventRegistered = function(_, event) return event == "CHAT_MSG_RAID" end
+        frame.channelList, frame.zoneChannelList = nil, nil
+        frame.stubSubscribedChannels = nil
+    end
+
+    local base = entryCount(1)
+    history:OnChatEvent("CHAT_MSG_RAID", env.secretString, "Bob-Realm")
+    check("an unreadable line leaves a marker", entryCount(1) == base + 1,
+        entryCount(1) - base)
+
+    -- The collapse. History is capped per frame and persisted, so one marker per
+    -- suppressed message would push real chat out of the buffer and do it again on
+    -- every pull. That would be a worse bug than the silent gap it replaced.
+    local afterFirst = entryCount(1)
+    for _ = 1, 24 do
+        history:OnChatEvent("CHAT_MSG_RAID", env.secretString, "Bob-Realm")
+    end
+    check("a burst of unreadable lines collapses to one marker",
+        entryCount(1) == afterFirst, entryCount(1) - afterFirst .. " extra")
+
+    -- A readable line has to end the run, or the whole rest of the session is
+    -- swallowed by the first marker.
+    history:OnChatEvent("CHAT_MSG_RAID", "readable again", "Bob-Realm")
+    check("a readable line is still recorded", entryCount(1) == afterFirst + 1)
+
+    local afterReadable = entryCount(1)
+    history:OnChatEvent("CHAT_MSG_RAID", env.secretString, "Bob-Realm")
+    check("a later gap gets its own marker", entryCount(1) == afterReadable + 1,
+        entryCount(1) - afterReadable)
+
+    -- The marker must not be the secret itself.
+    local entries = ns.GetChatifyHistoryEntriesForFrame(_G.ChatFrame1, 250)
+    local leaked = false
+    for i = 1, #entries do
+        local e = entries[i]
+        local text = type(e) == "table" and (e.text or e.raw) or e
+        if text == env.secretString or (issecretvalue and pcall(issecretvalue, text)
+            and issecretvalue(text)) then
+            leaked = true
+        end
+    end
+    check("no secret value is stored in history", leaked == false)
 end
 
 print(failures == 0 and "\nhistory probe: PASS"

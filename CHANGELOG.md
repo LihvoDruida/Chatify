@@ -1,3 +1,24 @@
+#### 0.11.56
+
+Closes the gap between history and copy that 0.11.55 documented but did not fix.
+
+The problem
+- A chat line Chatify could not read was dropped from history outright. On a live Heroic pull the history guard bailed on roughly twenty-five ordinary CHAT_MSG_RAID and CHAT_MSG_SYSTEM lines and every one vanished without trace, while the copy window had always recorded a placeholder for exactly the same lines. The two features disagreed about whether anything had been there.
+
+Changed
+- History now records a marker where a line could not be read, matching the copy window. New profile key historyKeepProtected, on by default.
+- Consecutive markers collapse into the first. This is the part that matters: history is capped per frame and persisted to SavedVariables, so one marker per suppressed message would have pushed twenty-five real lines out of the buffer and done it again on every pull. Marking that a gap exists is useful; letting the marks evict the surviving chat would have been a worse bug than the silent gap.
+- A readable line ends the run, so a later gap gets its own marker instead of being swallowed by the first.
+- Markers are routed by event alone. The channel arguments are precisely what could not be read, and GetTargetFrames compares them, which on a secret value raises.
+
+Testing
+- tools/history_probe.lua covers all four behaviours plus the one that matters most: no secret value is ever stored in history. Run against 0.11.49 it fails two assertions.
+- The marker block is skipped on Classic, where the stub has no secret values to mark.
+
+Not changed
+- The whisper guard, the AddMessage wrapper, the combat log skip and the proxy are untouched.
+- docs/own_handler_scope.md section 0 is still open. /chatifytaint filtertest arms the experiment; it needs a whisper inside instanced content after a /reload, and it cannot be answered from tooling.
+
 #### 0.11.55
 
 Stops wrapping the combat log window, and adds the lever the filter experiment needs.

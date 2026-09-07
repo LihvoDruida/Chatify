@@ -736,6 +736,11 @@ ns.defaults = {
         useVirtualChat = false,      -- На modern Retail лишається вимкненим: прямий chat-frame layer конфліктує з secret values
         enableHistory = true,
         historyLimit = 250,         -- Зберігати 250 рядків для History popup
+
+        -- Keep a marker in history where a line could not be read, matching what the
+        -- copy window has always done. Consecutive markers collapse, so a boss fight
+        -- costs one line rather than one per suppressed message.
+        historyKeepProtected = true,
         historyAlpha = true,        -- Legacy SavedVariables key; history is no longer replayed into chat frames
 
         -- === SPAM FILTERS (Updated) ===
