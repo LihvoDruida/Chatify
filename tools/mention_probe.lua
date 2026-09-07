@@ -187,5 +187,88 @@ check("rule scoped to GUILD does fire in GUILD",
         == "hey |cffffd700Malivil|r",
     ns.ApplyMentionRules("hey Malivil", "CHAT_MSG_GUILD", "Bob"))
 
+-- The taint-free alert route.
+--
+-- This is the only mention path that does not require Chatify to rewrite Blizzard's
+-- line, so it is the one that keeps working regardless of how the taint question in
+-- docs/own_handler_scope.md is eventually answered. It calls AddMessage rather than
+-- replacing it, which is why it cannot taint anything.
+local function RunAlertChecks()
+    local frame = _G.DEFAULT_CHAT_FRAME or _G.ChatFrame1
+    local shown
+
+    local savedAdd = rawget(frame, "AddMessage")
+    frame.AddMessage = function(_, line) shown = line return true end
+
+    -- The alert only speaks when nothing else will, and in both shipped configurations
+    -- something else does: filters own the line on Classic, the render hook owns it on
+    -- Retail. So the condition has to be arranged rather than waited for, using the
+    -- same lever /chatifytaint filtertest uses.
+    -- Asserted before the conditional below, because every assertion in this block is
+    -- guarded by a state that has to be arranged. Run against a build with no alert
+    -- route, those guards simply do not open and the probe would report PASS having
+    -- tested nothing. The existence of the route is the one thing that must be checked
+    -- unconditionally.
+    check("the alert route exists",
+        type(ns.AnnounceMentionAlert) == "function"
+        and type(ns.BuildMentionAlertLine) == "function"
+        and type(ns.ShouldAnnounceMentionAlert) == "function")
+
+    if type(ns.AnnounceMentionAlert) ~= "function" then
+        return
+    end
+
+    local db = ns.db
+    local savedLever = db and db.disableRenderHook
+    if db then db.disableRenderHook = true end
+
+    local filtersOwnIt = ns.AreMessageFiltersInstalled()
+    if filtersOwnIt then
+        -- Correct behaviour, not a skipped test: announcing a mention twice is its own
+        -- bug, so with the filters installed the alert must stay silent.
+        shown = nil
+        local suppressed = ns.AnnounceMentionAlert("hey Malivil", "CHAT_MSG_GUILD", "Bob-Realm")
+        check("filters owning the line suppress the alert",
+            suppressed == false and shown == nil, shown)
+    end
+
+    if not filtersOwnIt and not ns.ShouldHighlightMentionsOnRender() then
+        shown = nil
+        local ok = ns.AnnounceMentionAlert("hey Malivil are you there", "CHAT_MSG_GUILD", "Bob-Realm")
+        check("alert is announced when no in-line route is live", ok == true)
+        check("alert carries the highlight",
+            type(shown) == "string" and shown:find("|cffffd700", 1, true) ~= nil, shown)
+        check("alert carries the message text",
+            type(shown) == "string" and shown:find("are you there", 1, true) ~= nil, shown)
+        check("alert names the author",
+            type(shown) == "string" and shown:find("Bob", 1, true) ~= nil, shown)
+
+        -- Announcing twice is its own bug. The render path owning the line must
+        -- suppress the alert, not compete with it.
+        shown = nil
+        local db = ns.db
+        local savedEcho = db and db.mentionEcho
+        if db then db.mentionEcho = false end
+        local offResult = ns.AnnounceMentionAlert("hey Malivil", "CHAT_MSG_GUILD", "Bob-Realm")
+        check("the setting suppresses the alert", offResult == false and shown == nil)
+        if db then db.mentionEcho = savedEcho end
+
+        -- A secret payload cannot be matched at all, by any route. Blizzard withholds
+        -- those from addon filters for the same reason, so this is a limit of the
+        -- feature rather than of this implementation.
+        if env.secretString then
+            shown = nil
+            local secretResult = ns.AnnounceMentionAlert(env.secretString, "CHAT_MSG_GUILD", "Bob-Realm")
+            check("a secret payload produces no alert",
+                secretResult == false and shown == nil)
+        end
+    end
+
+    if db then db.disableRenderHook = savedLever end
+    if savedAdd ~= nil then frame.AddMessage = savedAdd else frame.AddMessage = nil end
+end
+
+RunAlertChecks()
+
 print(failures == 0 and "\nmention probe: PASS" or ("\nmention probe: " .. failures .. " FAILURE(S)"))
 os.exit(failures == 0 and 0 or 1)

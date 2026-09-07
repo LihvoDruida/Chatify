@@ -1,3 +1,28 @@
+#### 0.11.57
+
+Mentions now have a route that cannot be broken by taint: sound plus a highlighted alert line.
+
+Why
+- Every existing way of showing a mention needs Chatify to rewrite the line Blizzard built, which means either a message-event filter or owning frame.AddMessage. Both put Chatify on Blizzard's chat dispatch, which is the whole subject of the last eight releases.
+- The sound half already worked this way and always has: ChatSounds listens on Chatify's own event frame, a separate dispatch from the chat frame's OnEvent, and cannot taint anything. Only the visible half was missing.
+
+What was added
+- ns.AnnounceMentionAlert prints a second line of Chatify's own with the keyword coloured by the same highlighter the in-line path uses. It CALLS AddMessage rather than replacing it. Calling is not writing: no field on any Blizzard frame is touched, so there is nothing to taint and nothing that can raise inside Blizzard's handler afterwards.
+- Driven from the existing mention fallback in ChatSounds, so no new event registration.
+- Sound and alert are announced independently. A rule with its sound set to None still produces the alert, and a failed sound no longer swallows it.
+- New profile key mentionEcho, on by default.
+
+When it speaks
+- Only when neither in-line route is live. Filters installed, or the render hook active, and the alert stays silent - announcing a mention twice is its own bug. Checked at the moment of announcing rather than assumed at load, because both routes come and go with the client and the filter mode.
+
+The honest costs
+- Where the alert does speak, the message appears twice: once as Blizzard drew it, once as Chatify's alert. That is the trade for a route with no failure mode.
+- A message whose payload is secret cannot be matched against a rule at all, because matching means reading it. Blizzard withholds those from addon filters for exactly the same reason. Mentions inside instanced content stay silent on 12.0+ whichever route is used, and nothing in this change or any planned one alters that.
+
+Probe bug found and fixed in the same change
+- The first version of the alert test was guarded by conditions that never open in either shipped configuration - filters own the line on Classic, the render hook owns it on Retail - so it ran no assertions at all and reported PASS. Worse, it reported PASS against 0.11.49, where the alert route does not exist.
+- The test now arranges the state it needs using the 0.11.55 lever, asserts the suppression case on Classic instead of skipping it, and checks that the route exists unconditionally. Against 0.11.49 it now fails.
+
 #### 0.11.56
 
 Closes the gap between history and copy that 0.11.55 documented but did not fix.

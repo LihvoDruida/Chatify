@@ -741,6 +741,11 @@ ns.defaults = {
         -- copy window has always done. Consecutive markers collapse, so a boss fight
         -- costs one line rather than one per suppressed message.
         historyKeepProtected = true,
+
+        -- The taint-free mention route: a second, highlighted line printed by Chatify
+        -- rather than a rewrite of Blizzard's. Shown only when neither in-line route
+        -- is live, so a mention is never announced twice. See ns.AnnounceMentionAlert.
+        mentionEcho = true,
         historyAlpha = true,        -- Legacy SavedVariables key; history is no longer replayed into chat frames
 
         -- === SPAM FILTERS (Updated) ===

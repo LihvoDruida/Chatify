@@ -1147,6 +1147,96 @@ local RENDER_LINK_CHAT_TYPES = {
     COMMUNITIES_CHANNEL = "CHAT_MSG_COMMUNITIES_CHANNEL",
 }
 
+-- The mention route that cannot be broken by taint.
+--
+-- Every other way of showing a mention needs Chatify to rewrite the line Blizzard
+-- built, which means either a message-event filter or owning frame.AddMessage. Both
+-- put Chatify on Blizzard's chat dispatch, and that is the entire subject of
+-- docs/own_handler_scope.md.
+--
+-- This one does not rewrite anything. It builds a second line of Chatify's own and
+-- calls AddMessage on the frame. Calling is not writing: no field on any Blizzard
+-- frame is touched, so there is nothing to taint and nothing that can raise inside
+-- Blizzard's handler afterwards. It is driven from Chatify's own event frame in
+-- ChatSounds, which is a separate dispatch from the chat frame's OnEvent entirely.
+--
+-- The cost is honest and visible: the message appears twice, once as Blizzard drew it
+-- and once as Chatify's alert. That is the trade for a route with no failure mode.
+--
+-- What it cannot do: a message whose payload is secret cannot be matched against a
+-- rule, because matching means reading it. Blizzard withholds those from addon
+-- filters for the same reason. Mentions inside instanced content will therefore stay
+-- silent on 12.0+ no matter which route is used, and no amount of work here changes
+-- that.
+local ALERT_PREFIX = "|cffffd700<>|r "
+
+function ns.BuildMentionAlertLine(text, eventName, author, ...)
+    if type(text) ~= "string" or text == "" or IsSecretValue(text) then
+        return nil
+    end
+
+    -- Reuses the same highlighter the in-line path uses, so the keyword is coloured
+    -- identically whichever route announced it.
+    local okHighlight, highlighted = pcall(ns.ApplyMentionRules, text, eventName, author, ...)
+    if not okHighlight or type(highlighted) ~= "string" then
+        highlighted = text
+    end
+
+    local name
+    if type(author) == "string" and author ~= "" and not IsSecretValue(author) then
+        local okShort, short = pcall(function() return author:match("([^%-]+)") or author end)
+        name = okShort and type(short) == "string" and short or nil
+    end
+
+    if name then
+        return ALERT_PREFIX .. string.format("|cffffd700[%s]|r %s", name, highlighted)
+    end
+
+    return ALERT_PREFIX .. highlighted
+end
+
+-- True when nothing else is going to colour the line, so the alert is the only route
+-- left. Checked rather than assumed, because announcing a mention twice is its own
+-- bug and the two in-line routes come and go with the client and the filter mode.
+function ns.ShouldAnnounceMentionAlert()
+    local db = DB()
+    if not db or db.mentionEcho == false then
+        return false
+    end
+
+    if filtersInstalled then
+        return false
+    end
+
+    local ok, onRender = pcall(ns.ShouldHighlightMentionsOnRender)
+    if ok and onRender then
+        return false
+    end
+
+    return true
+end
+
+-- Prints the alert. Returns whether anything was shown, so the caller can tell an
+-- alert that was suppressed from one that failed.
+function ns.AnnounceMentionAlert(text, eventName, author, ...)
+    if not ns.ShouldAnnounceMentionAlert() then
+        return false
+    end
+
+    local line = ns.BuildMentionAlertLine(text, eventName, author, ...)
+    if not line then
+        return false
+    end
+
+    local frame = _G.DEFAULT_CHAT_FRAME
+    if not frame or type(frame.AddMessage) ~= "function" then
+        return false
+    end
+
+    local ok = pcall(frame.AddMessage, frame, line)
+    return ok and true or false
+end
+
 function ns.AreMessageFiltersInstalled()
     return filtersInstalled and true or false
 end

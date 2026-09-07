@@ -276,11 +276,21 @@ local function TryMentionFallback(event, safeMsg, safeAuthor, ...)
         end
     end
 
+    -- Sound and alert are announced together and independently. A rule with its sound
+    -- set to None must still produce the visible alert, and a failure to play must not
+    -- swallow it either, so the two are not chained.
+    local played = false
     if type(ns.PlayMentionSound) == "function" then
-        return ns.PlayMentionSound(rule.sound) and true or false
+        played = ns.PlayMentionSound(rule.sound) and true or false
     end
 
-    return false
+    local announced = false
+    if type(ns.AnnounceMentionAlert) == "function" then
+        local ok, shown = pcall(ns.AnnounceMentionAlert, safeMsg, event, safeAuthor, ...)
+        announced = ok and shown and true or false
+    end
+
+    return played or announced
 end
 
 function Sounds:OnEvent(event, msg, author, ...)
