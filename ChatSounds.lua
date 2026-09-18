@@ -378,6 +378,10 @@ function Sounds:OnEvent(event, msg, author, ...)
 end
 
 function Sounds:OnEnable()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("sounds") then
+        return
+    end
+
     -- SAY/YELL/CHANNEL map to no sound category, so they used to be skipped
     -- outright. They are still worth registering on secret-value builds, where the
     -- mention fallback above is the only thing left that can announce a keyword hit

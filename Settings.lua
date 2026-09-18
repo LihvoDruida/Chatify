@@ -149,6 +149,13 @@ local function GetLanguageOption()
     return value
 end
 
+local function SafeReloadUI()
+    if type(ReloadUI) ~= "function" then
+        return false
+    end
+    return pcall(ReloadUI) and true or false
+end
+
 local function SetLanguageOption(value)
     if ns.Locale and ns.Locale.SetOverride then
         ns.Locale:SetOverride(value)
@@ -156,9 +163,7 @@ local function SetLanguageOption(value)
         Chatify.db.profile.language = value
     end
 
-    if ReloadUI then
-        ReloadUI()
-    end
+    SafeReloadUI()
 end
 
 
@@ -208,7 +213,7 @@ local function GetRetailSafeDescription()
     local mode = status.active and "|cff33ff99active|r" or "|cff888888inactive|r"
 
     -- Mention highlighting and short channel names are the two features that need
-    -- Chatify to rewrite a line after Blizzard has built it, and on 12.0+ that means
+    -- Chatify to rewrite a line after Blizzard has built it, and on protected clients that means
     -- owning frame.AddMessage. Reporting the state here rather than leaving the user
     -- to discover that a rule they configured never fires.
     local rewrite = "available"
@@ -230,7 +235,7 @@ local function GetRetailSafeDescription()
     end
 
     local lines = {
-        "|cffffd200Retail Safe Mode:|r " .. mode,
+        "|cffffd200Protected Chat Safety:|r " .. mode,
         "History: " .. (status.history or "available"),
         "Virtual Chat: " .. (status.virtualChat or "available"),
         "Whisper Auto Reply: " .. (status.whisperAutoReply or "available"),
@@ -363,6 +368,39 @@ local function GetChatTabsPreview()
     return table.concat(lines, "\n")
 end
 
+local MUTED_WARNING_COLOR = "d69a5b"
+
+local function IsFeatureHidden(feature)
+    return type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable(feature)
+end
+
+local function IsFeatureRisky(feature)
+    return type(ns.IsFeatureRisky) == "function" and ns.IsFeatureRisky(feature)
+end
+
+local function GetFeatureWarningDescription(feature)
+    if not IsFeatureRisky(feature) then
+        return ""
+    end
+    local text = type(ns.GetFeatureWarningText) == "function" and ns.GetFeatureWarningText(feature) or nil
+    if type(text) ~= "string" or text == "" then
+        return ""
+    end
+    return "|cff" .. MUTED_WARNING_COLOR .. "⚠ " .. T(text) .. "|r"
+end
+
+local function GetClientHeaderLine()
+    local client = type(ns.GetClientDisplayName) == "function" and ns.GetClientDisplayName() or "World of Warcraft"
+    local interfaceVersion = type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0
+    local tier = type(ns.GetClientSupportTier) == "function" and ns.GetClientSupportTier() or "unknown"
+    local notice = type(ns.GetClientCompatibilityNotice) == "function" and ns.GetClientCompatibilityNotice() or nil
+    local line = string.format(" |cff8f8f8f%s · Interface %s · %s|r", tostring(client), tostring(interfaceVersion), tostring(tier))
+    if type(notice) == "string" and notice ~= "" then
+        line = line .. "\n |cff" .. MUTED_WARNING_COLOR .. "⚠ " .. T(notice) .. "|r"
+    end
+    return line
+end
+
 -- =========================================================
 -- 4. SETTINGS TABLE (ACE CONFIG)
 -- =========================================================
@@ -379,7 +417,8 @@ function Chatify:GetOptions()
                 type = "description",
                 name = " |cff33ff99Chatify|r  |cff777777v" .. (GetAddonMetadataValue("Version") or "1.0") .. "|r\n" ..
                        " |cffffffff" .. T("Minimalist Chat Enhancer") .. "|r\n" ..
-                       " |cff999999" .. T("Tabs • Spam Filter • Sounds • History") .. "|r",
+                       " |cff999999" .. T("Tabs • Spam Filter • Sounds • History") .. "|r\n" ..
+                       GetClientHeaderLine(),
                 fontSize = "large",
                 image = "Interface\\AddOns\\Chatify\\assets\\icon", 
                 imageWidth = 64, 
@@ -428,11 +467,12 @@ function Chatify:GetOptions()
                         type = "group",
                         inline = true,
                         order = 2,
+                        hidden = function() return IsFeatureHidden("securityControls") end,
                         args = {
                                 groupSafetyNote = {
                                     order = 1,
                                     type = "description",
-                                    name = T("How much Chatify is allowed to touch chat text on protected modern clients. This applies to Midnight (12.0+) and WoW: Forever, where the game can protect chat payloads with secret values."),
+                                    name = T("How much Chatify is allowed to touch chat text when this client reports active secret-value restrictions. Current Retail, Forever and modern Classic branches can expose this API independently of expansion identity."),
                                 },
                             retailSafeStatus = {
                                 order = 2,
@@ -442,8 +482,8 @@ function Chatify:GetOptions()
                             },
                             retailWhisperSafeMode = {
                                 order = 3,
-                                name = T("Never modify whispers (Retail / Forever)"),
-                                desc = T("On Retail and WoW: Forever, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves protected whispers alone during restricted chat states; enable this only if you still see blank or duplicated whisper tabs."),
+                                name = T("Never modify protected whispers"),
+                                desc = T("Leave whisper and Battle.net whisper lines completely untouched on clients with active secret-value restrictions. Chatify already bypasses protected payloads during restricted chat states; enable this only if you still see blank or duplicated whisper tabs."),
                                 type = "toggle",
                                 width = "full",
                                 hidden = function()
@@ -458,7 +498,7 @@ function Chatify:GetOptions()
                             retailChatFilterMode = {
                                 order = 4,
                                 name = T("Chat filters on protected clients"),
-                                desc = T("Controls how far Chatify goes when Retail or WoW: Forever protects chat payloads with secret values. This covers message-event filters only; mention highlighting and short channel names work in every mode. Safest is the default on protected clients because a filter can run early enough in Blizzard's chat handling to taint later rendering. Balanced restores filtering during normal play and withdraws it while inside instanced content. Maximum filters everywhere. Requires /reload."),
+                                desc = T("Controls how far Chatify goes when the current client protects chat payloads with secret values. This covers message-event filters only. Safest avoids attaching filters; Balanced uses them only outside the risk window; Maximum leaves them enabled everywhere and may cause errors or missing chat. Requires /reload."),
                                 type = "select",
                                 width = "full",
                                 values = function()
@@ -726,6 +766,7 @@ function Chatify:GetOptions()
                         type = "group",
                         inline = true,
                         order = 6,
+                        hidden = function() return IsFeatureHidden("quickButtons") end,
                         args = {
                             quickChatButtons = {
                                 order = 1,
@@ -887,6 +928,7 @@ function Chatify:GetOptions()
                 name = T("Channels"),
                 type = "group",
                 order = 15,
+                hidden = function() return IsFeatureHidden("channels") end,
                 childGroups = "tab",
                 args = {
                     groupChannelGeneral = {
@@ -894,6 +936,12 @@ function Chatify:GetOptions()
                         type = "group",
                         order = 1,
                         args = {
+                            compatibilityWarning = {
+                                order = 0,
+                                type = "description",
+                                name = function() return GetFeatureWarningDescription("channels") end,
+                                hidden = function() return not IsFeatureRisky("channels") end,
+                            },
                             shortChannels = {
                                 order = 1,
                                 name = T("Replace Channel Names"),
@@ -1275,6 +1323,7 @@ function Chatify:GetOptions()
                 name = T("Sounds"),
                 type = "group",
                 order = 20,
+                hidden = function() return IsFeatureHidden("sounds") end,
                 args = {
                     groupSoundMaster = {
                         name = T("Master Settings"),
@@ -1375,7 +1424,14 @@ function Chatify:GetOptions()
                         name = T("Spam & System Filters"),
                         type = "group",
                         order = 1,
+                        hidden = function() return IsFeatureHidden("spamFilters") end,
                         args = {
+                                compatibilityWarning = {
+                                    order = 0,
+                                    type = "description",
+                                    name = function() return GetFeatureWarningDescription("spamFilters") end,
+                                    hidden = function() return not IsFeatureRisky("spamFilters") end,
+                                },
                                 spamCore = {
                                     name = T("Keyword Blocking"),
                                     type = "group",
@@ -1600,11 +1656,18 @@ function Chatify:GetOptions()
                         name = T("Chat History"),
                         type = "group",
                         order = 2,
+                        hidden = function() return IsFeatureHidden("history") end,
                         args = {
+                                compatibilityWarning = {
+                                    order = 0,
+                                    type = "description",
+                                    name = function() return GetFeatureWarningDescription("history") end,
+                                    hidden = function() return not IsFeatureRisky("history") end,
+                                },
                                 enableHistory = {
                                     order = 1,
                                     name = T("Enable History"),
-                                    desc = T("Saves messages for the Chatify History window only. History is never replayed into the live chat frame.\n\n|cff999999Retail 12.x: stores only messages captured through the safe event path.|r"),
+                                    desc = T("Saves messages for the Chatify History window only. History is never replayed into the live chat frame.\n\n|cff999999On protected clients, only readable messages captured through the safe event path are stored.|r"),
                                     type = "toggle",
                                     set = function(info, val) self.db.profile.enableHistory = val end,
                                     get = function(info) return self.db.profile.enableHistory end,
@@ -1627,13 +1690,21 @@ function Chatify:GetOptions()
                         name = T("Copy Chat"),
                         type = "group",
                         order = 3,
+                        hidden = function() return IsFeatureHidden("copy") end,
                         args = {
+                                compatibilityWarning = {
+                                    order = 0,
+                                    type = "description",
+                                    name = function() return GetFeatureWarningDescription("copy") end,
+                                    hidden = function() return not IsFeatureRisky("copy") end,
+                                },
                                 copyNativeSelection = {
                                     order = 1,
                                     name = T("Enable Direct Chat Selection"),
                                     desc = T("Shift + Left Click the Copy Chat button toggles Blizzard direct selection inside the chat frame. Select text in chat, then press Ctrl+C. WoW addons cannot write to the system clipboard automatically."),
                                     type = "toggle",
                                     width = "full",
+                                    hidden = function() return IsFeatureHidden("nativeCopy") end,
                                     set = function(info, val) self.db.profile.copyNativeSelection = val end,
                                     get = function(info) return self.db.profile.copyNativeSelection ~= false end,
                                 },
@@ -1643,6 +1714,7 @@ function Chatify:GetOptions()
                                     desc = T("Enable direct selection on all visible chat frames instead of only the best detected frame. Use this only if ElvUI/Prat/custom chat layouts prevent Shift + Left Click from selecting text. Keeping this off is safer."),
                                     type = "toggle",
                                     width = "full",
+                                    hidden = function() return IsFeatureHidden("nativeCopy") end,
                                     disabled = function() return self.db.profile.copyNativeSelection == false end,
                                     set = function(info, val) self.db.profile.copyNativeUseVisibleFrames = val end,
                                     get = function(info) return self.db.profile.copyNativeUseVisibleFrames == true end,
@@ -1654,6 +1726,7 @@ function Chatify:GetOptions()
                                     type = "range",
                                     min = 0, max = 120, step = 5,
                                     width = "full",
+                                    hidden = function() return IsFeatureHidden("nativeCopy") end,
                                     disabled = function() return self.db.profile.copyNativeSelection == false end,
                                     set = function(info, val) self.db.profile.copyNativeTimeout = val end,
                                     get = function(info) return tonumber(self.db.profile.copyNativeTimeout) or 30 end,
@@ -1664,6 +1737,7 @@ function Chatify:GetOptions()
                                     desc = T("Print a short Chatify message when Shift + Left Click toggles direct chat selection."),
                                     type = "toggle",
                                     width = "full",
+                                    hidden = function() return IsFeatureHidden("nativeCopy") end,
                                     disabled = function() return self.db.profile.copyNativeSelection == false end,
                                     set = function(info, val) self.db.profile.copyNativeAnnounce = val end,
                                     get = function(info) return self.db.profile.copyNativeAnnounce ~= false end,
@@ -1671,6 +1745,7 @@ function Chatify:GetOptions()
                                 copyNativeHelp = {
                                     order = 5,
                                     type = "description",
+                                    hidden = function() return IsFeatureHidden("nativeCopy") end,
                                     name = T("\n|cffffd200How it works:|r Left Click opens the normal copy window. Shift + Left Click toggles direct selection inside the chat frame only. Select text, then press Ctrl+C. Repeat Shift + Left Click to turn it off.\n|cff999999Direct OS clipboard writes are blocked by the WoW client, so selected chat text still needs Ctrl+C.|r"),
                                 },
                                 copyTabsHeader = {
@@ -1757,6 +1832,7 @@ function Chatify:GetOptions()
                 name = T("Mention Manager"),
                 type = "group",
                 order = 35,
+                hidden = function() return IsFeatureHidden("mentions") end,
                 args = {
                     groupMentionRules = {
                         name = T("Rules"),
@@ -1773,10 +1849,8 @@ function Chatify:GetOptions()
                             mentionRuntimeNote = {
                                 order = 1.5,
                                 type = "description",
-                                name = "|cff999999" .. T("On protected Retail / Forever clients Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed.") .. "|r",
-                                hidden = function()
-                                    return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
-                                end,
+                                name = function() return GetFeatureWarningDescription("mentions") end,
+                                hidden = function() return not IsFeatureRisky("mentions") end,
                             },
                             enableMentionManager = {
                                 order = 2,
@@ -1915,6 +1989,7 @@ function Chatify:GetOptions()
                 name = T("Auto Reply"),
                 type = "group",
                 order = 40,
+                hidden = function() return IsFeatureHidden("autoReply") end,
                 args = {
                     groupReplyBehaviour = {
                         name = T("Behaviour"),
@@ -1925,7 +2000,12 @@ function Chatify:GetOptions()
                             headerAutoReply = {
                                 order = 1,
                                 type = "description",
-                                name = T("Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.\n\n|cff999999Retail Safe Mode: whisper / BN whisper auto-replies are disabled on modern Retail; guild mention replies can still work when available.|r"),
+                                name = function()
+                                    local base = T("Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.")
+                                    local warning = GetFeatureWarningDescription("autoReply")
+                                    if warning ~= "" then return base .. "\n\n" .. warning end
+                                    return base
+                                end,
                                 fontSize = "medium",
                             },
                             enableAutoReply = {
@@ -1951,6 +2031,7 @@ function Chatify:GetOptions()
                                 name = T("Only Friends / Guild"),
                                 desc = T("Reply only to Battle.net friends, regular friends, or guild members."),
                                 type = "toggle",
+                                hidden = function() return IsFeatureHidden("autoReplyWhisper") end,
                                 width = "full",
                                 disabled = function() return not self.db.profile.autoReply.enabled end,
                                 set = function(info, val) self.db.profile.autoReply.onlyFriends = val end,
@@ -1961,6 +2042,7 @@ function Chatify:GetOptions()
                                 name = T("Send Return Message"),
                                 desc = T("When you are back, whisper everyone who contacted you while you were busy."),
                                 type = "toggle",
+                                hidden = function() return IsFeatureHidden("autoReplyWhisper") end,
                                 width = "full",
                                 disabled = function() return not self.db.profile.autoReply.enabled end,
                                 set = function(info, val) self.db.profile.autoReply.autoNotify = val end,
@@ -1971,6 +2053,7 @@ function Chatify:GetOptions()
                                 name = T("Reply to Guild Mentions"),
                                 desc = T("When your name is mentioned in guild chat during activity, send one throttled guild response and remember that player for the return whisper."),
                                 type = "toggle",
+                                hidden = function() return IsFeatureHidden("autoReplyGuild") end,
                                 width = "full",
                                 disabled = function() return not self.db.profile.autoReply.enabled end,
                                 set = function(info, val) self.db.profile.autoReply.guildReplyEnabled = val end,
@@ -1981,6 +2064,7 @@ function Chatify:GetOptions()
                                 name = T("Reply Cooldown (minutes)"),
                                 desc = T("How often Chatify may auto-reply to the same player."),
                                 type = "range",
+                                hidden = function() return IsFeatureHidden("autoReplyWhisper") end,
                                 min = 1, max = 60, step = 1,
                                 disabled = function() return not self.db.profile.autoReply.enabled end,
                                 set = function(info, val) self.db.profile.autoReply.cooldown = val end,
@@ -2049,6 +2133,7 @@ function Chatify:GetOptions()
                                 name = T("Return Message"),
                                 desc = T("Sent automatically when you become available again."),
                                 type = "input",
+                                hidden = function() return IsFeatureHidden("autoReplyWhisper") end,
                                 width = "full",
                                 set = function(info, val) self.db.profile.autoReply.returnMessage = val end,
                                 get = function(info) return self.db.profile.autoReply.returnMessage end,
@@ -2070,11 +2155,17 @@ function Chatify:GetOptions()
                         type = "group",
                         inline = true,
                         order = 1,
+                        hidden = function() return IsFeatureHidden("chatTabs") end,
                         args = {
                             descSetup = {
                                 order = 1,
                                 type = "description",
-                                name = T("Safely create or update chat tabs without duplicates. The selected template controls which tabs are created.\n|cffffcc00Warning: Modifies chat window layout, but does not run in combat.|r"),
+                                name = function()
+                                    local base = T("Safely create or update chat tabs without duplicates. The selected template controls which tabs are created.\n|cffffcc00Warning: Modifies chat window layout, but does not run in combat.|r")
+                                    local warning = GetFeatureWarningDescription("chatTabs")
+                                    if warning ~= "" then return base .. "\n" .. warning end
+                                    return base
+                                end,
                                 fontSize = "medium",
                             },
                             chatTabsTemplate = {
@@ -2143,7 +2234,7 @@ function Chatify:GetOptions()
                                 order = 3,
                                 name = T("Reload UI"),
                                 type = "execute",
-                                func = function() ReloadUI() end,
+                                func = function() SafeReloadUI() end,
                                 width = "full",
                                 confirm = true,
                                 confirmText = "Reload UI now?",
@@ -2602,10 +2693,18 @@ end
 -- 6. SAFE CHAT TABS
 -- =========================================================
 local function GetFrameDisplayName(frameID, frame)
-    if type(frameID) == "number" and type(FCF_GetChatWindowInfo) == "function" then
-        local ok, name = pcall(FCF_GetChatWindowInfo, frameID)
-        if ok and type(name) == "string" and name ~= "" then
-            return name
+    if type(frameID) == "number" then
+        if type(GetChatWindowInfo) == "function" then
+            local ok, name = pcall(GetChatWindowInfo, frameID)
+            if ok and type(name) == "string" and name ~= "" then
+                return name
+            end
+        end
+        if type(ns.CallChatAPI) == "function" then
+            local ok, name = ns.CallChatAPI("FCF_GetChatWindowInfo", "GetChatWindowInfo", frameID)
+            if ok and type(name) == "string" and name ~= "" then
+                return name
+            end
         end
     end
 
@@ -2678,7 +2777,7 @@ function Chatify:SetupDefaultTabs()
         self:Print(T("Cannot modify chat tabs during combat."))
         return
     end
-    if type(FCF_OpenNewWindow) ~= "function" then
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("chatTabs") then
         self:Print(T("Chat window creation is not available on this client."))
         return
     end
@@ -2692,7 +2791,12 @@ function Chatify:SetupDefaultTabs()
         local frame = ns.FindChatFrameByDisplayName and ns.FindChatFrameByDisplayName(tabInfo.name)
         local existed = frame and true or false
         if not frame then
-            local okOpen, newFrame = pcall(FCF_OpenNewWindow, tabInfo.name)
+            local okOpen, newFrame = false, nil
+            if type(ns.CallChatAPI) == "function" then
+                okOpen, newFrame = ns.CallChatAPI("FCF_OpenNewWindow", "OpenNewWindow", tabInfo.name)
+            elseif type(FCF_OpenNewWindow) == "function" then
+                okOpen, newFrame = pcall(FCF_OpenNewWindow, tabInfo.name)
+            end
             if okOpen then
                 frame = newFrame
             end

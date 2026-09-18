@@ -1,15 +1,13 @@
-# GENERATED FILE - do not edit.
-# Produced from Chatify.toc by tools/generate_tocs.py.
-# Edit Chatify.toc and re-run the script instead.
-
-## Interface: 11508
+## Interface: 11509
 ## X-Flavor: classic
 ## X-Expansion: Vanilla
+## X-Chatify-Client: Classic Era
+## X-Chatify-Support-Tier: current
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.10
+## Version: 2.11
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled

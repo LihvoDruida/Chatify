@@ -1,11 +1,13 @@
-## Interface: 120100, 120007
+## Interface: 120100, 120105, 120007
 ## X-Flavor: mainline
 ## X-Expansion: Midnight
+## X-Chatify-Client: Retail / Midnight
+## X-Chatify-Support-Tier: current
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.10
+## Version: 2.11
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled

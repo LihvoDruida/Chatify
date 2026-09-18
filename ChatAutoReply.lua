@@ -255,7 +255,7 @@ local function GetModernBattlegroundQueueInfo()
         return false, 0, nil
     end
 
-    if type(C_PvP.GetActiveMatchState) == "function" then
+    if type(C_PvP) == "table" and type(C_PvP.GetActiveMatchState) == "function" then
         local ok, state = pcall(C_PvP.GetActiveMatchState)
         if ok and type(state) == "table" then
             local status = state.status or state.queueStatus
@@ -267,7 +267,7 @@ local function GetModernBattlegroundQueueInfo()
         end
     end
 
-    if type(C_PvP.GetQueueState) == "function" then
+    if type(C_PvP) == "table" and type(C_PvP.GetQueueState) == "function" then
         for index = 1, 4 do
             local ok, info = pcall(C_PvP.GetQueueState, index)
             if ok and type(info) == "table" then
@@ -286,14 +286,25 @@ end
 
 local function GetQueueInfo()
     if type(GetLFGQueueStats) == "function" then
-        local hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = GetLFGQueueStats(LE_LFG_CATEGORY_LFD)
-        if hasData and myWait and myWait > 0 then
-            return true, math_floor(myWait / 60), instanceName or "instance"
+        local function ReadLFGQueue(category)
+            if type(category) ~= "number" then
+                return false, nil, nil
+            end
+            local ok, hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = pcall(GetLFGQueueStats, category)
+            if not ok then
+                return false, nil, nil
+            end
+            return hasData and true or false, instanceName, myWait
         end
 
-        hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = GetLFGQueueStats(LE_LFG_CATEGORY_RF)
-        if hasData and myWait and myWait > 0 then
-            return true, math_floor(myWait / 60), instanceName or "raid"
+        local hasData, instanceName, myWait = ReadLFGQueue(LE_LFG_CATEGORY_LFD)
+        if hasData and type(myWait) == "number" and myWait > 0 then
+            return true, math_floor(myWait / 60), SafeChatText(instanceName) or "instance"
+        end
+
+        hasData, instanceName, myWait = ReadLFGQueue(LE_LFG_CATEGORY_RF)
+        if hasData and type(myWait) == "number" and myWait > 0 then
+            return true, math_floor(myWait / 60), SafeChatText(instanceName) or "raid"
         end
     end
 
@@ -398,9 +409,19 @@ local function GetCurrentActivity(forceRefresh)
 
     local ok, message, active = pcall(function()
         local cfg = db.autoReply
-        local isAFK = UnitIsAFK("player")
+        local isAFK = false
+        if type(UnitIsAFK) == "function" then
+            local okAFK, value = pcall(UnitIsAFK, "player")
+            isAFK = okAFK and value and true or false
+        end
         local inQueue, waitMinutes, queueName = GetQueueInfo()
-        local inInstance, instanceType = IsInInstance()
+        local inInstance, instanceType = false, "none"
+        if type(IsInInstance) == "function" then
+            local okInstance, value, valueType = pcall(IsInInstance)
+            if okInstance then
+                inInstance, instanceType = value and true or false, valueType or "none"
+            end
+        end
         local inDungeon = inInstance and (instanceType == "party" or instanceType == "scenario")
         local inRaid = inInstance and instanceType == "raid"
         local inPvP = inInstance and (instanceType == "pvp" or instanceType == "arena")
@@ -469,18 +490,18 @@ local function IsAllowedSender(sender, isBNet)
 
     local shortName = NormalizePlayerName(safeSender, "none") or safeSender
 
-    if C_FriendList and C_FriendList.IsFriend then
-        local ok, isFriend = pcall(C_FriendList.IsFriend, safeSender)
+    if type(ns.IsFriendCompat) == "function" then
+        local ok, isFriend = pcall(ns.IsFriendCompat, safeSender)
         if ok and isFriend then
             return true
         end
-        ok, isFriend = pcall(C_FriendList.IsFriend, shortName)
+        ok, isFriend = pcall(ns.IsFriendCompat, shortName)
         if ok and isFriend then
             return true
         end
     end
 
-    if IsInGuild() then
+    if type(IsInGuild) == "function" and IsInGuild() and type(UnitIsInMyGuild) == "function" then
         local ok, inGuild = pcall(UnitIsInMyGuild, safeSender)
         if ok and inGuild then
             return true
@@ -731,6 +752,10 @@ local function RegisterEventSafe(module, eventName, method)
 end
 
 function AutoReply:OnEnable()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("autoReply") then
+        return
+    end
+
     EnsureCharState()
     InvalidateActivityCache()
 
@@ -740,9 +765,11 @@ function AutoReply:OnEnable()
     RegisterEventSafe(self, "GROUP_ROSTER_UPDATE", InvalidateActivityCache)
     RegisterEventSafe(self, "PLAYER_ENTERING_WORLD", InvalidateActivityCache)
 
-    local restrictedWhispers = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+    local whisperAvailable = not (type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("autoReplyWhisper"))
+    local bnetAvailable = not (type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("autoReplyBNet"))
+    local guildAvailable = not (type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("autoReplyGuild"))
 
-    if not restrictedWhispers then
+    if whisperAvailable then
         RegisterEventSafe(self, "CHAT_MSG_WHISPER", function(_, message, sender, ...)
             if not CanAccess(message, sender, ...) then
                 return
@@ -752,7 +779,9 @@ function AutoReply:OnEnable()
             end
             SendAutoReply(sender, false, message)
         end)
+    end
 
+    if bnetAvailable then
         RegisterEventSafe(self, "CHAT_MSG_BN_WHISPER", function(_, ...)
             if not CanAccess(...) then
                 return
@@ -765,30 +794,32 @@ function AutoReply:OnEnable()
         end)
     end
 
-    -- Guild chat is not whisper-sensitive, but its payload is still a secret value
-    -- during chat messaging lockdown. IsPlayerMentioned does string work on the
-    -- message, so without this guard every guild line inside an encounter threw
-    -- "string conversion on a secret string value".
-    RegisterEventSafe(self, "CHAT_MSG_GUILD", function(_, message, sender, ...)
-        if not CanAccess(message, sender, ...) then
-            return
-        end
-        if IsPlayerSender(sender) then
-            return
-        end
-        if IsPlayerMentioned(message) then
-            SendGuildAutoReply(sender)
-        end
-    end)
+    -- Guild payloads can also become secret during chat messaging lockdown.
+    -- Never perform string work until CanAccess has accepted the complete payload.
+    if guildAvailable then
+        RegisterEventSafe(self, "CHAT_MSG_GUILD", function(_, message, sender, ...)
+            if not CanAccess(message, sender, ...) then
+                return
+            end
+            if IsPlayerSender(sender) then
+                return
+            end
+            if IsPlayerMentioned(message) then
+                SendGuildAutoReply(sender)
+            end
+        end)
+    end
 
-    if not restrictedWhispers then
+    if whisperAvailable then
         RegisterEventSafe(self, "CHAT_MSG_WHISPER_INFORM", function(_, _, target, ...)
             if not CanAccess(target, ...) then
                 return
             end
             RemovePending(target, false)
         end)
+    end
 
+    if bnetAvailable then
         RegisterEventSafe(self, "CHAT_MSG_BN_WHISPER_INFORM", function(_, ...)
             if not CanAccess(...) then
                 return

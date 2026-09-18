@@ -749,6 +749,10 @@ end
 -- INIT
 -- =========================================================
 function History:OnEnable()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("history") then
+        return
+    end
+
     if Chatify and Chatify.db and Chatify.db.profile and type(ns.EnforceRetailSafeMode) == "function" then
         ns.EnforceRetailSafeMode(Chatify.db.profile)
     end

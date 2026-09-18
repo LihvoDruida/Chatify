@@ -1128,9 +1128,8 @@ function ns.IsWhisperSensitiveEvent(eventName)
     return whisperSensitiveEvents[eventName] and true or false
 end
 
--- On protected modern clients (Retail / Forever), Chatify never mutates whisper/BNet payloads at all: they route
--- through protected tabs and carry secret senders during chat lockdown. This is a
-
+-- On any client that reports active secret-value restrictions, whisper/BNet payloads
+-- are treated conservatively: mutation is bypassed whenever the payload can be secret.
 -- Chat history is captured on Chatify's own event frame, not through Blizzard's
 -- message-event filter chain, so nothing here can taint Blizzard's chat dispatch.
 -- The only real requirement is to never operate on a secret payload, and
@@ -1392,15 +1391,16 @@ end
 
 -- Chat helper resolution.
 --
--- 12.0 is moving the loose ChatFrame_* / FCF_* / ChatEdit_* helpers into the
--- ChatFrameUtil namespace, and during the deprecation window both spellings
--- exist. The flat global is preferred where it is still real, because that is
--- what ElvUI, GW2_UI and Prat hook - resolving straight to the namespace would
--- silently bypass their hooks. The namespace is the fallback for when Blizzard
--- finishes the removal, and on Classic only the global ever exists.
+-- Modern FrameXML moved a number of loose ChatFrame_* / ChatEdit_* helpers into
+-- ChatFrameUtil (not every FCF_* helper moved; current FloatingChatFrame still
+-- exposes several FCF_* globals). The flat global is preferred where it is still
+-- real, because ElvUI, GW2_UI and Prat may hook it. ChatFrameUtil is the fallback
+-- only for helpers Blizzard actually exposes there.
 --
--- Only the routing decision is memoised, never the function object, so a hook
--- installed after our first call is still picked up.
+-- Successful routing is memoised, never the function object. A missing route is
+-- deliberately NOT cached: Blizzard can load parts of the chat UI later in the
+-- login sequence, and caching "missing" would permanently hide a feature that
+-- becomes valid a few frames later.
 local chatApiRoute = {}
 
 function ns.GetChatAPI(legacyName, utilName)
@@ -1414,20 +1414,27 @@ function ns.GetChatAPI(legacyName, utilName)
         elseif utilName and type(util) == "table" and type(util[utilName]) == "function" then
             route = "util"
         else
-            route = false
+            return nil, nil
         end
         chatApiRoute[key] = route
     end
 
     if route == "global" then
-        return _G[legacyName], nil
+        local fn = legacyName and _G[legacyName]
+        if type(fn) == "function" then
+            return fn, nil
+        end
+        chatApiRoute[key] = nil
+        return ns.GetChatAPI(legacyName, utilName)
     end
 
     if route == "util" then
         local util = _G.ChatFrameUtil
-        if type(util) == "table" then
+        if type(util) == "table" and type(util[utilName]) == "function" then
             return util[utilName], util
         end
+        chatApiRoute[key] = nil
+        return ns.GetChatAPI(legacyName, utilName)
     end
 
     return nil, nil
@@ -1510,6 +1517,57 @@ function ns.LoadAddOnCompat(name)
         return ok and loadedOrReason ~= false, loadedOrReason
     end
     return false, "missing LoadAddOn API"
+end
+
+-- Friend-list compatibility. Current Retail, Era, TBC Anniversary and MoP
+-- expose C_FriendList.GetFriendInfo(name); older retired Classic branches may only
+-- have the indexed global GetFriendInfo. Keep that legacy path isolated here so
+-- feature modules never call a removed global with the modern name-based signature.
+function ns.GetFriendInfoByNameCompat(name)
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+
+    if type(C_FriendList) == "table" and type(C_FriendList.GetFriendInfo) == "function" then
+        local ok, info = pcall(C_FriendList.GetFriendInfo, name)
+        if ok and type(info) == "table" and type(info.name) == "string" then
+            return info
+        end
+    end
+
+
+    if type(GetNumFriends) == "function" and type(GetFriendInfo) == "function" then
+        local okCount, count = pcall(GetNumFriends)
+        if okCount and type(count) == "number" then
+            local wanted = name:match("^[^-]+") or name
+            for index = 1, count do
+                local okInfo, friendName, level, className, area, connected, status, notes, rafLinkType, guid = pcall(GetFriendInfo, index)
+                if okInfo and type(friendName) == "string" then
+                    local short = friendName:match("^[^-]+") or friendName
+                    if friendName == name or short == wanted then
+                        return {
+                            name = friendName, level = level, className = className, area = area,
+                            connected = connected, status = status, notes = notes, rafLinkType = rafLinkType, guid = guid,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+function ns.IsFriendCompat(name)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+
+    -- C_FriendList.IsFriend expects a player GUID, not a character name. Using it
+    -- with CHAT_MSG_* sender names is therefore the wrong modern replacement for
+    -- the old friend lookup. GetFriendInfo(name) is the current name-based API and
+    -- already tells us whether the character exists in the friend list.
+    return ns.GetFriendInfoByNameCompat(name) ~= nil
 end
 
 
@@ -1617,28 +1675,34 @@ function ns.IsForeverClient()
 end
 
 function ns.GetProjectKey()
-    -- Must run before WOW_PROJECT_MAINLINE: the Forever beta can expose the same
-    -- project identity as Retail, so project constants alone collapse both clients.
+    -- Product identity is resolved from the most specific signal first.
+    -- Forever must beat WOW_PROJECT_MAINLINE, and current progression clients can
+    -- reuse an older WOW_PROJECT_* identity. Interface ranges therefore beat the
+    -- project constants for every packaging target, not only Forever/Titan.
     if ns.IsForeverClient() then return "forever" end
 
-    local project = WOW_PROJECT_ID
-    if WOW_PROJECT_MAINLINE and project == WOW_PROJECT_MAINLINE then return "retail" end
-    if WOW_PROJECT_CLASSIC and project == WOW_PROJECT_CLASSIC then return "vanilla" end
-    if WOW_PROJECT_BURNING_CRUSADE_CLASSIC and project == WOW_PROJECT_BURNING_CRUSADE_CLASSIC then return "tbc" end
-    if WOW_PROJECT_WRATH_CLASSIC and project == WOW_PROJECT_WRATH_CLASSIC then return "wrath" end
-    if WOW_PROJECT_CATACLYSM_CLASSIC and project == WOW_PROJECT_CATACLYSM_CLASSIC then return "cata" end
-    if WOW_PROJECT_MISTS_CLASSIC and project == WOW_PROJECT_MISTS_CLASSIC then return "mists" end
-
     local interfaceVersion = ns.GetBuildInterface()
-    -- Any interface at or above 100000 is a mainline build. The old floor of
-    -- 120000 reported "unknown" on every pre-Midnight Retail client that did not
-    -- expose WOW_PROJECT_ID, which made IsMainlineClient false there.
-    if interfaceVersion >= 100000 then return "retail" end
+    if interfaceVersion >= 120000 then return "retail" end
     if interfaceVersion >= 50500 and interfaceVersion < 50600 then return "mists" end
+    if interfaceVersion >= 40400 and interfaceVersion < 40500 then return "cata" end
     if interfaceVersion >= 38000 and interfaceVersion < 38100 then return "titan" end
     if interfaceVersion >= 30400 and interfaceVersion < 30500 then return "wrath" end
     if interfaceVersion >= 20500 and interfaceVersion < 20600 then return "tbc" end
     if interfaceVersion >= 11500 and interfaceVersion < 11600 then return "vanilla" end
+
+    -- Fallback for unusual/test clients where GetBuildInfo is unavailable or a
+    -- future Interface range is not known yet.
+    local project = WOW_PROJECT_ID
+    if WOW_PROJECT_MAINLINE and project == WOW_PROJECT_MAINLINE then return "retail" end
+    if WOW_PROJECT_MISTS_CLASSIC and project == WOW_PROJECT_MISTS_CLASSIC then return "mists" end
+    if WOW_PROJECT_CATACLYSM_CLASSIC and project == WOW_PROJECT_CATACLYSM_CLASSIC then return "cata" end
+    if WOW_PROJECT_WRATH_CLASSIC and project == WOW_PROJECT_WRATH_CLASSIC then return "wrath" end
+    if WOW_PROJECT_BURNING_CRUSADE_CLASSIC and project == WOW_PROJECT_BURNING_CRUSADE_CLASSIC then return "tbc" end
+    if WOW_PROJECT_CLASSIC and project == WOW_PROJECT_CLASSIC then return "vanilla" end
+
+    -- Preserve pre-Midnight Retail compatibility when an older mainline build is
+    -- used for testing and exposes neither a known current range nor project ID.
+    if interfaceVersion >= 100000 then return "retail" end
     return "unknown"
 end
 
@@ -1657,6 +1721,214 @@ end
 function ns.IsClassicClient()
     local key = ns.GetProjectKey()
     return key ~= "retail" and key ~= "forever" and key ~= "unknown"
+end
+
+-- =========================================================
+-- 5b. PER-CLIENT CAPABILITY MODEL
+-- =========================================================
+-- Identity and capability are deliberately separate. Current Classic clients
+-- inherit a surprising amount of modern API surface (C_AddOns, C_ChatInfo,
+-- C_BattleNet, C_Secrets, GetMouseFoci), while Forever identifies like Mainline
+-- at runtime. Feature code should therefore ask for a capability, not guess from
+-- expansion names or interface numbers.
+local FEATURE_SUPPORTED = "supported"
+local FEATURE_WARNING = "warning"
+local FEATURE_UNAVAILABLE = "unavailable"
+
+ns.FEATURE_SUPPORTED = FEATURE_SUPPORTED
+ns.FEATURE_WARNING = FEATURE_WARNING
+ns.FEATURE_UNAVAILABLE = FEATURE_UNAVAILABLE
+
+local CLIENT_DISPLAY_NAMES = {
+    retail = "Retail / Midnight",
+    forever = "World of Warcraft: Forever",
+    vanilla = "Classic Era",
+    tbc = "Burning Crusade Classic Anniversary",
+    mists = "Mists of Pandaria Classic",
+    titan = "Titan Reforged / Wrath progression",
+    wrath = "Wrath Classic (legacy target)",
+    cata = "Cataclysm Classic (legacy target)",
+    unknown = "Unknown WoW client",
+}
+
+function ns.GetClientDisplayName()
+    local key = ns.GetProjectKey()
+    return CLIENT_DISPLAY_NAMES[key] or CLIENT_DISPLAY_NAMES.unknown
+end
+
+function ns.GetClientSupportTier()
+    local key = ns.GetProjectKey()
+    if key == "forever" then
+        return "beta"
+    end
+    if key == "wrath" or key == "cata" then
+        return "legacy"
+    end
+    if key == "retail" or key == "vanilla" or key == "tbc" or key == "mists" or key == "titan" then
+        return "current"
+    end
+    return "unknown"
+end
+
+function ns.IsLegacyCompatibilityTarget()
+    local key = ns.GetProjectKey()
+    return key == "wrath" or key == "cata"
+end
+
+local function HasOutgoingChatAPI()
+    return (type(C_ChatInfo) == "table" and type(C_ChatInfo.SendChatMessage) == "function")
+        or type(SendChatMessage) == "function"
+end
+
+local function HasBNetWhisperAPI()
+    return (type(C_BattleNet) == "table" and type(C_BattleNet.SendWhisper) == "function")
+        or type(BNSendWhisper) == "function"
+end
+
+local function HasMessageFilterAPI()
+    local fn = ns.GetChatAPI and select(1, ns.GetChatAPI("ChatFrame_AddMessageEventFilter", "AddMessageEventFilter"))
+    return type(fn) == "function"
+end
+
+local function HasNativeChatSelectionAPI()
+    local candidates = { SELECTED_CHAT_FRAME, DEFAULT_CHAT_FRAME, _G and _G.ChatFrame1 }
+    for i = 1, #candidates do
+        local frame = candidates[i]
+        if type(frame) == "table" and type(frame.SetTextCopyable) == "function" then
+            return true
+        end
+    end
+    return false
+end
+
+local function HasChatTabManagementAPI()
+    local openWindow = type(_G.FCF_OpenNewWindow) == "function"
+        or (type(_G.ChatFrameUtil) == "table" and type(_G.ChatFrameUtil.OpenNewWindow) == "function")
+    return openWindow and type(_G.GetChatWindowInfo) == "function"
+end
+
+local function HasChatEditRoutingAPI()
+    local openChat = ns.GetChatAPI and select(1, ns.GetChatAPI("ChatFrame_OpenChat", "OpenChat"))
+    local parseText = type(_G.ChatEdit_ParseText) == "function"
+        or (type(_G.ChatFrameEditBoxMixin) == "table" and type(_G.ChatFrameEditBoxMixin.ParseText) == "function")
+        or (type(_G.ChatFrameEditBoxMixinBase) == "table" and type(_G.ChatFrameEditBoxMixinBase.ParseText) == "function")
+        or (type(_G.ChatFrameEditBoxBaseMixin) == "table" and type(_G.ChatFrameEditBoxBaseMixin.ParseText) == "function")
+    return type(openChat) == "function" and parseText
+end
+
+function ns.GetFeatureSupport(feature)
+    local secretRestricted = type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+
+    if feature == "securityControls" then
+        return secretRestricted and FEATURE_WARNING or FEATURE_UNAVAILABLE
+    elseif feature == "virtualChat" then
+        return secretRestricted and FEATURE_UNAVAILABLE or FEATURE_SUPPORTED
+    elseif feature == "spamFilters" then
+        if not HasMessageFilterAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "mentions" then
+        if secretRestricted then
+            local canRender = type(ns.CanReplaceChatFrameAddMessage) == "function" and ns.CanReplaceChatFrameAddMessage()
+            if not canRender and not HasMessageFilterAPI() then
+                return FEATURE_UNAVAILABLE
+            end
+            return FEATURE_WARNING
+        end
+        return HasMessageFilterAPI() and FEATURE_SUPPORTED or FEATURE_UNAVAILABLE
+    elseif feature == "history" or feature == "copy" then
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "nativeCopy" then
+        return HasNativeChatSelectionAPI() and FEATURE_SUPPORTED or FEATURE_UNAVAILABLE
+    elseif feature == "autoReplyWhisper" then
+        if not HasOutgoingChatAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        -- Chatify intentionally does not subscribe to whisper payloads on a client
+        -- that can make their sender/message secret. Do not expose settings that
+        -- cannot work there.
+        return secretRestricted and FEATURE_UNAVAILABLE or FEATURE_SUPPORTED
+    elseif feature == "autoReplyBNet" then
+        if not HasBNetWhisperAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return secretRestricted and FEATURE_UNAVAILABLE or FEATURE_SUPPORTED
+    elseif feature == "autoReplyGuild" then
+        if not HasOutgoingChatAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "autoReply" then
+        local whisper = ns.GetFeatureSupport("autoReplyWhisper")
+        local bnet = ns.GetFeatureSupport("autoReplyBNet")
+        local guild = ns.GetFeatureSupport("autoReplyGuild")
+        if whisper == FEATURE_UNAVAILABLE and bnet == FEATURE_UNAVAILABLE and guild == FEATURE_UNAVAILABLE then
+            return FEATURE_UNAVAILABLE
+        end
+        if whisper == FEATURE_WARNING or bnet == FEATURE_WARNING or guild == FEATURE_WARNING or secretRestricted then
+            return FEATURE_WARNING
+        end
+        return FEATURE_SUPPORTED
+    elseif feature == "quickButtons" then
+        if type(CreateFrame) ~= "function" or not HasChatEditRoutingAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return FEATURE_SUPPORTED
+    elseif feature == "channels" then
+        if type(GetChannelList) ~= "function" then
+            return FEATURE_UNAVAILABLE
+        end
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "sounds" then
+        return type(PlaySoundFile) == "function" and FEATURE_SUPPORTED or FEATURE_UNAVAILABLE
+    elseif feature == "chatTabs" then
+        if not HasChatTabManagementAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return ns.IsLegacyCompatibilityTarget() and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "communities" then
+        return type(C_Club) == "table" and FEATURE_SUPPORTED or FEATURE_UNAVAILABLE
+    end
+
+    return FEATURE_SUPPORTED
+end
+
+function ns.IsFeatureAvailable(feature)
+    return ns.GetFeatureSupport(feature) ~= FEATURE_UNAVAILABLE
+end
+
+function ns.IsFeatureRisky(feature)
+    return ns.GetFeatureSupport(feature) == FEATURE_WARNING
+end
+
+local FEATURE_WARNING_TEXT = {
+    channels = "Protected chat client: custom channel labels can require a guarded chat-frame render hook. Chatify avoids unsafe writes and may skip label rewriting for protected lines or when the client cannot build the required guard.",
+    spamFilters = "Protected chat client: message filters can taint or lose access to protected chat payloads. Chatify defaults to the safest mode and only enables aggressive filtering when you explicitly choose it.",
+    mentions = "Protected chat client: mention highlighting uses the safest available render path. Protected lines may be skipped, and forcing maximum chat filters can cause errors or missing chat during restricted activity.",
+    history = "Protected chat client: Blizzard can make chat lines secret during restricted activity. Chatify stores only readable lines and silently skips protected payloads.",
+    copy = "Protected chat client: addons cannot export secret chat payloads. Chatify copies readable lines only; Blizzard direct text selection is preferred when the client supports it.",
+    autoReply = "Protected chat client: automatic whisper and Battle.net replies are hidden because those payloads can become secret. Guild mention replies remain available only when Blizzard allows outgoing chat.",
+    autoReplyGuild = "Guild auto-replies are paused whenever Blizzard enables chat messaging lockdown. No blocked send is attempted.",
+    chatTabs = "Legacy compatibility target: Blizzard no longer ships this client as a current live branch. Tab setup is guarded at runtime, but this path cannot be validated against a current live client.",
+}
+
+function ns.GetFeatureWarningText(feature)
+    if not ns.IsFeatureRisky(feature) then
+        return nil
+    end
+    return FEATURE_WARNING_TEXT[feature]
+end
+
+function ns.GetClientCompatibilityNotice()
+    local key = ns.GetProjectKey()
+    if key == "forever" then
+        return "Forever uses the modern Mainline UI/API stack but is detected through its dedicated Camelot TOC. Beta API behavior can still change between builds."
+    end
+    if key == "wrath" or key == "cata" then
+        return "This is a legacy compatibility target. Unsupported controls are hidden and risky operations are guarded, but the branch is not a current live Blizzard client."
+    end
+    return nil
 end
 
 function ns.GetSelectedChatFrame()
@@ -1779,7 +2051,7 @@ function ns.EnforceRetailSafeMode(db)
         return false
     end
 
-    -- Runtime-only safe mode for protected modern clients (Retail / Forever).
+    -- Runtime-only safe mode for any client that reports active secret-value restrictions.
     -- Do NOT rewrite user preferences here, otherwise the same SavedVariables
     -- stay crippled when the addon is loaded on older Retail clients.
     return true
@@ -1796,18 +2068,10 @@ function ns.GetRetailSafeModeStatus(db)
     }
 
     if active then
-        local lockdown = ns.InChatMessagingLockdown()
-        local whisperSafe = db and db.retailWhisperSafeMode
-        status.history = "public/group chat only"
-        status.virtualChat = "disabled on protected modern clients"
-        if whisperSafe then
-            status.whisperAutoReply = "whispers never modified (user setting)"
-        elseif lockdown then
-            status.whisperAutoReply = "paused during chat lockdown"
-        else
-            status.whisperAutoReply = "available"
-        end
-        status.nativeCopy = "recommended"
+        status.history = "readable messages only"
+        status.virtualChat = "disabled while secret-value restrictions are active"
+        status.whisperAutoReply = "hidden on this client for secret-value safety"
+        status.nativeCopy = "recommended when available"
     elseif db and db.copyNativeSelection == false then
         status.nativeCopy = "optional"
     end
@@ -2082,6 +2346,7 @@ function ns.GetChatTaintReport()
     end
 
     add("Client flavor", type(ns.GetProjectKey) == "function" and ns.GetProjectKey() or "unknown")
+    add("Support tier", type(ns.GetClientSupportTier) == "function" and ns.GetClientSupportTier() or "unknown")
     add("Interface", tostring(type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0))
     add("Forever load marker", type(ns.IsForeverClient) == "function" and ns.IsForeverClient() and "yes" or "no")
     add("Client has secret values", ns.IsRetailSecretValueBuild() and "yes" or "no")
@@ -2108,6 +2373,14 @@ function ns.GetChatTaintReport()
     add("Render hook disabled for test",
         (type(ns.db) == "table" and ns.db.disableRenderHook) and "yes" or "no")
     add("SetLastTellTarget guarded", ns.IsLastTellTargetGuarded() and "yes" or "no")
+
+    if type(ns.GetFeatureSupport) == "function" then
+        local features = { "channels", "sounds", "quickButtons", "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet", "autoReplyGuild", "chatTabs", "communities" }
+        for i = 1, #features do
+            local feature = features[i]
+            add("Feature " .. feature, tostring(ns.GetFeatureSupport(feature)))
+        end
+    end
 
     if type(issecurevariable) == "function" and type(util) == "table" then
         local ok, secure, owner = pcall(issecurevariable, util, "SetLastTellTarget")

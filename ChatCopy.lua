@@ -2443,6 +2443,10 @@ function ns.IsNativeChatCopyModeActive()
 end
 
 function ns.EnterNativeChatCopyMode(chatFrame)
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("nativeCopy") then
+        return false
+    end
+
     local db = GetCopyDB()
     if db and db.copyNativeSelection == false then
         return false
@@ -2967,6 +2971,10 @@ local function InstallLinkHandler()
 end
 
 function CopyModule:OnEnable()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("copy") then
+        return
+    end
+
     InstallLinkHandler()
     EnsureChatCapture()
     EnsureNativeCopyGuard()

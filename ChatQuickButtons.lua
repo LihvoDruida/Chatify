@@ -1862,12 +1862,18 @@ local function ActivateChatType(def, useAlt)
         end
     end
 
-    local chooseBoxForSend = _G.ChatEdit_ChooseBoxForSend
     local editBox = GetActiveEditBox()
-    if not editBox and type(chooseBoxForSend) == "function" then
-        local ok, chosen = pcall(chooseBoxForSend, frame)
-        if ok then
-            editBox = chosen
+    if not editBox then
+        if type(ns.CallChatAPI) == "function" then
+            local ok, chosen = ns.CallChatAPI("ChatEdit_ChooseBoxForSend", "ChooseBoxForSend", frame)
+            if ok then
+                editBox = chosen
+            end
+        elseif type(_G.ChatEdit_ChooseBoxForSend) == "function" then
+            local ok, chosen = pcall(_G.ChatEdit_ChooseBoxForSend, frame)
+            if ok then
+                editBox = chosen
+            end
         end
     end
 
@@ -3363,6 +3369,10 @@ function QuickButtonsModule:Refresh()
 end
 
 function QuickButtonsModule:OnEnable()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("quickButtons") then
+        return
+    end
+
     local function register(eventName, method)
         if type(ns.RegisterEventIfSupported) == "function" then
             return ns.RegisterEventIfSupported(self, eventName, method)

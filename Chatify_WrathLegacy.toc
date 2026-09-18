@@ -1,8 +1,9 @@
-## Interface: 20506
-## X-Flavor: classic
-## X-Expansion: TBC
-## X-Chatify-Client: Burning Crusade Classic Anniversary
-## X-Chatify-Support-Tier: current
+## Interface: 30405
+## X-Flavor: classic-legacy
+## X-Expansion: Wrath
+## X-Chatify-Client: Wrath Classic 3.4.5
+## X-Chatify-Support-Tier: legacy
+# Legacy compatibility target retained separately from current live Classic branches.
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.

@@ -539,25 +539,9 @@ local function IsFriendAuthor(author)
     end
 
     local result = false
-    if C_FriendList and type(C_FriendList.GetFriendInfoByName) == "function" then
-        local ok, info = pcall(C_FriendList.GetFriendInfoByName, shortName)
-        if ok and type(info) == "table" and info.name then
-            result = true
-        end
-    end
-
-    if not result and C_FriendList and type(C_FriendList.GetFriendInfo) == "function" then
-        local ok, info = pcall(C_FriendList.GetFriendInfo, shortName)
-        if ok and type(info) == "table" and info.name then
-            result = true
-        end
-    end
-
-    if not result and type(GetFriendInfo) == "function" then
-        local ok, name = pcall(GetFriendInfo, shortName)
-        if ok and type(name) == "string" and name ~= "" then
-            result = true
-        end
+    if type(ns.IsFriendCompat) == "function" then
+        local ok, isFriend = pcall(ns.IsFriendCompat, shortName)
+        result = ok and isFriend and true or false
     end
 
     FriendCache[shortName] = { value = result, time = now }
@@ -1523,6 +1507,12 @@ local function InstallMessageFilters()
         return
     end
 
+    local spamAvailable = not (type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("spamFilters"))
+    local mentionsAvailable = not (type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("mentions"))
+    if not spamAvailable and not mentionsAvailable then
+        return
+    end
+
     if type(ns.CanUseMessageEventFilters) == "function" and not ns.CanUseMessageEventFilters() then
         return
     end
@@ -1569,6 +1559,9 @@ if type(ns.RegisterFilterRefreshHandler) == "function" then
 end
 
 function Filters:HookCommunities()
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("communities") then
+        return
+    end
     if communitiesHooked or IsVirtualMode() then
         return
     end

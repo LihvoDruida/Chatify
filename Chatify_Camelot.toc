@@ -1,15 +1,14 @@
-# GENERATED FILE - do not edit.
-# WoW: Forever / Camelot target. Keep Forever.lua exclusive to this TOC.
-# Source layout mirrors Chatify.toc; Interface 16001 is the Forever 1.60.1 beta target.
-
 ## Interface: 16001
 ## X-Flavor: forever
 ## X-Expansion: Forever
+## X-Chatify-Client: World of Warcraft: Forever
+## X-Chatify-Support-Tier: beta
+# WoW: Forever / Camelot target. Forever.lua is intentionally exclusive to this TOC.
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.10
+## Version: 2.11
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
