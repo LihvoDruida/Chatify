@@ -1,4 +1,4 @@
--- Chatify compatibility layer for current/PTR WoW clients.
+-- Chatify compatibility layer for current/PTR/Forever WoW clients.
 -- Loaded before bundled libraries so older AceGUI builds can safely run when
 -- Blizzard removes or changes small global helpers.
 

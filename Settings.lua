@@ -432,7 +432,7 @@ function Chatify:GetOptions()
                                 groupSafetyNote = {
                                     order = 1,
                                     type = "description",
-                                    name = T("How much Chatify is allowed to touch chat text. These only matter on Midnight (12.0+), where the game protects chat payloads."),
+                                    name = T("How much Chatify is allowed to touch chat text on protected modern clients. This applies to Midnight (12.0+) and WoW: Forever, where the game can protect chat payloads with secret values."),
                                 },
                             retailSafeStatus = {
                                 order = 2,
@@ -442,8 +442,8 @@ function Chatify:GetOptions()
                             },
                             retailWhisperSafeMode = {
                                 order = 3,
-                                name = T("Never modify whispers (Retail)"),
-                                desc = T("On modern Retail, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves whispers alone during boss fights, Mythic+, and PvP; enable this only if you still see blank or duplicated whisper tabs."),
+                                name = T("Never modify whispers (Retail / Forever)"),
+                                desc = T("On Retail and WoW: Forever, leave whisper and Battle.net whisper lines completely untouched (no timestamps, links, or highlights), even outside of encounters. Chatify already leaves protected whispers alone during restricted chat states; enable this only if you still see blank or duplicated whisper tabs."),
                                 type = "toggle",
                                 width = "full",
                                 hidden = function()
@@ -457,8 +457,8 @@ function Chatify:GetOptions()
                             },
                             retailChatFilterMode = {
                                 order = 4,
-                                name = T("Chat filters on Midnight (12.0+)"),
-                                desc = T("Controls how far Chatify goes when the game protects chat payloads with secret values. This covers the message-event filters only; mention highlighting and short channel names work in every mode. Safest is the default on 12.0+ because a filter runs early enough in Blizzard's chat handling to stop a message appearing at all during a raid encounter or Mythic+ key. Balanced restores filtering during normal play and withdraws it for the whole time you are inside instanced content. Maximum filters everywhere. Requires /reload."),
+                                name = T("Chat filters on protected clients"),
+                                desc = T("Controls how far Chatify goes when Retail or WoW: Forever protects chat payloads with secret values. This covers message-event filters only; mention highlighting and short channel names work in every mode. Safest is the default on protected clients because a filter can run early enough in Blizzard's chat handling to taint later rendering. Balanced restores filtering during normal play and withdraws it while inside instanced content. Maximum filters everywhere. Requires /reload."),
                                 type = "select",
                                 width = "full",
                                 values = function()
@@ -1773,7 +1773,7 @@ function Chatify:GetOptions()
                             mentionRuntimeNote = {
                                 order = 1.5,
                                 type = "description",
-                                name = "|cff999999" .. T("On Midnight (12.0+) Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed.") .. "|r",
+                                name = "|cff999999" .. T("On protected Retail / Forever clients Chatify does not attach chat filters by default, so mentions are highlighted as each line is drawn instead. Highlighting works in every mode; no setting change is needed.") .. "|r",
                                 hidden = function()
                                     return not (type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild())
                                 end,

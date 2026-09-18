@@ -1,10 +1,10 @@
 # GENERATED FILE - do not edit.
-# Produced from Chatify.toc by tools/generate_tocs.py.
-# Edit Chatify.toc and re-run the script instead.
+# WoW: Forever / Camelot target. Keep Forever.lua exclusive to this TOC.
+# Source layout mirrors Chatify.toc; Interface 16001 is the Forever 1.60.1 beta target.
 
-## Interface: 30405
-## X-Flavor: classic
-## X-Expansion: Wrath
+## Interface: 16001
+## X-Flavor: forever
+## X-Expansion: Forever
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
@@ -23,6 +23,7 @@
 ## X-Compatible-With: Prat-3.0, Chattynator, ElvUI, GW2_UI
 
 Compatibility.lua
+Forever.lua
 libs\_manifest.xml
 Locales.lua
 locale\enUS.lua

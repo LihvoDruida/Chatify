@@ -170,6 +170,24 @@ local function CanSendAddonChat()
     return true
 end
 
+local function SendChatMessageCompat(message, chatType, languageID, target)
+    -- 11.2+ moved SendChatMessage into C_ChatInfo. Prefer the namespaced API on
+    -- Retail/Forever while retaining the global for older Classic clients.
+    if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then
+        local ok = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
+        if ok then
+            return true
+        end
+    end
+
+    if type(SendChatMessage) == "function" then
+        local ok = pcall(SendChatMessage, message, chatType, languageID, target)
+        return ok
+    end
+
+    return false
+end
+
 local function SendBNetMessage(accountID, message)
     if not accountID or type(message) ~= "string" or message == "" then
         return false
@@ -182,6 +200,15 @@ local function SendBNetMessage(accountID, message)
         return false
     end
 
+    -- BNSendWhisper was deprecated in 12.0.0. Forever follows the modern
+    -- Battle.net API surface, so prefer C_BattleNet.SendWhisper when available.
+    if C_BattleNet and type(C_BattleNet.SendWhisper) == "function" then
+        local ok = pcall(C_BattleNet.SendWhisper, accountID, message)
+        if ok then
+            return true
+        end
+    end
+
     if type(BNSendWhisper) == "function" then
         local ok = pcall(BNSendWhisper, accountID, message)
         if ok then
@@ -189,7 +216,9 @@ local function SendBNetMessage(accountID, message)
         end
     end
 
-    if C_BattleNet and C_BattleNet.SendAccountMessage then
+    -- Older transitional builds exposed this alternate helper. Keep it only as
+    -- a final compatibility fallback; current clients use SendWhisper.
+    if C_BattleNet and type(C_BattleNet.SendAccountMessage) == "function" then
         local ok = pcall(C_BattleNet.SendAccountMessage, accountID, message)
         return ok
     end
@@ -207,8 +236,7 @@ local function SendWhisper(target, message)
     end
 
     target = NormalizePlayerName(target, "none") or target
-    local ok = pcall(SendChatMessage, message, "WHISPER", nil, target)
-    return ok
+    return SendChatMessageCompat(message, "WHISPER", nil, target)
 end
 
 local function NormalizeQueueWaitSeconds(value)
@@ -547,7 +575,7 @@ local function SendGuildAutoReply(sender)
         return
     end
 
-    if pcall(SendChatMessage, message, "GUILD") then
+    if SendChatMessageCompat(message, "GUILD") then
         lastGuildReplyTime = now
     end
 end

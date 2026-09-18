@@ -967,31 +967,62 @@ ns.defaults = {
 -- =========================================================
 -- 5. BUILD / SECURITY HELPERS
 -- =========================================================
--- Secret Values were introduced in Patch 12.0.0 (Midnight) and are, per Blizzard's
--- own 12.0.5 notes, "entirely disabled on Classic builds". Never treat 11.x Retail
--- or any Classic flavour as a secret-value build: doing so silently disables
--- timestamps, history, virtual chat and auto-reply on clients that do not need it.
+-- Secret Values were introduced in Patch 12.0.0 (Midnight). WoW: Forever is
+-- deliberately NOT a Classic API client: it uses the modern Mainline UI stack and
+-- inherits Midnight's addon restrictions even though its own TOC is Interface 16001.
+-- Never infer capability from the numeric interface alone.
 local SECRET_VALUES_MIN_INTERFACE = 120000
+
+local function IsForeverLoadTarget()
+    return type(ns.Client) == "table" and ns.Client.isForever == true
+end
 
 local secretApiProbed, secretApiAvailable
 function ns.HasSecretValueAPI()
     if not secretApiProbed then
         secretApiProbed = true
         secretApiAvailable = type(_G.issecretvalue) == "function"
+            or (type(_G.C_Secrets) == "table" and type(_G.C_Secrets.HasSecretRestrictions) == "function")
     end
     return secretApiAvailable
 end
 
--- Session-constant like GetBuildInterface, and queried even more often: cache it.
-local cachedRetailSecretBuild
+local function GetSecretRestrictionState()
+    if type(_G.C_Secrets) ~= "table" or type(_G.C_Secrets.HasSecretRestrictions) ~= "function" then
+        return nil
+    end
 
-function ns.IsRetailSecretValueBuild()
-    if cachedRetailSecretBuild ~= nil then
-        return cachedRetailSecretBuild
+    local ok, restricted = pcall(_G.C_Secrets.HasSecretRestrictions)
+    if not ok then
+        return nil
+    end
+    return restricted and true or false
+end
+
+-- Session-constant like GetBuildInterface, and queried even more often: cache it.
+local cachedModernSecretBuild
+
+function ns.IsModernSecretValueBuild()
+    if cachedModernSecretBuild ~= nil then
+        return cachedModernSecretBuild
+    end
+
+    -- Prefer the API's own master switch when it exists. This avoids treating the
+    -- Forever 1.60.x TOC as an old client merely because 16001 is numerically below
+    -- 120000, and it also future-proofs new protected game types.
+    local reported = GetSecretRestrictionState()
+    if reported ~= nil then
+        cachedModernSecretBuild = reported
+        return reported
     end
 
     local result
-    if WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
+    if IsForeverLoadTarget() then
+        -- Blizzard has explicitly enabled Midnight's restrictions on Forever.
+        -- Keep this conservative fallback for beta builds where C_Secrets may not
+        -- have finished loading or its master switch is temporarily unavailable.
+        result = true
+    elseif WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
         result = false
     elseif WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
         result = false
@@ -1001,8 +1032,15 @@ function ns.IsRetailSecretValueBuild()
         result = ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
     end
 
-    cachedRetailSecretBuild = result
+    cachedModernSecretBuild = result
     return result
+end
+
+-- Compatibility name retained for existing modules. It now means
+-- "modern client with Midnight-style secret chat restrictions", which includes
+-- both Retail and WoW: Forever.
+function ns.IsRetailSecretValueBuild()
+    return ns.IsModernSecretValueBuild()
 end
 
 -- Chat messaging lockdown (12.0.0+). While it is active Blizzard blocks
@@ -1090,7 +1128,7 @@ function ns.IsWhisperSensitiveEvent(eventName)
     return whisperSensitiveEvents[eventName] and true or false
 end
 
--- On modern Retail, Chatify never mutates whisper/BNet payloads at all: they route
+-- On protected modern clients (Retail / Forever), Chatify never mutates whisper/BNet payloads at all: they route
 -- through protected tabs and carry secret senders during chat lockdown. This is a
 
 -- Chat history is captured on Chatify's own event frame, not through Blizzard's
@@ -1574,7 +1612,15 @@ function ns.GetBuildInterface()
     return cachedBuildInterface
 end
 
+function ns.IsForeverClient()
+    return IsForeverLoadTarget()
+end
+
 function ns.GetProjectKey()
+    -- Must run before WOW_PROJECT_MAINLINE: the Forever beta can expose the same
+    -- project identity as Retail, so project constants alone collapse both clients.
+    if ns.IsForeverClient() then return "forever" end
+
     local project = WOW_PROJECT_ID
     if WOW_PROJECT_MAINLINE and project == WOW_PROJECT_MAINLINE then return "retail" end
     if WOW_PROJECT_CLASSIC and project == WOW_PROJECT_CLASSIC then return "vanilla" end
@@ -1600,9 +1646,17 @@ function ns.IsMainlineClient()
     return ns.GetProjectKey() == "retail"
 end
 
+-- Capability helper: Forever is a separate game flavor, but it uses the modern
+-- Mainline UI/API architecture. Use this for frame/API choices; use
+-- IsForeverClient/GetProjectKey when actual game identity matters.
+function ns.UsesMainlineUI()
+    local key = ns.GetProjectKey()
+    return key == "retail" or key == "forever"
+end
+
 function ns.IsClassicClient()
     local key = ns.GetProjectKey()
-    return key ~= "retail" and key ~= "unknown"
+    return key ~= "retail" and key ~= "forever" and key ~= "unknown"
 end
 
 function ns.GetSelectedChatFrame()
@@ -1725,7 +1779,7 @@ function ns.EnforceRetailSafeMode(db)
         return false
     end
 
-    -- Runtime-only safe mode for modern Retail.
+    -- Runtime-only safe mode for protected modern clients (Retail / Forever).
     -- Do NOT rewrite user preferences here, otherwise the same SavedVariables
     -- stay crippled when the addon is loaded on older Retail clients.
     return true
@@ -1745,7 +1799,7 @@ function ns.GetRetailSafeModeStatus(db)
         local lockdown = ns.InChatMessagingLockdown()
         local whisperSafe = db and db.retailWhisperSafeMode
         status.history = "public/group chat only"
-        status.virtualChat = "disabled on modern Retail"
+        status.virtualChat = "disabled on protected modern clients"
         if whisperSafe then
             status.whisperAutoReply = "whispers never modified (user setting)"
         elseif lockdown then
@@ -2027,7 +2081,16 @@ function ns.GetChatTaintReport()
         report[#report + 1] = { label = label, value = value }
     end
 
+    add("Client flavor", type(ns.GetProjectKey) == "function" and ns.GetProjectKey() or "unknown")
+    add("Interface", tostring(type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0))
+    add("Forever load marker", type(ns.IsForeverClient) == "function" and ns.IsForeverClient() and "yes" or "no")
     add("Client has secret values", ns.IsRetailSecretValueBuild() and "yes" or "no")
+    if type(C_Secrets) == "table" and type(C_Secrets.HasSecretRestrictions) == "function" then
+        local okSecrets, hasRestrictions = pcall(C_Secrets.HasSecretRestrictions)
+        add("C_Secrets restrictions", okSecrets and (hasRestrictions and "enabled" or "disabled") or "query failed")
+    else
+        add("C_Secrets restrictions", "API absent")
+    end
     add("securecallfunction", type(securecallfunction) == "function" and "present" or "absent")
     add("canaccessvalue", type(canaccessvalue) == "function" and "present" or "absent")
     add("issecretvalue", type(issecretvalue) == "function" and "present" or "absent")
