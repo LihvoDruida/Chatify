@@ -1357,6 +1357,9 @@ function Chatify:GetOptions()
                                     if type(ns.NotifyQuickChatSettingsChanged) == "function" then
                                         ns.NotifyQuickChatSettingsChanged()
                                     end
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then
+                                        ns.NotifyComposerSettingsChanged()
+                                    end
                                 end,
                             },
                             importCurrentDraft = {
@@ -1375,10 +1378,106 @@ function Chatify:GetOptions()
                                 set = function(_, value)
                                     self.db.profile.composer = self.db.profile.composer or {}
                                     self.db.profile.composer.importCurrentDraft = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            autoPreview = {
+                                order = 4,
+                                type = "toggle",
+                                name = T("Auto-build Preview"),
+                                desc = T("Automatically build the preview after importing a chat draft or opening Composer with command text. Changes to splitter settings always rebuild an already-loaded preview."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.autoPreview ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.autoPreview = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            autoAdvance = {
+                                order = 5,
+                                type = "toggle",
+                                name = T("Advance After Send"),
+                                desc = T("After a chunk is sent successfully, automatically select the next chunk."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.autoAdvance ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.autoAdvance = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            lockFinalChunk = {
+                                order = 6,
+                                type = "toggle",
+                                name = T("Protect Final Chunk"),
+                                desc = T("After the final chunk is sent, disable Send until you browse away, refresh the preview, or clear the composer. This prevents accidental duplicate final posts."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.lockFinalChunk ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.lockFinalChunk = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            rememberWhisperTarget = {
+                                order = 7,
+                                type = "toggle",
+                                name = T("Remember Whisper Target"),
+                                desc = T("Remember the last manually entered whisper target for the next Composer session."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.rememberWhisperTarget ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.rememberWhisperTarget = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            spellcheckIntegration = {
+                                order = 8,
+                                type = "toggle",
+                                name = T("Spell Check Integration"),
+                                desc = T("If Misspelled is installed, connect it to the Composer editor and remove its visual highlighting before splitting or sending."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.spellcheckIntegration ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.spellcheckIntegration = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
                                 end,
                             },
                             openComposer = {
-                                order = 4,
+                                order = 9,
                                 type = "execute",
                                 name = T("Open Message Composer"),
                                 desc = T("Open the long-message editor and chunk preview window."),
@@ -1393,12 +1492,12 @@ function Chatify:GetOptions()
                                 end,
                             },
                             commandHint = {
-                                order = 5,
+                                order = 10,
                                 type = "description",
-                                name = T("Commands: /chatcompose or /chatcomposer"),
+                                name = T("Commands: /chatcompose, /chatcomposer or /chatlong"),
                             },
                             chunkLimit = {
-                                order = 6,
+                                order = 11,
                                 type = "range",
                                 name = T("Chunk Byte Limit"),
                                 desc = T("Maximum bytes per outgoing chunk. 245 leaves room below WoW's hard chat limit and is recommended."),
@@ -1414,10 +1513,11 @@ function Chatify:GetOptions()
                                 set = function(_, value)
                                     self.db.profile.composer = self.db.profile.composer or {}
                                     self.db.profile.composer.chunkLimit = math.floor(tonumber(value) or 245)
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
                                 end,
                             },
                             showCounter = {
-                                order = 7,
+                                order = 12,
                                 type = "toggle",
                                 name = T("Show Chunk Counter"),
                                 desc = T("Add a counter such as (1/3) to messages that are split into multiple chunks."),
@@ -1432,10 +1532,11 @@ function Chatify:GetOptions()
                                 set = function(_, value)
                                     self.db.profile.composer = self.db.profile.composer or {}
                                     self.db.profile.composer.showCounter = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
                                 end,
                             },
                             continuation = {
-                                order = 8,
+                                order = 13,
                                 type = "select",
                                 name = T("Continuation Markers"),
                                 desc = T("Choose where >> markers are added when one logical line needs more than one chunk."),
@@ -1454,10 +1555,11 @@ function Chatify:GetOptions()
                                 set = function(_, value)
                                     self.db.profile.composer = self.db.profile.composer or {}
                                     self.db.profile.composer.continuation = value
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
                                 end,
                             },
                             defaultChannel = {
-                                order = 9,
+                                order = 14,
                                 type = "select",
                                 name = T("Default Channel"),
                                 desc = T("Channel selected when the composer window opens."),
@@ -1475,10 +1577,11 @@ function Chatify:GetOptions()
                                 set = function(_, value)
                                     self.db.profile.composer = self.db.profile.composer or {}
                                     self.db.profile.composer.defaultChannel = value
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
                                 end,
                             },
                             perLineHelp = {
-                                order = 10,
+                                order = 15,
                                 type = "description",
                                 name = T("Per Line prefixes: /s, /e, /y, /p, /raid, /rw, /i, /g, /o, /w Name. Raid target markers {rt1} through {rt8} can be inserted from the composer."),
                             },

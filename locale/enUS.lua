@@ -509,4 +509,55 @@ Locale:RegisterLocale("enUS", {
     ["Current chat draft and channel imported."] = "Current chat draft and channel imported.",
     ["Current chat draft imported. The selected Composer channel was kept."] = "Current chat draft imported. The selected Composer channel was kept.",
     ["Current chat draft imported."] = "Current chat draft imported.",
+    ["Auto-build Preview"] = "Auto-build Preview",
+    ["Automatically build the preview after importing a chat draft or opening Composer with command text. Changes to splitter settings always rebuild an already-loaded preview."] = "Automatically build the preview after importing a chat draft or opening Composer with command text. Changes to splitter settings always rebuild an already-loaded preview.",
+    ["Advance After Send"] = "Advance After Send",
+    ["After a chunk is sent successfully, automatically select the next chunk."] = "After a chunk is sent successfully, automatically select the next chunk.",
+    ["Protect Final Chunk"] = "Protect Final Chunk",
+    ["After the final chunk is sent, disable Send until you browse away, refresh the preview, or clear the composer. This prevents accidental duplicate final posts."] = "After the final chunk is sent, disable Send until you browse away, refresh the preview, or clear the composer. This prevents accidental duplicate final posts.",
+    ["Remember Whisper Target"] = "Remember Whisper Target",
+    ["Remember the last manually entered whisper target for the next Composer session."] = "Remember the last manually entered whisper target for the next Composer session.",
+    ["Spell Check Integration"] = "Spell Check Integration",
+    ["If Misspelled is installed, connect it to the Composer editor and remove its visual highlighting before splitting or sending."] = "If Misspelled is installed, connect it to the Composer editor and remove its visual highlighting before splitting or sending.",
+    ["Commands: /chatcompose, /chatcomposer or /chatlong"] = "Commands: /chatcompose, /chatcomposer or /chatlong",
+    ["Help"] = "Help",
+    ["Settings"] = "Settings",
+    ["Long Message Composer Help"] = "Long Message Composer Help",
+    ["Previous Chunk"] = "Previous Chunk",
+    ["Next Chunk"] = "Next Chunk",
+    ["Send This Chunk"] = "Send This Chunk",
+    ["Chunk %d of %d - %s - Last sent: %s"] = "Chunk %d of %d - %s - Last sent: %s",
+    ["None"] = "None",
+    ["Message changed. Refresh preview before sending."] = "Message changed. Refresh preview before sending.",
+    ["Refresh preview to apply Per Line mode."] = "Refresh preview to apply Per Line mode.",
+    ["Press Split / Refresh Preview to apply Per Line routing."] = "Press Split / Refresh Preview to apply Per Line routing.",
+    ["Preview rebuilt with the new settings."] = "Preview rebuilt with the new settings.",
+    ["Chunk sent."] = "Chunk sent.",
+    ["LONG_MESSAGE_COMPOSER_HELP"] = [[LONG MESSAGE COMPOSER
+
+Quick start
+1. Type or paste the message.
+2. Choose a channel. Whisper also needs a target.
+3. Use Split / Refresh Preview.
+4. Review chunks with Previous Chunk and Next Chunk.
+5. Send This Chunk sends exactly one message. It never auto-sends the full queue.
+
+Lines and channels
+Each non-empty line is a hard message boundary. Per Line mode supports /s, /e, /y, /p, /raid, /rw, /i, /g, /o and /w Name. Long lines keep their assigned channel and whisper target after splitting. With a normal channel, you may change the selected channel between already-built chunks without rebuilding.
+
+Counters and continuation
+Chunk counters and continuation markers reserve their bytes before splitting. Changing Chunk Byte Limit, Show Chunk Counter or Continuation Markers automatically rebuilds an already-loaded preview.
+
+Sending
+Advance After Send selects the next chunk after a successful send. Protect Final Chunk disables Send after the final chunk to reduce accidental duplicates. Browsing to another chunk, rebuilding or clearing unlocks it.
+
+Current chat
+Use Current Chat copies the current Blizzard chat draft, active channel and whisper target when available without clearing the normal chat box.
+
+Spell check
+If Misspelled is installed and Spell Check Integration is enabled, Chatify connects it to the editor and strips visual highlighting before splitting or sending.
+
+Session
+Closing Composer hides it instead of discarding the current draft and preview. Clear resets the loaded message.]],
+
 })

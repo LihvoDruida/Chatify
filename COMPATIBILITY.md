@@ -107,4 +107,17 @@ Long Message Mode is opt-in. When enabled and Quick Chat Buttons are available, 
 ## Composer integration
 
 Long Message Composer reuses the active Blizzard chat draft context exposed by Chatify Quick Buttons. When enabled, the LM button can import a visible draft, supported active chat type, and a readable whisper target without clearing the original edit box. Protected or inaccessible values are skipped. Unsupported active chat types never override the Composer channel.
+## Composer session and automation
+
+Long Message Composer keeps its draft and preview state when its window is hidden during the current UI session. It still sends exactly one chunk per player click; there is no timed queue or automatic multi-message sender.
+
+Splitter settings are available both in Chatify Settings and directly inside Composer. Changing byte limit, counter, or continuation-marker settings rebuilds an already-loaded preview. Optional automation can also build the preview after importing the active Blizzard chat draft or opening Composer with text from a slash command.
+
+Normal channel selection is resolved at send time, allowing the player to switch channels between prepared chunks without rebuilding. Per Line mode is intentionally different: its channel and whisper target are bound to each logical line during splitting and remain fixed until the preview is rebuilt.
+
+Composer remembers the selected default channel through the Chatify profile and can remember a manually entered whisper target. Closing the Composer window hides it instead of discarding the active session; Clear resets the loaded message and preview.
+
+Successful sends can automatically advance to the next chunk. The final chunk can be locked after sending to reduce accidental duplicate posts; browsing away, rebuilding, or clearing resets that lock.
+
+If the optional Misspelled addon is present, Composer can attach it to the editor after Chatify finishes configuring the edit box. Any visual spell-check markup is removed before splitting or sending.
 

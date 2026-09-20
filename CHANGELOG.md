@@ -1,3 +1,26 @@
+# Chatify Changelog
+
+## 2.14.0 - 2026-09-21
+
+### Long Message Composer parity and automation
+
+- Restore the full long-message editing workflow instead of keeping Composer as a minimal splitter.
+- Keep the Composer window, draft, preview, selected chunk, and send state alive when the window is closed and reopened during the session.
+- Add Composer-local controls for chunk byte limit, chunk counters, continuation markers, current-chat import, auto preview, auto advance, final-chunk protection, remembered whisper target, and optional spell-check integration.
+- Keep Composer-local settings synchronized with the main Chatify settings profile.
+- Automatically rebuild an already-loaded preview when splitter settings change.
+- Automatically build a preview after importing the current chat draft or opening Composer with command text when Auto-build Preview is enabled.
+- Preserve the last whisper target when configured, and keep it when Clear resets the message.
+- Restore manual one-message-at-a-time send state with last-sent tracking and final-chunk duplicate protection.
+- Restore automatic advance to the next chunk after a successful send, with an option to disable it.
+- Allow normal channel selection to change between already-split chunks without rebuilding; Per Line routing remains fixed until the preview is rebuilt.
+- Add Previous Chunk / Next Chunk navigation state and disable invalid actions automatically.
+- Add an in-Composer Help window and a shortcut to Chatify settings.
+- Add optional Misspelled integration after Composer edit-box setup and strip visual spell-check markup before splitting or sending.
+- Refresh available channels automatically when group, guild, or world state changes.
+- Add `/chatlong` as an additional Composer command.
+- Keep all outgoing messages on the existing capability, protected-value, channel-permission, and chat-lockdown checks.
+
 ## 2.13.2 - 2026-09-21
 
 - Integrated the existing quick-chat draft preservation path with Long Message Composer.
@@ -6,8 +29,6 @@
 - Added an option to disable automatic current-draft import while keeping manual import available.
 - Kept protected/secret chat values fail-closed during draft and target import.
 - Preserved the selected Composer channel when the active Blizzard chat type is unsupported by Composer.
-
-# Chatify Changelog
 
 ## 2.13.1
 

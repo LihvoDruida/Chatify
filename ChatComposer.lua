@@ -2,7 +2,7 @@ local addonName, ns = ...
 local Chatify = ns.Chatify or _G.Chatify
 if not Chatify then return end
 
-local Composer = Chatify:NewModule("Composer", "AceConsole-3.0")
+local Composer = Chatify:NewModule("Composer", "AceConsole-3.0", "AceEvent-3.0")
 local AceGUI = LibStub and LibStub("AceGUI-3.0", true) or nil
 
 local DEFAULT_LIMIT = 245
@@ -85,7 +85,35 @@ local function GetProfile()
     if type(c.defaultChannel) ~= "string" or c.defaultChannel == "" then
         c.defaultChannel = "SAY"
     end
+    if type(c.whisperTarget) ~= "string" then c.whisperTarget = "" end
+    if c.autoPreview == nil then c.autoPreview = true end
+    if c.autoAdvance == nil then c.autoAdvance = true end
+    if c.lockFinalChunk == nil then c.lockFinalChunk = true end
+    if c.rememberWhisperTarget == nil then c.rememberWhisperTarget = true end
+    if c.spellcheckIntegration == nil then c.spellcheckIntegration = true end
     return c
+end
+
+
+local function StripSpellcheckMarkup(text)
+    if type(text) ~= "string" then return "" end
+    local spell = _G.Misspelled
+    if spell and type(spell.RemoveHighlighting) == "function" then
+        local ok, cleaned = pcall(spell.RemoveHighlighting, spell, text)
+        if ok and type(cleaned) == "string" then
+            return cleaned
+        end
+    end
+    return text
+end
+
+local function WireSpellcheck(widget, profile)
+    if not profile or profile.spellcheckIntegration == false or not widget then return false end
+    local editBox = widget.editBox
+    local spell = _G.Misspelled
+    if not editBox or not spell or type(spell.WireUpEditBox) ~= "function" then return false end
+    local ok = pcall(spell.WireUpEditBox, spell, editBox)
+    return ok and true or false
 end
 
 local function IsComposerEnabled()
@@ -469,48 +497,118 @@ function Composer:BuildChunks(text, channel, whisperTarget)
     return SplitMessage(text, channel, whisperTarget, profile)
 end
 
+function Composer:OpenHelp()
+    if not AceGUI then return end
+    if self.helpWindow then
+        if self.helpWindow.frame and self.helpWindow.frame.Show then self.helpWindow.frame:Show() end
+        return
+    end
+
+    local frame = AceGUI:Create("Frame")
+    self.helpWindow = frame
+    frame:SetTitle(T("Long Message Composer Help"))
+    frame:SetLayout("Fill")
+    frame:SetWidth(680)
+    frame:SetHeight(560)
+    frame:SetCallback("OnClose", function(widget)
+        if widget.frame and widget.frame.Hide then widget.frame:Hide() end
+    end)
+
+    local scroll = AceGUI:Create("ScrollFrame")
+    scroll:SetLayout("Flow")
+    frame:AddChild(scroll)
+
+    local text = AceGUI:Create("Label")
+    text:SetFullWidth(true)
+    text:SetText(T("LONG_MESSAGE_COMPOSER_HELP"))
+    scroll:AddChild(text)
+end
+
+function Composer:OpenSettings()
+    if Chatify and type(Chatify.OpenConfig) == "function" then
+        Chatify:OpenConfig()
+    end
+    local dialog = LibStub and LibStub("AceConfigDialog-3.0", true) or nil
+    if dialog and type(dialog.SelectGroup) == "function" then
+        pcall(dialog.SelectGroup, dialog, "Chatify", "tabComposer")
+    end
+end
+
+function Composer:GetEffectiveRouting(state, chunk)
+    if not state or not chunk then return nil, nil end
+    if state.chunksUsePerLineChannels then
+        return chunk.channel, chunk.target
+    end
+    if state.channel == "PER_LINE" then
+        return nil, nil
+    end
+    local target = state.channel == "WHISPER" and Trim(state.whisperTarget) or nil
+    return state.channel, target
+end
+
+function Composer:RefreshRuntimeState(event, addonName)
+    local ui = self.ui
+    if event == "ADDON_LOADED" and addonName == "Misspelled" then
+        local profile = GetProfile()
+        if profile and profile.spellcheckIntegration ~= false and self.inputWidget then
+            WireSpellcheck(self.inputWidget, profile)
+        end
+    end
+    if not ui or not ui.channelDrop or not self.sessionState then return end
+    local values, order = GetAvailableChannelList()
+    ui.channelValues, ui.channelOrder = values, order
+    ui.channelDrop:SetList(values, order)
+    local state = self.sessionState
+    if state.channel ~= "PER_LINE" and not values[state.channel] then
+        state.channel = order[1] or "SAY"
+        ui.channelDrop:SetValue(state.channel)
+    end
+    if type(self.UpdateComposerUI) == "function" then
+        self:UpdateComposerUI()
+    end
+end
+
 function Composer:Open(options)
     options = type(options) == "table" and options or {}
     if not IsComposerEnabled() then
         self:Print(T("Long Message Mode is disabled. Enable it in Chatify settings."))
         return false
     end
-
     if not AceGUI then
         self:Print(T("The message composer UI is not available on this client."))
-        return
-    end
-
-    if self.window then
-        if self.window.frame and self.window.frame.Show then self.window.frame:Show() end
-        if options.importCurrentChat and type(self.ImportCurrentChat) == "function" then
-            self:ImportCurrentChat()
-        end
-        return
+        return false
     end
 
     local profile = GetProfile()
-    if not profile then return end
+    if not profile then return false end
 
-    local frame = AceGUI:Create("Frame")
-    self.window = frame
-    frame:SetTitle(T("Chatify - Long Message Composer"))
-    frame:SetStatusText(T("Messages are sent one chunk at a time. Chatify never auto-spams the queue."))
-    frame:SetLayout("Flow")
-    frame:SetWidth(760)
-    frame:SetHeight(700)
-    frame:SetCallback("OnClose", function(widget)
-        self.window = nil
-        self.inputWidget = nil
-        AceGUI:Release(widget)
-    end)
+    -- Reuse the same window/session instead of destroying the draft on close.
+    if self.window then
+        if self.window.frame and self.window.frame.Show then self.window.frame:Show() end
+        if type(options.text) == "string" and options.text ~= "" and self.inputWidget then
+            self.inputWidget:SetText(options.text)
+            if options.autoSplit ~= false and profile.autoPreview ~= false and type(self.RebuildPreview) == "function" then
+                self:RebuildPreview()
+            end
+        elseif options.importCurrentChat and type(self.ImportCurrentChat) == "function" then
+            self:ImportCurrentChat(profile.autoPreview ~= false)
+        end
+        if self.inputWidget and type(self.inputWidget.SetFocus) == "function" then self.inputWidget:SetFocus() end
+        return true
+    end
 
-    local state = {
+    local state = self.sessionState or {
         chunks = {},
         index = 1,
+        lastSentIndex = 0,
+        finalChunkSent = false,
+        previewDirty = false,
+        chunksUsePerLineChannels = false,
         channel = profile.defaultChannel or "SAY",
-        whisperTarget = "",
+        whisperTarget = profile.rememberWhisperTarget ~= false and (profile.whisperTarget or "") or "",
+        inputText = "",
     }
+    self.sessionState = state
 
     local initialImport = nil
     if options.importCurrentChat and profile.importCurrentDraft ~= false then
@@ -524,23 +622,42 @@ function Composer:Open(options)
                 end
             end
         end
+        if initialImport and type(initialImport.text) == "string" and initialImport.text ~= "" then
+            state.inputText = initialImport.text
+        end
+    elseif type(options.text) == "string" and options.text ~= "" then
+        state.inputText = options.text
     end
 
     local channelValues, channelOrder = GetAvailableChannelList()
-    if not channelValues[state.channel] then
+    if state.channel ~= "PER_LINE" and not channelValues[state.channel] then
         state.channel = channelOrder[1] or "SAY"
     end
+
+    local frame = AceGUI:Create("Frame")
+    self.window = frame
+    frame:SetTitle(T("Chatify - Long Message Composer"))
+    frame:SetStatusText(T("Messages are sent one chunk at a time. Chatify never auto-spams the queue."))
+    frame:SetLayout("Flow")
+    frame:SetWidth(800)
+    frame:SetHeight(760)
+    frame:SetCallback("OnClose", function(widget)
+        if self.inputWidget and type(self.inputWidget.GetText) == "function" then
+            state.inputText = self.inputWidget:GetText() or ""
+        end
+        if widget.frame and widget.frame.Hide then widget.frame:Hide() end
+    end)
 
     local channelDrop = AceGUI:Create("Dropdown")
     channelDrop:SetLabel(T("Channel"))
     channelDrop:SetList(channelValues, channelOrder)
     channelDrop:SetValue(state.channel)
-    channelDrop:SetRelativeWidth(0.42)
+    channelDrop:SetRelativeWidth(0.34)
     frame:AddChild(channelDrop)
 
     local targetBox = AceGUI:Create("EditBox")
     targetBox:SetLabel(T("Whisper Target"))
-    targetBox:SetRelativeWidth(0.36)
+    targetBox:SetRelativeWidth(0.33)
     targetBox:SetText(state.whisperTarget or "")
     frame:AddChild(targetBox)
 
@@ -552,8 +669,69 @@ function Composer:Open(options)
     end
     markerDrop:SetLabel(T("Insert Raid Marker"))
     markerDrop:SetList(markerValues, markerOrder)
-    markerDrop:SetRelativeWidth(0.22)
+    markerDrop:SetRelativeWidth(0.33)
     frame:AddChild(markerDrop)
+
+    -- Composer-local settings mirror the main Chatify settings and rebuild the
+    -- loaded preview immediately, matching the original long-message workflow.
+    local limitSlider = AceGUI:Create("Slider")
+    limitSlider:SetLabel(T("Chunk Byte Limit"))
+    limitSlider:SetSliderValues(MIN_LIMIT, MAX_LIMIT, 1)
+    limitSlider:SetValue(ClampLimit(profile.chunkLimit))
+    limitSlider:SetRelativeWidth(0.34)
+    frame:AddChild(limitSlider)
+
+    local counterCheck = AceGUI:Create("CheckBox")
+    counterCheck:SetLabel(T("Show Chunk Counter"))
+    counterCheck:SetValue(profile.showCounter ~= false)
+    counterCheck:SetRelativeWidth(0.28)
+    frame:AddChild(counterCheck)
+
+    local continuationDrop = AceGUI:Create("Dropdown")
+    continuationDrop:SetLabel(T("Continuation Markers"))
+    continuationDrop:SetList(ns.GetComposerContinuationValues and ns.GetComposerContinuationValues() or CONTINUATION_MODES, { "BOTH", "START", "END", "NONE" })
+    continuationDrop:SetValue(profile.continuation or "BOTH")
+    continuationDrop:SetRelativeWidth(0.38)
+    frame:AddChild(continuationDrop)
+
+    local importDraftCheck = AceGUI:Create("CheckBox")
+    importDraftCheck:SetLabel(T("Use Current Chat Draft"))
+    importDraftCheck:SetValue(profile.importCurrentDraft ~= false)
+    importDraftCheck:SetRelativeWidth(0.33)
+    frame:AddChild(importDraftCheck)
+
+    local rememberWhisperCheck = AceGUI:Create("CheckBox")
+    rememberWhisperCheck:SetLabel(T("Remember Whisper Target"))
+    rememberWhisperCheck:SetValue(profile.rememberWhisperTarget ~= false)
+    rememberWhisperCheck:SetRelativeWidth(0.33)
+    frame:AddChild(rememberWhisperCheck)
+
+    local spellcheckCheck = AceGUI:Create("CheckBox")
+    spellcheckCheck:SetLabel(T("Spell Check Integration"))
+    spellcheckCheck:SetValue(profile.spellcheckIntegration ~= false)
+    spellcheckCheck:SetRelativeWidth(0.34)
+    if not (_G.Misspelled and type(_G.Misspelled.WireUpEditBox) == "function") then
+        spellcheckCheck:SetDisabled(true)
+    end
+    frame:AddChild(spellcheckCheck)
+
+    local autoPreviewCheck = AceGUI:Create("CheckBox")
+    autoPreviewCheck:SetLabel(T("Auto-build Preview"))
+    autoPreviewCheck:SetValue(profile.autoPreview ~= false)
+    autoPreviewCheck:SetRelativeWidth(0.33)
+    frame:AddChild(autoPreviewCheck)
+
+    local autoAdvanceCheck = AceGUI:Create("CheckBox")
+    autoAdvanceCheck:SetLabel(T("Advance After Send"))
+    autoAdvanceCheck:SetValue(profile.autoAdvance ~= false)
+    autoAdvanceCheck:SetRelativeWidth(0.33)
+    frame:AddChild(autoAdvanceCheck)
+
+    local finalLockCheck = AceGUI:Create("CheckBox")
+    finalLockCheck:SetLabel(T("Protect Final Chunk"))
+    finalLockCheck:SetValue(profile.lockFinalChunk ~= false)
+    finalLockCheck:SetRelativeWidth(0.34)
+    frame:AddChild(finalLockCheck)
 
     local input = AceGUI:Create("MultiLineEditBox")
     self.inputWidget = input
@@ -561,9 +739,7 @@ function Composer:Open(options)
     input:SetNumLines(12)
     input:SetFullWidth(true)
     input:DisableButton(true)
-    if initialImport and type(initialImport.text) == "string" and initialImport.text ~= "" then
-        input:SetText(initialImport.text)
-    end
+    input:SetText(state.inputText or "")
     frame:AddChild(input)
 
     local hint = AceGUI:Create("Label")
@@ -573,21 +749,31 @@ function Composer:Open(options)
 
     local importButton = AceGUI:Create("Button")
     importButton:SetText(T("Use Current Chat"))
-    importButton:SetRelativeWidth(0.24)
+    importButton:SetRelativeWidth(0.20)
     frame:AddChild(importButton)
 
     local splitButton = AceGUI:Create("Button")
     splitButton:SetText(T("Split / Refresh Preview"))
-    splitButton:SetRelativeWidth(0.30)
+    splitButton:SetRelativeWidth(0.25)
     frame:AddChild(splitButton)
 
     local clearButton = AceGUI:Create("Button")
     clearButton:SetText(T("Clear"))
-    clearButton:SetRelativeWidth(0.14)
+    clearButton:SetRelativeWidth(0.13)
     frame:AddChild(clearButton)
 
+    local helpButton = AceGUI:Create("Button")
+    helpButton:SetText(T("Help"))
+    helpButton:SetRelativeWidth(0.13)
+    frame:AddChild(helpButton)
+
+    local settingsButton = AceGUI:Create("Button")
+    settingsButton:SetText(T("Settings"))
+    settingsButton:SetRelativeWidth(0.13)
+    frame:AddChild(settingsButton)
+
     local status = AceGUI:Create("Label")
-    status:SetRelativeWidth(0.32)
+    status:SetFullWidth(true)
     status:SetText(T("No chunks yet."))
     frame:AddChild(status)
 
@@ -600,24 +786,49 @@ function Composer:Open(options)
     frame:AddChild(preview)
 
     local prevButton = AceGUI:Create("Button")
-    prevButton:SetText(T("Previous"))
-    prevButton:SetRelativeWidth(0.2)
+    prevButton:SetText(T("Previous Chunk"))
+    prevButton:SetRelativeWidth(0.20)
     frame:AddChild(prevButton)
 
-    local sendButton = AceGUI:Create("Button")
-    sendButton:SetText(T("Send Current Chunk"))
-    sendButton:SetRelativeWidth(0.4)
-    frame:AddChild(sendButton)
-
     local nextButton = AceGUI:Create("Button")
-    nextButton:SetText(T("Next"))
-    nextButton:SetRelativeWidth(0.2)
+    nextButton:SetText(T("Next Chunk"))
+    nextButton:SetRelativeWidth(0.20)
     frame:AddChild(nextButton)
 
+    local sendButton = AceGUI:Create("Button")
+    sendButton:SetText(T("Send This Chunk"))
+    sendButton:SetRelativeWidth(0.28)
+    frame:AddChild(sendButton)
+
     local info = AceGUI:Create("Label")
-    info:SetRelativeWidth(0.2)
+    info:SetRelativeWidth(0.32)
     info:SetText("")
     frame:AddChild(info)
+
+    self.ui = {
+        frame = frame,
+        channelDrop = channelDrop,
+        channelValues = channelValues,
+        channelOrder = channelOrder,
+        targetBox = targetBox,
+        markerDrop = markerDrop,
+        limitSlider = limitSlider,
+        counterCheck = counterCheck,
+        continuationDrop = continuationDrop,
+        importDraftCheck = importDraftCheck,
+        rememberWhisperCheck = rememberWhisperCheck,
+        spellcheckCheck = spellcheckCheck,
+        autoPreviewCheck = autoPreviewCheck,
+        autoAdvanceCheck = autoAdvanceCheck,
+        finalLockCheck = finalLockCheck,
+        input = input,
+        status = status,
+        preview = preview,
+        prevButton = prevButton,
+        nextButton = nextButton,
+        sendButton = sendButton,
+        info = info,
+    }
 
     local function UpdateTargetVisibility()
         local visible = state.channel == "WHISPER"
@@ -631,89 +842,142 @@ function Composer:Open(options)
         if frame and type(frame.DoLayout) == "function" then frame:DoLayout() end
     end
 
+    local function EffectiveRouting(chunk)
+        return self:GetEffectiveRouting(state, chunk)
+    end
+
     local function UpdatePreview(message)
         local count = #state.chunks
         if count == 0 then
             preview:SetText("")
             status:SetText(message or T("No chunks yet."))
             info:SetText("")
+            prevButton:SetDisabled(true)
+            nextButton:SetDisabled(true)
+            sendButton:SetDisabled(true)
             return
         end
         if state.index < 1 then state.index = 1 end
         if state.index > count then state.index = count end
         local chunk = state.chunks[state.index]
         preview:SetText(chunk.text or "")
-        local channelName = ChannelLabel(chunk.channel, chunk.target)
-        local chunkStatus = string.format(T("Chunk %d of %d - %s"), state.index, count, channelName)
+        local chatType, target = EffectiveRouting(chunk)
+        local channelName = chatType and ChannelLabel(chatType, target) or T("Refresh preview to apply Per Line mode.")
+        local sentText = state.lastSentIndex > 0 and tostring(state.lastSentIndex) or T("None")
+        local chunkStatus = string.format(T("Chunk %d of %d - %s - Last sent: %s"), state.index, count, channelName, sentText)
+        if state.previewDirty then
+            chunkStatus = T("Message changed. Refresh preview before sending.") .. "  " .. chunkStatus
+        end
         if type(message) == "string" and message ~= "" then
             chunkStatus = message .. "  " .. chunkStatus
         end
         status:SetText(chunkStatus)
         info:SetText(string.format(T("%d / %d bytes"), #(chunk.text or ""), ClampLimit(profile.chunkLimit)))
+        prevButton:SetDisabled(state.index <= 1)
+        nextButton:SetDisabled(state.index >= count)
+        local finalLocked = profile.lockFinalChunk ~= false and state.finalChunkSent and state.index == count
+        sendButton:SetDisabled(state.previewDirty or finalLocked or not chatType)
     end
 
-    local function Rebuild()
-        state.whisperTarget = targetBox:GetText() or ""
-        local chunks, err = self:BuildChunks(input:GetText() or "", state.channel, state.whisperTarget)
-        if not chunks then
-            state.chunks = {}
-            state.index = 1
-            UpdatePreview(err)
-            return
-        end
-        state.chunks = chunks
-        state.index = 1
+    self.UpdateComposerUI = function()
+        UpdateTargetVisibility()
         UpdatePreview()
     end
 
-    local function ImportCurrentChat()
+    local function Rebuild(message)
+        state.whisperTarget = targetBox:GetText() or state.whisperTarget or ""
+        if profile.rememberWhisperTarget ~= false then
+            profile.whisperTarget = state.whisperTarget
+        end
+        local text = StripSpellcheckMarkup(input:GetText() or "")
+        state.inputText = text
+        local chunks, err = self:BuildChunks(text, state.channel, state.whisperTarget)
+        if not chunks then
+            state.chunks = {}
+            state.index = 1
+            state.lastSentIndex = 0
+            state.finalChunkSent = false
+            state.previewDirty = false
+            UpdatePreview(err)
+            return false
+        end
+        state.chunks = chunks
+        state.index = 1
+        state.lastSentIndex = 0
+        state.finalChunkSent = false
+        state.previewDirty = false
+        state.chunksUsePerLineChannels = state.channel == "PER_LINE"
+        UpdateTargetVisibility()
+        UpdatePreview(message)
+        return true
+    end
+    self.RebuildPreview = Rebuild
+
+    local function ImportCurrentChat(autoBuild)
         local context = GetCurrentChatImport()
         if not context then
             UpdatePreview(T("No active chat input was found."))
             return false
         end
-
         local importedChannel = false
         if IsComposerChannel(context.chatType) then
             local usable = context.chatType == "WHISPER" or IsChannelUsable(context.chatType)
-            if usable and channelValues[context.chatType] then
+            if usable and (channelValues[context.chatType] or context.chatType == "PER_LINE") then
                 state.channel = context.chatType
                 channelDrop:SetValue(state.channel)
                 importedChannel = true
                 if state.channel == "WHISPER" then
                     state.whisperTarget = Trim(context.tellTarget)
                     targetBox:SetText(state.whisperTarget)
+                    if profile.rememberWhisperTarget ~= false then profile.whisperTarget = state.whisperTarget end
                 end
             end
         end
-
         if type(context.text) == "string" and context.text ~= "" then
+            state.inputText = context.text
             input:SetText(context.text)
         end
         state.chunks = {}
         state.index = 1
+        state.lastSentIndex = 0
+        state.finalChunkSent = false
+        state.previewDirty = false
+        state.chunksUsePerLineChannels = false
         UpdateTargetVisibility()
-
-        if importedChannel then
-            UpdatePreview(T("Current chat draft and channel imported."))
+        if autoBuild and state.inputText ~= "" then
+            Rebuild(importedChannel and T("Current chat draft and channel imported.") or T("Current chat draft imported. The selected Composer channel was kept."))
         else
-            UpdatePreview(T("Current chat draft imported. The selected Composer channel was kept."))
+            UpdatePreview(importedChannel and T("Current chat draft and channel imported.") or T("Current chat draft imported. The selected Composer channel was kept."))
         end
         return true
     end
-
     self.ImportCurrentChat = ImportCurrentChat
-    importButton:SetCallback("OnClick", ImportCurrentChat)
+
+    local function AutoRebuildSettings()
+        if #state.chunks > 0 then
+            Rebuild(T("Preview rebuilt with the new settings."))
+        else
+            UpdatePreview()
+        end
+    end
 
     channelDrop:SetCallback("OnValueChanged", function(_, _, value)
         state.channel = value
         profile.defaultChannel = value
         UpdateTargetVisibility()
-        if #state.chunks > 0 then Rebuild() end
+        -- Normal channel changes affect the current chunk at send time, so no
+        -- rebuild is needed. Per Line routing is fixed when Split is pressed.
+        if value == "PER_LINE" and #state.chunks > 0 and not state.chunksUsePerLineChannels then
+            UpdatePreview(T("Press Split / Refresh Preview to apply Per Line routing."))
+        else
+            UpdatePreview()
+        end
     end)
 
     targetBox:SetCallback("OnTextChanged", function(_, _, value)
         state.whisperTarget = value or ""
+        if profile.rememberWhisperTarget ~= false then profile.whisperTarget = state.whisperTarget end
+        UpdatePreview()
     end)
 
     markerDrop:SetCallback("OnValueChanged", function(_, _, value)
@@ -721,29 +985,92 @@ function Composer:Open(options)
         markerDrop:SetValue(nil)
     end)
 
-    splitButton:SetCallback("OnClick", Rebuild)
+    limitSlider:SetCallback("OnValueChanged", function(_, _, value)
+        profile.chunkLimit = ClampLimit(value)
+        AutoRebuildSettings()
+    end)
+    counterCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.showCounter = value and true or false
+        AutoRebuildSettings()
+    end)
+    continuationDrop:SetCallback("OnValueChanged", function(_, _, value)
+        profile.continuation = value
+        AutoRebuildSettings()
+    end)
+    importDraftCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.importCurrentDraft = value and true or false
+    end)
+    rememberWhisperCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.rememberWhisperTarget = value and true or false
+        if value then profile.whisperTarget = state.whisperTarget or "" end
+    end)
+    spellcheckCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.spellcheckIntegration = value and true or false
+        if value then WireSpellcheck(input, profile) end
+    end)
+    autoPreviewCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.autoPreview = value and true or false
+    end)
+    autoAdvanceCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.autoAdvance = value and true or false
+    end)
+    finalLockCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.lockFinalChunk = value and true or false
+        UpdatePreview()
+    end)
+
+    input:SetCallback("OnTextChanged", function(_, _, value)
+        state.inputText = value or ""
+        if #state.chunks > 0 then
+            state.previewDirty = true
+            UpdatePreview()
+        end
+    end)
+
+    importButton:SetCallback("OnClick", function() ImportCurrentChat(profile.autoPreview ~= false) end)
+    splitButton:SetCallback("OnClick", function() Rebuild() end)
     clearButton:SetCallback("OnClick", function()
         input:SetText("")
-        targetBox:SetText("")
+        state.inputText = ""
         state.chunks = {}
         state.index = 1
+        state.lastSentIndex = 0
+        state.finalChunkSent = false
+        state.previewDirty = false
+        state.chunksUsePerLineChannels = false
+        -- Keep the whisper target, matching the previous long-message workflow.
         UpdatePreview(T("Composer cleared."))
+        input:SetFocus()
     end)
+    helpButton:SetCallback("OnClick", function() self:OpenHelp() end)
+    settingsButton:SetCallback("OnClick", function() self:OpenSettings() end)
+
     prevButton:SetCallback("OnClick", function()
         if state.index > 1 then state.index = state.index - 1 end
+        state.finalChunkSent = false
         UpdatePreview()
     end)
     nextButton:SetCallback("OnClick", function()
         if state.index < #state.chunks then state.index = state.index + 1 end
+        state.finalChunkSent = false
         UpdatePreview()
     end)
     sendButton:SetCallback("OnClick", function()
-        if #state.chunks == 0 then
-            Rebuild()
-            if #state.chunks == 0 then return end
+        if #state.chunks == 0 or state.previewDirty then
+            if not Rebuild() then return end
         end
         local chunk = state.chunks[state.index]
-        local ok, reason = SendChunk(chunk)
+        local chatType, target = EffectiveRouting(chunk)
+        if not chatType then
+            UpdatePreview(T("Press Split / Refresh Preview to apply Per Line routing."))
+            return
+        end
+        local outgoing = {
+            text = StripSpellcheckMarkup(chunk.text or ""),
+            channel = chatType,
+            target = target,
+        }
+        local ok, reason = SendChunk(outgoing)
         if not ok then
             local shown = reason
             if reason == "chat messaging lockdown" then
@@ -756,32 +1083,72 @@ function Composer:Open(options)
             UpdatePreview(shown)
             return
         end
-        if state.index < #state.chunks then
+
+        state.lastSentIndex = state.index
+        if state.index >= #state.chunks then
+            state.finalChunkSent = true
+            UpdatePreview(T("Final chunk sent."))
+        elseif profile.autoAdvance ~= false then
+            state.finalChunkSent = false
             state.index = state.index + 1
             UpdatePreview(T("Sent. Ready for the next chunk."))
         else
-            UpdatePreview(T("Final chunk sent."))
+            state.finalChunkSent = false
+            UpdatePreview(T("Chunk sent."))
         end
     end)
 
+    WireSpellcheck(input, profile)
     UpdateTargetVisibility()
-    if initialImport and type(initialImport.text) == "string" and initialImport.text ~= "" then
-        UpdatePreview(T("Current chat draft imported."))
+
+    if options.importCurrentChat and initialImport and state.inputText ~= "" and profile.autoPreview ~= false then
+        Rebuild(T("Current chat draft imported."))
+    elseif type(options.text) == "string" and options.text ~= "" and options.autoSplit ~= false and profile.autoPreview ~= false then
+        Rebuild()
+    elseif #state.chunks > 0 then
+        UpdatePreview()
     else
         UpdatePreview()
     end
     input:SetFocus()
+    return true
 end
 
 function Composer:HandleCommand(input)
     input = Trim(input)
-    local opened = self:Open({ importCurrentChat = input == "" })
-    if opened == false then
-        return
+    if input ~= "" then
+        self:Open({ text = input, autoSplit = true })
+    else
+        self:Open({ importCurrentChat = true })
     end
-    if input ~= "" and self.inputWidget and type(self.inputWidget.SetText) == "function" then
-        self.inputWidget:SetText(input)
-        self.inputWidget:SetFocus()
+end
+
+function Composer:OnSettingsChanged()
+    local profile = GetProfile()
+    local ui = self.ui
+    if not profile then return end
+    if profile.enabled ~= true and self.window and self.window.frame and self.window.frame.Hide then
+        self.window.frame:Hide()
+    end
+    if not ui then return end
+    if ui.limitSlider then ui.limitSlider:SetValue(ClampLimit(profile.chunkLimit)) end
+    if ui.counterCheck then ui.counterCheck:SetValue(profile.showCounter ~= false) end
+    if ui.continuationDrop then ui.continuationDrop:SetValue(profile.continuation or "BOTH") end
+    if ui.importDraftCheck then ui.importDraftCheck:SetValue(profile.importCurrentDraft ~= false) end
+    if ui.rememberWhisperCheck then ui.rememberWhisperCheck:SetValue(profile.rememberWhisperTarget ~= false) end
+    if ui.spellcheckCheck then ui.spellcheckCheck:SetValue(profile.spellcheckIntegration ~= false) end
+    if ui.autoPreviewCheck then ui.autoPreviewCheck:SetValue(profile.autoPreview ~= false) end
+    if ui.autoAdvanceCheck then ui.autoAdvanceCheck:SetValue(profile.autoAdvance ~= false) end
+    if ui.finalLockCheck then ui.finalLockCheck:SetValue(profile.lockFinalChunk ~= false) end
+    if self.sessionState and #self.sessionState.chunks == 0 and profile.defaultChannel then
+        self.sessionState.channel = profile.defaultChannel
+        if ui.channelDrop then ui.channelDrop:SetValue(profile.defaultChannel) end
+    end
+    if profile.spellcheckIntegration ~= false and self.inputWidget then WireSpellcheck(self.inputWidget, profile) end
+    if self.sessionState and #self.sessionState.chunks > 0 and type(self.RebuildPreview) == "function" then
+        self:RebuildPreview(T("Preview rebuilt with the new settings."))
+    elseif type(self.UpdateComposerUI) == "function" then
+        self:UpdateComposerUI()
     end
 end
 
@@ -793,6 +1160,11 @@ function Composer:OnEnable()
 
     self:RegisterChatCommand("chatcompose", "HandleCommand")
     self:RegisterChatCommand("chatcomposer", "HandleCommand")
+    self:RegisterChatCommand("chatlong", "HandleCommand")
+
+    for _, eventName in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "PLAYER_ENTERING_WORLD", "ADDON_LOADED" }) do
+        pcall(self.RegisterEvent, self, eventName, "RefreshRuntimeState")
+    end
     ns.OpenChatComposer = function(options)
         if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("composer") then
             return false
@@ -808,9 +1180,31 @@ function Composer:OnEnable()
         return false
     end
 
+    ns.NotifyComposerSettingsChanged = function()
+        local module = Chatify:GetModule("Composer", true)
+        if module and type(module.OnSettingsChanged) == "function" then
+            module:OnSettingsChanged()
+        end
+    end
+
     if type(ns.NotifyQuickChatSettingsChanged) == "function" then
         ns.NotifyQuickChatSettingsChanged()
     end
+end
+
+function Composer:OnDisable()
+    ns.OpenChatComposer = nil
+    ns.NotifyComposerSettingsChanged = nil
+    if self.window then
+        if AceGUI and type(AceGUI.Release) == "function" then AceGUI:Release(self.window) end
+        self.window = nil
+    end
+    if self.helpWindow then
+        if AceGUI and type(AceGUI.Release) == "function" then AceGUI:Release(self.helpWindow) end
+        self.helpWindow = nil
+    end
+    self.ui = nil
+    self.inputWidget = nil
 end
 
 ns.GetComposerChannelValues = function()
