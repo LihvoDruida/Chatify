@@ -2,17 +2,21 @@
 
 ## [2.13.0] - 2026-09-21
 
-### Long Messages / MultiPost
-- Add an optional Long Messages mode, disabled by default, with a dedicated large editor and configurable queue.
-- Split long text with UTF-8-safe byte boundaries and a conservative per-part limit instead of cutting multibyte characters.
-- Prefer sentence or word boundaries and keep WoW hyperlinks intact when choosing split points.
-- Add optional part numbering with configurable style and prefix/suffix placement.
-- Add Manual Enter mode: Chatify stages one part in the native Blizzard edit box and each physical Enter sends one part through the normal game path.
-- Continue the manual queue from the modern `ChatFrame.OnEditBoxPreSendText` notification with legacy send hooks as fallbacks.
-- Add optional Automatic Queue mode with a configurable delay; it never auto-sends to `CHANNEL`, only auto-sends `SAY`/`YELL` inside instances, and pauses when Blizzard blocks addon-driven chat.
-- Add destination selection for current chat, Say, Emote, Yell, Party, Raid, Raid Warning, Instance, Guild, Officer, Whisper and numbered/custom channels.
-- Add `/chatlong` and `/multipost` commands plus queue controls for status, pause, resume/next and cancel.
-- Keep the feature capability-gated across Retail, Forever and Classic clients and pause instead of attempting to bypass protected chat restrictions.
+### Long Message Composer
+- Add a dedicated long-message editor with manual one-chunk-at-a-time sending.
+- Split messages by WoW's byte limit without cutting UTF-8 characters in the middle.
+- Prefer word boundaries and reserve space for chunk counters and continuation markers before splitting.
+- Add per-line channel routing for `/s`, `/e`, `/y`, `/p`, `/raid`, `/rw`, `/i`, `/g`, `/o`, and `/w Name`.
+- Add raid target marker insertion for `{rt1}` through `{rt8}`.
+- Add chunk preview, previous/next navigation, byte usage, and safe runtime channel checks.
+- Add configurable chunk limit, counters, continuation markers, and default channel.
+- Add `/chatcompose` and `/chatcomposer` commands.
+
+### Chat API hardening
+- Add a shared modern-first outgoing chat wrapper used by the composer and auto-reply paths.
+- Re-check chat messaging lockdown immediately before every composer send.
+- Reject protected message/target values before calling the outgoing chat API.
+- Hide the composer settings and commands when no supported outgoing chat API exists.
 
 ## [2.12.1] - 2026-09-20
 

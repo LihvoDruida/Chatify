@@ -171,20 +171,20 @@ local function CanSendAddonChat()
 end
 
 local function SendChatMessageCompat(message, chatType, languageID, target)
-    -- 11.2+ moved SendChatMessage into C_ChatInfo. Prefer the namespaced API on
-    -- Retail/Forever while retaining the global for older Classic clients.
-    if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then
-        local ok = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
-        if ok then
-            return true
-        end
+    if type(ns.SendChatMessageCompat) == "function" then
+        local ok = ns.SendChatMessageCompat(message, chatType, languageID, target)
+        return ok and true or false
     end
 
+    -- Legacy fallback for partial loads where Config.lua did not finish.
+    if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then
+        local ok = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
+        if ok then return true end
+    end
     if type(SendChatMessage) == "function" then
         local ok = pcall(SendChatMessage, message, chatType, languageID, target)
         return ok
     end
-
     return false
 end
 

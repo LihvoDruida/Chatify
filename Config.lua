@@ -980,18 +980,13 @@ ns.defaults = {
         quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату
         quickChatSettingsButton = true, -- Кнопка налаштувань у лівому блоці біля активного чат-фрейму
 
-        -- === LONG MESSAGES / MULTIPOST ===
-        multiPostEnabled = false,
-        multiPostMaxBytes = 240,
-        multiPostSplitMode = "smart", -- smart, words, exact
-        multiPostPreserveParagraphs = true,
-        multiPostTrimWhitespace = true,
-        multiPostAddCounters = false,
-        multiPostCounterStyle = "brackets", -- brackets, plain, parentheses
-        multiPostCounterPosition = "prefix", -- prefix, suffix
-        multiPostAllowAuto = false,
-        multiPostAutoDelay = 0.8,
-        multiPostCloseWhenDone = false,
+        -- === LONG MESSAGE COMPOSER ===
+        composer = {
+            chunkLimit = 245,
+            showCounter = true,
+            continuation = "BOTH",
+            defaultChannel = "SAY",
+        },
 
         -- === COPY CHAT ===
         copyNativeSelection = true, -- Shift + Left Click enables Blizzard direct chat selection
@@ -2012,10 +2007,13 @@ function ns.GetFeatureSupport(feature)
             return FEATURE_UNAVAILABLE
         end
         return FEATURE_SUPPORTED
-    elseif feature == "multiPost" then
-        if type(CreateFrame) ~= "function" or not HasChatEditRoutingAPI() then
+    elseif feature == "composer" then
+        if not HasOutgoingChatAPI() or type(CreateFrame) ~= "function" then
             return FEATURE_UNAVAILABLE
         end
+        -- User-authored composer text is safe to inspect, but modern protected
+        -- clients can temporarily block addon-initiated sends. Keep the tool
+        -- available and warn rather than hiding it.
         return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
     elseif feature == "channels" then
         if type(GetChannelList) ~= "function" then
@@ -2051,8 +2049,8 @@ local FEATURE_WARNING_TEXT = {
     history = "Protected messages cannot be saved. Readable messages are stored normally.",
     copy = "Protected messages cannot be copied. Readable messages remain available.",
     autoReply = "Whisper and Battle.net auto replies are disabled while protected chat is active.",
+    composer = "WoW may temporarily block addon chat sends during protected activities. The composer stays available and sends only when the client allows it.",
     autoReplyGuild = "Guild auto replies pause while Blizzard blocks addon chat.",
-    multiPost = "Automatic Long Messages pauses when WoW protects outgoing chat. Manual Enter mode remains the safe fallback.",
     chatTabs = "This older WoW client uses compatibility mode. Some tab actions may be unavailable.",
 }
 
@@ -2221,6 +2219,45 @@ function ns.IsProtectedChatValue(value)
     return false
 end
 
+
+-- Central outgoing chat wrapper shared by composer and reply features.
+-- User-authored strings are validated before they reach Blizzard, and modern
+-- clients are checked for messaging lockdown immediately before the send.
+function ns.SendChatMessageCompat(message, chatType, languageID, target)
+    if type(message) ~= "string" or message == "" or type(chatType) ~= "string" or chatType == "" then
+        return false, "invalid message"
+    end
+    if ns.IsProtectedChatValue(message) then
+        return false, "protected message"
+    end
+    if target ~= nil then
+        if ns.IsProtectedChatValue(target) then
+            return false, "protected target"
+        end
+        if type(target) ~= "string" or target == "" then
+            return false, "invalid target"
+        end
+    end
+    if type(ns.CanSendAddonChat) == "function" and not ns.CanSendAddonChat() then
+        return false, "chat messaging lockdown"
+    end
+
+    if type(C_ChatInfo) == "table" and type(C_ChatInfo.SendChatMessage) == "function" then
+        local ok, err = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
+        if ok then return true end
+        if type(SendChatMessage) ~= "function" then
+            return false, err
+        end
+    end
+
+    if type(SendChatMessage) == "function" then
+        local ok, err = pcall(SendChatMessage, message, chatType, languageID, target)
+        if ok then return true end
+        return false, err
+    end
+
+    return false, "chat send API unavailable"
+end
 
 function ns.EnforceRetailSafeMode(db)
     if not db or not ns.IsRetailSecretValueBuild() then

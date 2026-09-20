@@ -2,7 +2,7 @@
 
 Audit date: **2026-09-20**
 
-Chatify 2.12.1 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.13.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -36,6 +36,7 @@ This double check is intentional: old SavedVariables can still contain `enabled 
 | Channels / channel labels | `GetChannelList` plus safe render-hook path for custom labels | hide if unavailable; orange warning on protected clients |
 | Chat sounds | `PlaySoundFile` | hide Sounds settings and do not enable module |
 | Quick chat buttons | modern/legacy OpenChat resolver plus a valid chat-edit ParseText path | hide entire Quick Buttons group |
+| Long Message Composer | outgoing chat API plus runtime channel/lockdown checks | hide if no send API; orange warning on protected clients |
 | Spam filters | message-event filter API | hide if absent; orange warning when protected chat restrictions are active |
 | Mentions | safe render path or message-event filters | hide if no viable path; orange warning on protected clients |
 | History | readable chat payloads only | orange warning on protected clients; protected/secret lines are skipped |
@@ -52,7 +53,7 @@ This double check is intentional: old SavedVariables can still contain `enabled 
 
 Chatify prefers current namespace APIs and keeps guarded compatibility fallbacks only where older branches need them:
 
-- outgoing chat: `C_ChatInfo.SendChatMessage` -> legacy `SendChatMessage` fallback;
+- outgoing chat: shared guarded wrapper using `C_ChatInfo.SendChatMessage` -> legacy `SendChatMessage` fallback;
 - Battle.net whisper: `C_BattleNet.SendWhisper` -> legacy `BNSendWhisper` fallback;
 - addon metadata/loading: `C_AddOns` first, legacy addon globals only as fallback;
 - friends: `C_FriendList` first, with indexed legacy friend lookup fallback;
@@ -92,13 +93,10 @@ Chatify keeps its own capability model and uses modern API patterns where they a
 
 Chatify does not use `WOW_PROJECT_MAINLINE` as the identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because game identity and UI/API capability are separate concerns.
 
-## Long Messages / MultiPost
+## Long Message Composer
 
-- Long Messages is a separate opt-in mode and is disabled by default.
-- Manual Enter mode stages only one part at a time in Blizzard's native chat edit box; the user's physical Enter performs the actual send. This preserves hardware-event requirements for `SAY`, `YELL`, and `CHANNEL`.
-- Automatic Queue uses `C_ChatInfo.SendChatMessage` when available, with the legacy global only as an older-client fallback.
-- `CHANNEL` is never sent automatically. `SAY` and `YELL` are only eligible for automatic sending while inside an instance.
-- Automatic sending stops when `C_ChatInfo.InChatMessagingLockdown()` reports a protected state. The queue is preserved for later resume.
-- Long-message splitting is byte-aware and UTF-8-safe, and it reserves space before adding optional part counters.
-- A single WoW hyperlink that cannot fit inside the configured part limit is rejected instead of being split into malformed markup.
+The composer operates on text entered by the player, not incoming protected chat payloads. It remains capability-gated because modern clients can temporarily block addon-initiated sends. Every send re-checks the messaging-lockdown state before calling Blizzard.
 
+Splitting is byte-aware because WoW chat limits are byte-based, but cuts are moved to valid UTF-8 boundaries so Ukrainian and other multibyte text is not corrupted. Chunk counters and continuation markers are included in the size calculation before a cut is chosen.
+
+Per-line routing is parsed before splitting. Each logical line keeps its own chat type and whisper target, and channel availability is checked again when the chunk is actually sent. The composer never automatically advances through a timed send queue; each chunk requires a player click.

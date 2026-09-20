@@ -34,8 +34,8 @@ ChatCopy.lua
 ChatRouter.lua
 ChatVisuals.lua
 ChatQuickButtons.lua
+ChatComposer.lua
 ChatFilters.lua
 ChatHistory.lua
 ChatSounds.lua
 ChatAutoReply.lua
-ChatMultiPost.lua
