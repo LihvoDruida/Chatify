@@ -980,6 +980,19 @@ ns.defaults = {
         quickChatButtonFontScale = 1.0, -- Масштаб літери на кнопках швидкого чату
         quickChatSettingsButton = true, -- Кнопка налаштувань у лівому блоці біля активного чат-фрейму
 
+        -- === LONG MESSAGES / MULTIPOST ===
+        multiPostEnabled = false,
+        multiPostMaxBytes = 240,
+        multiPostSplitMode = "smart", -- smart, words, exact
+        multiPostPreserveParagraphs = true,
+        multiPostTrimWhitespace = true,
+        multiPostAddCounters = false,
+        multiPostCounterStyle = "brackets", -- brackets, plain, parentheses
+        multiPostCounterPosition = "prefix", -- prefix, suffix
+        multiPostAllowAuto = false,
+        multiPostAutoDelay = 0.8,
+        multiPostCloseWhenDone = false,
+
         -- === COPY CHAT ===
         copyNativeSelection = true, -- Shift + Left Click enables Blizzard direct chat selection
         copyNativeUseVisibleFrames = false, -- Optional compatibility mode for custom chat layouts
@@ -1999,6 +2012,11 @@ function ns.GetFeatureSupport(feature)
             return FEATURE_UNAVAILABLE
         end
         return FEATURE_SUPPORTED
+    elseif feature == "multiPost" then
+        if type(CreateFrame) ~= "function" or not HasChatEditRoutingAPI() then
+            return FEATURE_UNAVAILABLE
+        end
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
     elseif feature == "channels" then
         if type(GetChannelList) ~= "function" then
             return FEATURE_UNAVAILABLE
@@ -2034,6 +2052,7 @@ local FEATURE_WARNING_TEXT = {
     copy = "Protected messages cannot be copied. Readable messages remain available.",
     autoReply = "Whisper and Battle.net auto replies are disabled while protected chat is active.",
     autoReplyGuild = "Guild auto replies pause while Blizzard blocks addon chat.",
+    multiPost = "Automatic Long Messages pauses when WoW protects outgoing chat. Manual Enter mode remains the safe fallback.",
     chatTabs = "This older WoW client uses compatibility mode. Some tab actions may be unavailable.",
 }
 

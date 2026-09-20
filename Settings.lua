@@ -2144,7 +2144,198 @@ function Chatify:GetOptions()
                 }
             },
 
-            -- TAB 5: SETUP / MAINTENANCE
+            -- TAB 6: LONG MESSAGES / MULTIPOST
+            tabMultiPost = {
+                name = T("Long Messages"),
+                type = "group",
+                order = 50,
+                hidden = function() return IsFeatureHidden("multiPost") end,
+                args = {
+                    groupMultiPostMain = {
+                        name = T("Long Messages Mode"),
+                        type = "group",
+                        inline = true,
+                        order = 1,
+                        args = {
+                            multiPostInfo = {
+                                order = 1,
+                                type = "description",
+                                name = function()
+                                    local base = T("Write a long block once. Chatify splits it into safe chat-sized parts. Manual Enter mode sends one part per Enter through Blizzard chat; Automatic mode is available only where WoW allows addon-driven sends.")
+                                    local warning = GetFeatureWarningDescription("multiPost")
+                                    if warning ~= "" then return base .. "\n\n" .. warning end
+                                    return base
+                                end,
+                                fontSize = "medium",
+                            },
+                            multiPostEnabled = {
+                                order = 2,
+                                name = T("Enable Long Messages Mode"),
+                                desc = T("Enables the separate Long Messages editor and queue. The feature stays completely inactive while this is off."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val)
+                                    self.db.profile.multiPostEnabled = val
+                                    if not val then
+                                        if type(ns.CancelMultiPost) == "function" then ns.CancelMultiPost() end
+                                        if type(ns.CloseMultiPostEditor) == "function" then ns.CloseMultiPostEditor() end
+                                    end
+                                end,
+                                get = function() return self.db.profile.multiPostEnabled end,
+                            },
+                            openMultiPost = {
+                                order = 3,
+                                name = T("Open Long Messages Editor"),
+                                desc = T("Open the large editor used to prepare Manual Enter or Automatic queues."),
+                                type = "execute",
+                                width = "full",
+                                disabled = function() return not self.db.profile.multiPostEnabled end,
+                                func = function()
+                                    if type(ns.OpenMultiPostEditor) == "function" then ns.OpenMultiPostEditor() end
+                                end,
+                            },
+                        },
+                    },
+
+                    groupMultiPostSplit = {
+                        name = T("Splitting"),
+                        type = "group",
+                        inline = true,
+                        order = 2,
+                        disabled = function() return not self.db.profile.multiPostEnabled end,
+                        args = {
+                            multiPostMaxBytes = {
+                                order = 1,
+                                name = T("Maximum Bytes per Part"),
+                                desc = T("Chatify uses a conservative byte limit so UTF-8 text and WoW links are not cut in the middle. 240 is recommended; WoW itself has a larger hard cap."),
+                                type = "range",
+                                min = 80, max = 250, step = 1,
+                                set = function(_, val) self.db.profile.multiPostMaxBytes = val end,
+                                get = function() return self.db.profile.multiPostMaxBytes or 240 end,
+                            },
+                            multiPostSplitMode = {
+                                order = 2,
+                                name = T("Split Mode"),
+                                desc = T("Smart prefers sentence endings, then spaces. Words uses spaces only. Exact uses the last safe UTF-8 boundary."),
+                                type = "select",
+                                values = function() return {
+                                    smart = T("Smart"),
+                                    words = T("Words"),
+                                    exact = T("Exact"),
+                                } end,
+                                sorting = function() return { "smart", "words", "exact" } end,
+                                set = function(_, val) self.db.profile.multiPostSplitMode = val end,
+                                get = function() return self.db.profile.multiPostSplitMode or "smart" end,
+                            },
+                            multiPostPreserveParagraphs = {
+                                order = 3,
+                                name = T("Keep Paragraphs Separate"),
+                                desc = T("Starts a new chat part for each non-empty paragraph instead of merging line breaks into spaces."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val) self.db.profile.multiPostPreserveParagraphs = val end,
+                                get = function() return self.db.profile.multiPostPreserveParagraphs ~= false end,
+                            },
+                            multiPostTrimWhitespace = {
+                                order = 4,
+                                name = T("Trim Extra Whitespace"),
+                                desc = T("Removes leading and trailing spaces around generated parts."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val) self.db.profile.multiPostTrimWhitespace = val end,
+                                get = function() return self.db.profile.multiPostTrimWhitespace ~= false end,
+                            },
+                        },
+                    },
+
+                    groupMultiPostCounters = {
+                        name = T("Part Numbers"),
+                        type = "group",
+                        inline = true,
+                        order = 3,
+                        disabled = function() return not self.db.profile.multiPostEnabled end,
+                        args = {
+                            multiPostAddCounters = {
+                                order = 1,
+                                name = T("Add Part Numbers"),
+                                desc = T("Adds a marker such as [1/4] so readers can follow a long post."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val) self.db.profile.multiPostAddCounters = val end,
+                                get = function() return self.db.profile.multiPostAddCounters == true end,
+                            },
+                            multiPostCounterStyle = {
+                                order = 2,
+                                name = T("Number Style"),
+                                type = "select",
+                                values = function() return {
+                                    brackets = "[1/4]",
+                                    plain = "1/4",
+                                    parentheses = "(1/4)",
+                                } end,
+                                sorting = function() return { "brackets", "plain", "parentheses" } end,
+                                disabled = function() return not self.db.profile.multiPostAddCounters end,
+                                set = function(_, val) self.db.profile.multiPostCounterStyle = val end,
+                                get = function() return self.db.profile.multiPostCounterStyle or "brackets" end,
+                            },
+                            multiPostCounterPosition = {
+                                order = 3,
+                                name = T("Number Position"),
+                                type = "select",
+                                values = function() return { prefix = T("Before text"), suffix = T("After text") } end,
+                                sorting = function() return { "prefix", "suffix" } end,
+                                disabled = function() return not self.db.profile.multiPostAddCounters end,
+                                set = function(_, val) self.db.profile.multiPostCounterPosition = val end,
+                                get = function() return self.db.profile.multiPostCounterPosition or "prefix" end,
+                            },
+                        },
+                    },
+
+                    groupMultiPostAuto = {
+                        name = T("Automatic Queue"),
+                        type = "group",
+                        inline = true,
+                        order = 4,
+                        disabled = function() return not self.db.profile.multiPostEnabled end,
+                        args = {
+                            multiPostAutoNote = {
+                                order = 1,
+                                type = "description",
+                                name = T("Automatic mode never sends to numbered/custom channels. Say and Yell are automatic only inside instances. If WoW activates chat restrictions, the queue pauses instead of attempting to bypass them."),
+                            },
+                            multiPostAllowAuto = {
+                                order = 2,
+                                name = T("Allow Automatic Queue"),
+                                desc = T("Allows Chatify to send queued parts automatically only for chat types permitted by the game. Manual Enter mode remains available regardless of this setting."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val) self.db.profile.multiPostAllowAuto = val end,
+                                get = function() return self.db.profile.multiPostAllowAuto == true end,
+                            },
+                            multiPostAutoDelay = {
+                                order = 3,
+                                name = T("Delay Between Parts"),
+                                desc = T("Seconds between automatic parts. Chatify sends sequentially and never posts all parts at the same time."),
+                                type = "range",
+                                min = 0.5, max = 5.0, step = 0.1,
+                                disabled = function() return not self.db.profile.multiPostAllowAuto end,
+                                set = function(_, val) self.db.profile.multiPostAutoDelay = val end,
+                                get = function() return self.db.profile.multiPostAutoDelay or 0.8 end,
+                            },
+                            multiPostCloseWhenDone = {
+                                order = 4,
+                                name = T("Close Editor When Finished"),
+                                type = "toggle",
+                                width = "full",
+                                set = function(_, val) self.db.profile.multiPostCloseWhenDone = val end,
+                                get = function() return self.db.profile.multiPostCloseWhenDone == true end,
+                            },
+                        },
+                    },
+                },
+            },
+
+            -- TAB 7: SETUP / MAINTENANCE
             tabSetup = {
                 name = T("Setup & Reset"),
                 type = "group",
@@ -2553,6 +2744,8 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
     self:RegisterChatCommand("chatifytrace", "PrintChatEntryTrace")
     self:RegisterChatCommand("chatifytaint", "PrintChatTaintReport")
+    self:RegisterChatCommand("chatlong", "MultiPostCommand")
+    self:RegisterChatCommand("multipost", "MultiPostCommand")
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after

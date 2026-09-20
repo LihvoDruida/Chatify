@@ -91,3 +91,14 @@ Chatify keeps its own capability model and uses modern API patterns where they a
 - Modern `ChatFrameUtil` helpers are preferred when Blizzard moved old `ChatFrame_*` globals.
 
 Chatify does not use `WOW_PROJECT_MAINLINE` as the identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because game identity and UI/API capability are separate concerns.
+
+## Long Messages / MultiPost
+
+- Long Messages is a separate opt-in mode and is disabled by default.
+- Manual Enter mode stages only one part at a time in Blizzard's native chat edit box; the user's physical Enter performs the actual send. This preserves hardware-event requirements for `SAY`, `YELL`, and `CHANNEL`.
+- Automatic Queue uses `C_ChatInfo.SendChatMessage` when available, with the legacy global only as an older-client fallback.
+- `CHANNEL` is never sent automatically. `SAY` and `YELL` are only eligible for automatic sending while inside an instance.
+- Automatic sending stops when `C_ChatInfo.InChatMessagingLockdown()` reports a protected state. The queue is preserved for later resume.
+- Long-message splitting is byte-aware and UTF-8-safe, and it reserves space before adding optional part counters.
+- A single WoW hyperlink that cannot fit inside the configured part limit is rejected instead of being split into malformed markup.
+

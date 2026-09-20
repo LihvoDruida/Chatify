@@ -1,5 +1,19 @@
 # Chatify Changelog
 
+## [2.13.0] - 2026-09-21
+
+### Long Messages / MultiPost
+- Add an optional Long Messages mode, disabled by default, with a dedicated large editor and configurable queue.
+- Split long text with UTF-8-safe byte boundaries and a conservative per-part limit instead of cutting multibyte characters.
+- Prefer sentence or word boundaries and keep WoW hyperlinks intact when choosing split points.
+- Add optional part numbering with configurable style and prefix/suffix placement.
+- Add Manual Enter mode: Chatify stages one part in the native Blizzard edit box and each physical Enter sends one part through the normal game path.
+- Continue the manual queue from the modern `ChatFrame.OnEditBoxPreSendText` notification with legacy send hooks as fallbacks.
+- Add optional Automatic Queue mode with a configurable delay; it never auto-sends to `CHANNEL`, only auto-sends `SAY`/`YELL` inside instances, and pauses when Blizzard blocks addon-driven chat.
+- Add destination selection for current chat, Say, Emote, Yell, Party, Raid, Raid Warning, Instance, Guild, Officer, Whisper and numbered/custom channels.
+- Add `/chatlong` and `/multipost` commands plus queue controls for status, pause, resume/next and cancel.
+- Keep the feature capability-gated across Retail, Forever and Classic clients and pause instead of attempting to bypass protected chat restrictions.
+
 ## [2.12.1] - 2026-09-20
 
 ### Forever hardening
