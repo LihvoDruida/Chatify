@@ -123,6 +123,38 @@ AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Legacy", ADDON_FONT_ROOT .. "Exo2.ttf", 
 local joinedChannelCache
 local joinedChannelById
 
+local function SafeChannelText(value)
+    if value == nil then
+        return nil
+    end
+
+    local issecretvalue = _G.issecretvalue
+    if type(issecretvalue) == "function" then
+        local ok, secret = pcall(issecretvalue, value)
+        if ok and secret then
+            return nil
+        end
+    end
+
+    local canaccessvalue = _G.canaccessvalue
+    if type(canaccessvalue) == "function" then
+        local ok, accessible = pcall(canaccessvalue, value)
+        if ok and accessible == false then
+            return nil
+        end
+    end
+
+    local valueType = type(value)
+    if valueType == "string" then
+        return value
+    end
+    if valueType == "number" then
+        return tostring(value)
+    end
+
+    return nil
+end
+
 function ns.NormalizeChannelName(name)
     if type(name) ~= "string" or name == "" then
         return nil
@@ -164,8 +196,8 @@ function ns.GetJoinedChannels()
         if ok and type(results) == "table" then
             for i = 1, #results, 3 do
                 local id = tonumber(results[i])
-                local name = results[i + 1]
-                if id and type(name) == "string" and name ~= "" then
+                local name = SafeChannelText(results[i + 1])
+                if id and name and name ~= "" then
                     local base = ns.NormalizeChannelName(name) or name
                     local entry = {
                         id = id,

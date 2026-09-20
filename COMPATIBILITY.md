@@ -2,7 +2,7 @@
 
 Audit date: **2026-09-20**
 
-Chatify 2.15.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.15.1 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -126,3 +126,7 @@ Successful sends can automatically advance to the next chunk. The final chunk ca
 
 If the optional Misspelled addon is present, Composer can attach it to the editor after Chatify finishes configuring the edit box. Any visual spell-check markup is removed before splitting or sending.
 
+
+## AceGUI shared-widget safety
+
+AceGUI widget registrations are global through LibStub. When several addons embed AceGUI, the active core and individual widgets can come from different addon folders depending on their registered revisions. Chatify therefore ships the current Label widget surface plus a protected-text guard as a newer Label revision. Values that are secret, inaccessible, or not valid FontString text are dropped before `FontString:SetText` is called. Chatify also sanitizes its own dynamic option names, descriptions, and joined-channel names before they reach AceConfig.

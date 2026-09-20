@@ -12,6 +12,7 @@ Locale.nativeNames = Locale.nativeNames or {
     enUS = "English",
     ukUA = "Українська",
 }
+Locale._localizedNameNodes = Locale._localizedNameNodes or setmetatable({}, { __mode = "k" })
 Locale._localizedDescNodes = Locale._localizedDescNodes or setmetatable({}, { __mode = "k" })
 Locale._localizedValuesNodes = Locale._localizedValuesNodes or setmetatable({}, { __mode = "k" })
 
@@ -159,6 +160,38 @@ function Locale:TranslateValueTable(values)
     return translated
 end
 
+local function SafeOptionText(value)
+    if value == nil then
+        return ""
+    end
+
+    local issecretvalue = _G.issecretvalue
+    if type(issecretvalue) == "function" then
+        local ok, secret = pcall(issecretvalue, value)
+        if ok and secret then
+            return ""
+        end
+    end
+
+    local canaccessvalue = _G.canaccessvalue
+    if type(canaccessvalue) == "function" then
+        local ok, accessible = pcall(canaccessvalue, value)
+        if ok and accessible == false then
+            return ""
+        end
+    end
+
+    local valueType = type(value)
+    if valueType == "string" then
+        return value
+    end
+    if valueType == "number" then
+        return tostring(value)
+    end
+
+    return ""
+end
+
 function Locale:LocalizeOptions(node, visited)
     if type(node) ~= "table" then return end
 
@@ -168,6 +201,16 @@ function Locale:LocalizeOptions(node, visited)
 
     if type(node.name) == "string" then
         node.name = self:Get(node.name)
+    elseif type(node.name) == "function" and not self._localizedNameNodes[node] then
+        local original = node.name
+        node.name = function(...)
+            local result = SafeOptionText(original(...))
+            if result ~= "" then
+                return Locale:Get(result)
+            end
+            return ""
+        end
+        self._localizedNameNodes[node] = true
     end
 
     if type(node.desc) == "string" then
@@ -175,11 +218,11 @@ function Locale:LocalizeOptions(node, visited)
     elseif type(node.desc) == "function" and not self._localizedDescNodes[node] then
         local original = node.desc
         node.desc = function(...)
-            local result = original(...)
-            if type(result) == "string" then
+            local result = SafeOptionText(original(...))
+            if result ~= "" then
                 return Locale:Get(result)
             end
-            return result
+            return ""
         end
         self._localizedDescNodes[node] = true
     end

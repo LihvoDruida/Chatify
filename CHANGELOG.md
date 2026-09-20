@@ -1,5 +1,16 @@
 # Chatify Changelog
 
+## 2.15.1 - 2026-09-21
+
+### AceGUI text safety
+
+- Update the bundled AceGUI Label widget surface to the current upstream Label revision and register Chatify's protected-text hardening as the next widget revision.
+- Prevent secret, inaccessible, table, function, boolean, and other invalid values from reaching `FontString:SetText` through shared AceGUI Label instances.
+- Keep the hardening effective when multiple addons embed AceGUI and LibStub selects widgets from different addon copies.
+- Guard joined channel names before normalization or use in the settings UI.
+- Sanitize dynamic Chatify AceConfig names and descriptions before they reach AceGUI.
+- Keep normal strings and numeric labels unchanged.
+
 ## 2.15.0 - 2026-09-21
 
 ### Composer queue automation
