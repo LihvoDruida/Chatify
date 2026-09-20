@@ -1568,23 +1568,29 @@ function Filters:HookCommunities()
 
     if CommunitiesChatLineMixin and CommunitiesChatLineMixin.SetMessage then
         local function callback(frame, messageInfo)
-            if not messageInfo or not messageInfo.text or not frame or not frame.Message then
+            if type(messageInfo) ~= "table" or not frame or not frame.Message then
                 return
             end
 
-            local sourceText = messageInfo.text
-            if IsSecretValue(sourceText) then
+            -- Follow the same rule Prat uses on modern chat data: check the value
+            -- before any string operation, comparison, or formatting.
+            local sourceText = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(messageInfo.text) or nil
+            if type(sourceText) ~= "string" then
                 return
             end
-            if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(sourceText) then
-                return
+
+            local author
+            if type(ns.TryMakeSafeText) == "function" then
+                author = ns.TryMakeSafeText(messageInfo.author)
+                if not author then author = ns.TryMakeSafeText(messageInfo.sender) end
+                if not author then author = ns.TryMakeSafeText(messageInfo.displayName) end
             end
 
             local formatter = ns.FormatMessage
-            local ok, formatted = pcall(formatter, sourceText, "CHAT_MSG_COMMUNITIES_CHANNEL", messageInfo.author or messageInfo.sender or messageInfo.displayName)
+            local ok, formatted = pcall(formatter, sourceText, "CHAT_MSG_COMMUNITIES_CHANNEL", author)
             local finalText = ok and formatted or sourceText
-            if finalText then
-                frame.Message:SetText(finalText)
+            if type(finalText) == "string" then
+                pcall(frame.Message.SetText, frame.Message, finalText)
             end
 
             if ns.db and ns.Lists and ns.Lists.Fonts then

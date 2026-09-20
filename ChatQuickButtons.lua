@@ -1478,8 +1478,10 @@ local function IsDetachedClassicSidebarLayout()
         end
     end
 
-    local project = _G.WOW_PROJECT_ID
-    return project ~= nil and _G.WOW_PROJECT_MAINLINE ~= nil and project ~= _G.WOW_PROJECT_MAINLINE
+    -- Config.lua always provides a client key before this module loads. If that
+    -- helper is unexpectedly unavailable, fail toward the neutral layout rather
+    -- than guessing from WOW_PROJECT_ID and misclassifying Forever as Classic.
+    return false
 end
 
 local function SafeFrameCenterX(frame)

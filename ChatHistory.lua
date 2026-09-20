@@ -4,7 +4,7 @@ local History = Chatify:NewModule("History", "AceEvent-3.0")
 local strlower = string.lower
 
 -- =========================================================
--- EVENT → TYPE MAP
+-- EVENT TO TYPE MAP
 -- =========================================================
 local eventTypeMap = {
     CHAT_MSG_CHANNEL = "CHANNEL",

@@ -74,3 +74,14 @@ Every generated TOC now begins directly with `## Interface`. A plain single-`#` 
 The package is statically validated for Lua syntax, TOC dependencies, version metadata, flavor isolation, feature gates and modern/legacy fallback ordering. Runtime guards are designed to fail closed.
 
 Static validation is not a substitute for launching every Blizzard client. Forever is beta, while Cataclysm 4.4.2 and Wrath 3.4.5 are legacy compatibility targets, so those paths should be considered runtime-probed rather than claimed as live-tested.
+
+## Prat-derived hardening
+
+Chatify keeps its own capability model, but adopts several proven Prat 3.0 patterns where they are safer than expansion-specific assumptions:
+
+- `ChatFrameUtil.GetOutMessageFormatKey()` is preferred for current Blizzard chat formatting, with legacy GlobalString fallback.
+- Joined-channel caches are invalidated after Communities add/remove operations and numbered-channel swaps, not only after channel events.
+- Secret values are rejected before string operations.
+- Modern `ChatFrameUtil` helpers are preferred when Blizzard moved old `ChatFrame_*` globals.
+
+Chatify does not copy Prat's `WOW_PROJECT_MAINLINE` identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because its game identity and its Mainline-style UI capability are separate concerns.

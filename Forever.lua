@@ -12,3 +12,12 @@ ns.Client.isForever = true
 ns.Client.flavor = "forever"
 ns.Client.tocFlavor = "camelot"
 ns.Client.addonName = addonName
+-- Capability hints for diagnostics and feature routing. These do not bypass
+-- runtime API probes; they describe the expected Forever architecture so a
+-- missing API can be treated as a beta regression instead of as Classic Era.
+ns.Client.interface = 16001
+ns.Client.usesMainlineUI = true
+ns.Client.usesModernChat = true
+ns.Client.usesSecretValues = true
+ns.Client.chatFrameUtilExpected = true
+

@@ -51,20 +51,17 @@ local function IsRetailSecretValueBuild()
         return ns.IsRetailSecretValueBuild()
     end
 
-    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
-        return false
+    -- Fallback only for an incomplete load. Ask the restriction API directly
+    -- instead of guessing from WOW_PROJECT_ID; Forever can identify as Mainline
+    -- while using its own Interface number.
+    if type(C_Secrets) == "table" and type(C_Secrets.HasSecretRestrictions) == "function" then
+        local ok, restricted = pcall(C_Secrets.HasSecretRestrictions)
+        if ok then
+            return restricted and true or false
+        end
     end
 
-    if type(issecretvalue) == "function" or type(canaccessvalue) == "function" then
-        return true
-    end
-
-    if type(GetBuildInfo) ~= "function" then
-        return true
-    end
-
-    local interfaceVersion = select(4, GetBuildInfo())
-    return type(interfaceVersion) == "number" and interfaceVersion >= 110000
+    return type(issecretvalue) == "function" or type(canaccessvalue) == "function"
 end
 
 local function DB()

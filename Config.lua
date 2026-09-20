@@ -286,6 +286,79 @@ function ns.InvalidateChannelListCache()
     joinedChannelById = nil
 end
 
+-- Prat-style channel state invalidation. Channel membership events cover most
+-- changes, but Blizzard can also change the effective channel map when a
+-- Communities stream is added/removed or numbered channels are swapped. Hook
+-- those API entry points once so cached ids/names cannot drift behind FrameXML.
+local channelStateHooksInstalled = false
+local channelStateHookedTargets = {}
+
+local function RefreshChannelStateCaches()
+    ns.InvalidateChannelListCache()
+    if type(ns.InvalidateChannelLabelCache) == "function" then
+        ns.InvalidateChannelLabelCache()
+    end
+    if type(ns.InvalidateChannelNoticeCache) == "function" then
+        ns.InvalidateChannelNoticeCache()
+    end
+
+    if type(ns.ScheduleUnique) == "function" then
+        ns.ScheduleUnique("channel-state-refresh", 0, function()
+            if type(ns.ApplyVisuals) == "function" then
+                ns.ApplyVisuals()
+            end
+            local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
+            if registry and type(registry.NotifyChange) == "function" then
+                pcall(registry.NotifyChange, registry, "Chatify")
+            end
+        end)
+    end
+end
+
+local function HookChannelStateFunction(owner, method)
+    local key = tostring(owner) .. ":" .. tostring(method)
+    if channelStateHookedTargets[key] then
+        return true
+    end
+
+    local ok = false
+    if type(owner) == "string" then
+        if type(_G[owner]) == "function" and type(hooksecurefunc) == "function" then
+            ok = pcall(hooksecurefunc, owner, RefreshChannelStateCaches)
+        end
+    elseif type(owner) == "table" and type(method) == "string" and type(owner[method]) == "function" and type(hooksecurefunc) == "function" then
+        ok = pcall(hooksecurefunc, owner, method, RefreshChannelStateCaches)
+    end
+
+    if ok then
+        channelStateHookedTargets[key] = true
+    end
+    return ok and true or false
+end
+
+function ns.InstallChannelStateHooks()
+    local installed = false
+
+    -- Old FrameXML globals first, then the modern ChatFrameUtil methods used by
+    -- Retail, Forever and current Classic branches.
+    installed = HookChannelStateFunction("ChatFrame_AddCommunitiesChannel") or installed
+    installed = HookChannelStateFunction("ChatFrame_RemoveCommunitiesChannel") or installed
+
+    local util = _G.ChatFrameUtil
+    if type(util) == "table" then
+        installed = HookChannelStateFunction(util, "AddCommunitiesChannel") or installed
+        installed = HookChannelStateFunction(util, "RemoveCommunitiesChannel") or installed
+    end
+
+    local chatInfo = _G.C_ChatInfo
+    if type(chatInfo) == "table" then
+        installed = HookChannelStateFunction(chatInfo, "SwapChatChannelsByChannelIndex") or installed
+    end
+
+    channelStateHooksInstalled = channelStateHooksInstalled or installed
+    return channelStateHooksInstalled
+end
+
 -- One-time move of labels that were keyed by number in 0.11.26. A number can only
 -- be resolved to a name while that channel is joined, so anything that cannot be
 -- matched is dropped rather than guessed at.
@@ -412,6 +485,33 @@ function ns.GetChannelLinkToken(entry)
     return entry.token
 end
 
+-- Resolve the format string the same way current Blizzard FrameXML and Prat do.
+-- ChatFrameUtil.GetOutMessageFormatKey is preferred because it tracks modern
+-- client changes (including Forever). CHAT_*_GET remains the fallback for older
+-- Classic branches and for chat types that do not expose the util helper.
+local CHAT_FORMAT_TYPE_ALIASES = {
+    INSTANCE = "INSTANCE_CHAT",
+    INSTANCE_LEADER = "INSTANCE_CHAT_LEADER",
+}
+
+function ns.GetChatOutputTemplate(templateName, chatType)
+    local util = _G.ChatFrameUtil
+    local resolvedType = CHAT_FORMAT_TYPE_ALIASES[chatType] or chatType
+    if type(util) == "table" and type(util.GetOutMessageFormatKey) == "function" and type(resolvedType) == "string" then
+        local ok, value = pcall(util.GetOutMessageFormatKey, resolvedType)
+        if ok and type(value) == "string" and value ~= "" then
+            return value
+        end
+    end
+
+    local legacy = templateName and _G[templateName]
+    if type(legacy) == "string" and legacy ~= "" then
+        return legacy
+    end
+
+    return nil
+end
+
 -- Splits a chat GlobalString template into the literal text around its player
 -- name placeholder.
 --
@@ -422,8 +522,8 @@ end
 -- a German client the suffix is whatever Blizzard ships, not a guess. Returns nil
 -- for anything that does not have exactly one placeholder, which is the signal to
 -- leave that chat type alone.
-function ns.SplitChatTemplate(templateName)
-    local template = templateName and _G[templateName]
+function ns.SplitChatTemplate(templateName, chatType)
+    local template = ns.GetChatOutputTemplate(templateName, chatType)
     if type(template) ~= "string" or template == "" then
         return nil
     end
@@ -1906,14 +2006,14 @@ function ns.IsFeatureRisky(feature)
 end
 
 local FEATURE_WARNING_TEXT = {
-    channels = "Protected chat client: custom channel labels can require a guarded chat-frame render hook. Chatify avoids unsafe writes and may skip label rewriting for protected lines or when the client cannot build the required guard.",
-    spamFilters = "Protected chat client: message filters can taint or lose access to protected chat payloads. Chatify defaults to the safest mode and only enables aggressive filtering when you explicitly choose it.",
-    mentions = "Protected chat client: mention highlighting uses the safest available render path. Protected lines may be skipped, and forcing maximum chat filters can cause errors or missing chat during restricted activity.",
-    history = "Protected chat client: Blizzard can make chat lines secret during restricted activity. Chatify stores only readable lines and silently skips protected payloads.",
-    copy = "Protected chat client: addons cannot export secret chat payloads. Chatify copies readable lines only; Blizzard direct text selection is preferred when the client supports it.",
-    autoReply = "Protected chat client: automatic whisper and Battle.net replies are hidden because those payloads can become secret. Guild mention replies remain available only when Blizzard allows outgoing chat.",
-    autoReplyGuild = "Guild auto-replies are paused whenever Blizzard enables chat messaging lockdown. No blocked send is attempted.",
-    chatTabs = "Legacy compatibility target: Blizzard no longer ships this client as a current live branch. Tab setup is guarded at runtime, but this path cannot be validated against a current live client.",
+    channels = "Some protected chat lines cannot be renamed. Chatify skips them safely.",
+    spamFilters = "Some protected messages cannot be filtered. Chatify uses the safer filter path automatically.",
+    mentions = "Protected messages may not be highlighted. Chatify skips them instead of forcing access.",
+    history = "Protected messages cannot be saved. Readable messages are stored normally.",
+    copy = "Protected messages cannot be copied. Readable messages remain available.",
+    autoReply = "Whisper and Battle.net auto replies are disabled while protected chat is active.",
+    autoReplyGuild = "Guild auto replies pause while Blizzard blocks addon chat.",
+    chatTabs = "This older WoW client uses compatibility mode. Some tab actions may be unavailable.",
 }
 
 function ns.GetFeatureWarningText(feature)
@@ -1926,10 +2026,10 @@ end
 function ns.GetClientCompatibilityNotice()
     local key = ns.GetProjectKey()
     if key == "forever" then
-        return "Forever uses the modern Mainline UI/API stack but is detected through its dedicated Camelot TOC. Beta API behavior can still change between builds."
+        return "Forever is supported as a separate client. Because it is beta, some chat APIs may change between builds."
     end
     if key == "wrath" or key == "cata" then
-        return "This is a legacy compatibility target. Unsupported controls are hidden and risky operations are guarded, but the branch is not a current live Blizzard client."
+        return "This older WoW client uses compatibility mode. Unsupported options are hidden automatically."
     end
     return nil
 end

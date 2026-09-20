@@ -386,7 +386,7 @@ local function GetFeatureWarningDescription(feature)
     if type(text) ~= "string" or text == "" then
         return ""
     end
-    return "|cff" .. MUTED_WARNING_COLOR .. "⚠ " .. T(text) .. "|r"
+    return "|cff" .. MUTED_WARNING_COLOR .. T("Warning:") .. " " .. T(text) .. "|r"
 end
 
 local function GetClientHeaderLine()
@@ -394,9 +394,9 @@ local function GetClientHeaderLine()
     local interfaceVersion = type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0
     local tier = type(ns.GetClientSupportTier) == "function" and ns.GetClientSupportTier() or "unknown"
     local notice = type(ns.GetClientCompatibilityNotice) == "function" and ns.GetClientCompatibilityNotice() or nil
-    local line = string.format(" |cff8f8f8f%s · Interface %s · %s|r", tostring(client), tostring(interfaceVersion), tostring(tier))
+    local line = string.format(" |cff8f8f8f%s - Interface %s - %s|r", tostring(client), tostring(interfaceVersion), tostring(tier))
     if type(notice) == "string" and notice ~= "" then
-        line = line .. "\n |cff" .. MUTED_WARNING_COLOR .. "⚠ " .. T(notice) .. "|r"
+        line = line .. "\n |cff" .. MUTED_WARNING_COLOR .. T("Warning:") .. " " .. T(notice) .. "|r"
     end
     return line
 end
@@ -417,7 +417,7 @@ function Chatify:GetOptions()
                 type = "description",
                 name = " |cff33ff99Chatify|r  |cff777777v" .. (GetAddonMetadataValue("Version") or "1.0") .. "|r\n" ..
                        " |cffffffff" .. T("Minimalist Chat Enhancer") .. "|r\n" ..
-                       " |cff999999" .. T("Tabs • Spam Filter • Sounds • History") .. "|r\n" ..
+                       " |cff999999" .. T("Tabs | Spam Filter | Sounds | History") .. "|r\n" ..
                        GetClientHeaderLine(),
                 fontSize = "large",
                 image = "Interface\\AddOns\\Chatify\\assets\\icon", 
@@ -472,7 +472,7 @@ function Chatify:GetOptions()
                                 groupSafetyNote = {
                                     order = 1,
                                     type = "description",
-                                    name = T("How much Chatify is allowed to touch chat text when this client reports active secret-value restrictions. Current Retail, Forever and modern Classic branches can expose this API independently of expansion identity."),
+                                    name = T("Chatify automatically limits features when WoW protects chat messages."),
                                 },
                             retailSafeStatus = {
                                 order = 2,
@@ -483,7 +483,7 @@ function Chatify:GetOptions()
                             retailWhisperSafeMode = {
                                 order = 3,
                                 name = T("Never modify protected whispers"),
-                                desc = T("Leave whisper and Battle.net whisper lines completely untouched on clients with active secret-value restrictions. Chatify already bypasses protected payloads during restricted chat states; enable this only if you still see blank or duplicated whisper tabs."),
+                                desc = T("Leave Whisper and Battle.net messages unchanged. Use this if whisper tabs appear blank or duplicated."),
                                 type = "toggle",
                                 width = "full",
                                 hidden = function()
@@ -498,14 +498,14 @@ function Chatify:GetOptions()
                             retailChatFilterMode = {
                                 order = 4,
                                 name = T("Chat filters on protected clients"),
-                                desc = T("Controls how far Chatify goes when the current client protects chat payloads with secret values. This covers message-event filters only. Safest avoids attaching filters; Balanced uses them only outside the risk window; Maximum leaves them enabled everywhere and may cause errors or missing chat. Requires /reload."),
+                                desc = T("Choose how cautious Chatify should be with protected chat. Safest disables message filters. Balanced pauses them in instances. Maximum keeps them on everywhere. Requires /reload."),
                                 type = "select",
                                 width = "full",
                                 values = function()
                                     return {
-                                        full = T("Maximum features (can break chat in encounters)"),
-                                        lockdown = T("Balanced - pause while inside instances"),
-                                        off = T("Safest - never filter, use the game's timestamps (recommended)"),
+                                        full = T("Maximum - keep filters on"),
+                                        lockdown = T("Balanced - pause filters in instances"),
+                                        off = T("Safest - disable filters (recommended)"),
                                     }
                                 end,
                                 sorting = function() return { "full", "lockdown", "off" } end,
@@ -616,7 +616,7 @@ function Chatify:GetOptions()
                             enableTimestamps = {
                                 order = 1,
                                 name = T("Show Timestamps"),
-                                desc = T("Adds the time in front of each chat line.\n\nOn Midnight (12.0+) with filtering set to Safest this is handed to the game's own timestamp setting, so only the formats the game supports will take effect."),
+                                desc = T("Adds the time to each chat line. On protected clients, Chatify uses Blizzard timestamps when needed."),
                                 type = "toggle",
                                 width = "full",
                                 set = function(info, val)
@@ -632,7 +632,7 @@ function Chatify:GetOptions()
                             timestampColor = {
                                 order = 2,
                                 name = T("Timestamp Colour"),
-                                desc = T("Six hex digits, for example 68ccef.\n\nOnly applies while Chatify draws the timestamps itself. Where the game's own timestamps are used, the game controls the colour."),
+                                desc = T("Six hex digits, for example 68ccef. Used when Chatify draws timestamps; Blizzard controls native timestamp colour."),
                                 type = "input",
                                 width = "half",
                                 disabled = function() return not self.db.profile.enableTimestamps end,
@@ -676,7 +676,7 @@ function Chatify:GetOptions()
                             timestampPost = {
                                 order = 5,
                                 name = T("Show at End"),
-                                desc = T("Place timestamp at the end of the message.\n\n|cff999999Retail 12.x: applied only where Blizzard allows safe formatting.|r"),
+                                desc = T("Place the timestamp at the end. Protected clients may keep Blizzard's default placement."),
                                 type = "toggle",
                                 set = function(info, val) self.db.profile.timestampPost = val end,
                                 get = function(info) return self.db.profile.timestampPost end,
@@ -693,7 +693,7 @@ function Chatify:GetOptions()
                                 groupWindowNote = {
                                     order = 1,
                                     type = "description",
-                                    name = T("These use only the chat window's own API, so they keep working on Midnight (12.0+) even when message filtering is switched off."),
+                                    name = T("These options work directly with the chat window and remain available when message filters are disabled."),
                                 },
                             scrollbackLines = {
                                 order = 2,
@@ -1458,7 +1458,7 @@ function Chatify:GetOptions()
                                         hideSystemSpam = {
                                             order = 3,
                                             name = T("Hide Join/Leave Messages"),
-                                            desc = T("Hides yellow system messages when players join or leave channels.\n\n|cff999999Retail 12.x: handled through the secure message filter path.|r"),
+                                            desc = T("Hides yellow system messages when players join or leave channels. Chatify chooses the safe filter path automatically."),
                                             type = "toggle",
                                             set = function(info, val) self.db.profile.hideSystemSpam = val end,
                                             get = function(info) return self.db.profile.hideSystemSpam end,
@@ -1667,7 +1667,7 @@ function Chatify:GetOptions()
                                 enableHistory = {
                                     order = 1,
                                     name = T("Enable History"),
-                                    desc = T("Saves messages for the Chatify History window only. History is never replayed into the live chat frame.\n\n|cff999999On protected clients, only readable messages captured through the safe event path are stored.|r"),
+                                    desc = T("Saves messages for Chatify History only. Messages are not replayed into live chat. Protected messages that WoW does not expose are skipped."),
                                     type = "toggle",
                                     set = function(info, val) self.db.profile.enableHistory = val end,
                                     get = function(info) return self.db.profile.enableHistory end,

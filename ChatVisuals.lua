@@ -552,7 +552,7 @@ local function BuildChannelLabelMap(db)
 
         if replacement ~= nil then
             if entry.kind == "template" then
-                local prefix, suffix = ns.SplitChatTemplate(entry.template)
+                local prefix, suffix = ns.SplitChatTemplate(entry.template, entry.token)
                 if prefix then
                     -- Anchored, with the name captured non-greedily so it stops at
                     -- the first occurrence of the suffix. The trailing () yields
@@ -587,7 +587,7 @@ local function BuildChannelLabelMap(db)
                 -- link rewrite runs first and this original-prefix rule no longer
                 -- matches, so there is no double rewrite.
                 if entry.templateFallback and entry.template then
-                    local prefix, suffix = ns.SplitChatTemplate(entry.template)
+                    local prefix, suffix = ns.SplitChatTemplate(entry.template, entry.token)
                     if prefix then
                         map.templates[#map.templates + 1] = {
                             label = replacement,
@@ -1429,6 +1429,10 @@ end
 -- 5. MODULE LIFECYCLE
 -- =========================================================
 function VisualsModule:OnEnable()
+    if type(ns.InstallChannelStateHooks) == "function" then
+        ns.InstallChannelStateHooks()
+    end
+
     if Chatify and Chatify.db and Chatify.db.profile then
         ns.EnforceRetailSafeMode(Chatify.db.profile)
     end
@@ -1507,6 +1511,9 @@ function VisualsModule:OnEnable()
 end
 
 function VisualsModule:ChannelListChanged()
+    if type(ns.InstallChannelStateHooks) == "function" then
+        ns.InstallChannelStateHooks()
+    end
     ns.InvalidateChannelListCache()
     ns.InvalidateChannelLabelCache()
 
