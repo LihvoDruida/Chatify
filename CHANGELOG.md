@@ -1,3 +1,11 @@
+## [2.11.1] - 2026-09-20
+
+### 🐛 Bug Fixes
+
+- Fix Raid Warning short/custom/hidden channel labels on Retail/Midnight when Blizzard renders `CHAT_RAID_WARNING_GET` without a `|Hchannel:...|h` hyperlink.
+- Keep the existing hyperlink rewrite for clients that expose Raid Warning as a channel link and add a locale-safe GlobalString template fallback only for the Raid Warning path.
+- Preserve per-client behavior without writing to Blizzard `CHAT_*_GET` globals or bypassing protected-chat guards.
+
 ## [2.11] - 2026-09-18
 
 ### 🧭 Per-client capability model

@@ -350,7 +350,10 @@ ns.Lists.ChannelLabels = {
     { token = "PARTY_LEADER",    kind = "link", short = "PL",  name = "Party Leader",    global = "PARTY_LEADER",          template = "CHAT_PARTY_LEADER_GET" },
     { token = "RAID",            kind = "link", short = "R",   name = "Raid",            global = "RAID",                  template = "CHAT_RAID_GET" },
     { token = "RAID_LEADER",     kind = "link", short = "RL",  name = "Raid Leader",     global = "RAID_LEADER",           template = "CHAT_RAID_LEADER_GET" },
-    { token = "RAID_WARNING",    kind = "link", short = "RW",  name = "Raid Warning",    global = "RAID_WARNING",          template = "CHAT_RAID_WARNING_GET" },
+    -- Retail/Midnight may render Raid Warning through CHAT_RAID_WARNING_GET
+    -- without a channel hyperlink. Keep link handling for clients that provide
+    -- one, but also register a locale-safe template fallback.
+    { token = "RAID_WARNING",    kind = "link", short = "RW",  name = "Raid Warning",    global = "RAID_WARNING",          template = "CHAT_RAID_WARNING_GET", templateFallback = true },
     { token = "INSTANCE",        kind = "link", short = "I",   name = "Instance",        global = "INSTANCE_CHAT",         template = "CHAT_INSTANCE_CHAT_GET" },
     { token = "INSTANCE_LEADER", kind = "link", short = "IL",  name = "Instance Leader", global = "INSTANCE_CHAT_LEADER",  template = "CHAT_INSTANCE_CHAT_LEADER_GET" },
 

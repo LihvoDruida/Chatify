@@ -578,6 +578,25 @@ local function BuildChannelLabelMap(db)
                 if token and map.byToken[token] == nil then
                     map.byToken[token] = replacement
                 end
+
+                -- Some clients (notably Retail/Midnight Raid Warning) format a
+                -- built-in chat type through CHAT_*_GET without embedding a
+                -- |Hchannel:...|h link in the rendered line. For entries marked
+                -- with templateFallback, derive a second rule from Blizzard's
+                -- localized GlobalString. If the client does provide a link, the
+                -- link rewrite runs first and this original-prefix rule no longer
+                -- matches, so there is no double rewrite.
+                if entry.templateFallback and entry.template then
+                    local prefix, suffix = ns.SplitChatTemplate(entry.template)
+                    if prefix then
+                        map.templates[#map.templates + 1] = {
+                            label = replacement,
+                            pattern = "^" .. EscapeChatPattern(prefix)
+                                .. "(.-)" .. EscapeChatPattern(suffix) .. "()",
+                        }
+                    end
+                end
+
                 map.active = true
             end
         end
