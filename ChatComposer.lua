@@ -88,6 +88,11 @@ local function GetProfile()
     return c
 end
 
+local function IsComposerEnabled()
+    local profile = GetProfile()
+    return profile and profile.enabled == true or false
+end
+
 local function SafeBoolCall(fn, ...)
     if type(fn) ~= "function" then return false end
     local ok, value = pcall(fn, ...)
@@ -447,6 +452,11 @@ function Composer:BuildChunks(text, channel, whisperTarget)
 end
 
 function Composer:Open()
+    if not IsComposerEnabled() then
+        self:Print(T("Long Message Mode is disabled. Enable it in Chatify settings."))
+        return false
+    end
+
     if not AceGUI then
         self:Print(T("The message composer UI is not available on this client."))
         return
@@ -678,7 +688,10 @@ end
 
 function Composer:HandleCommand(input)
     input = Trim(input)
-    self:Open()
+    local opened = self:Open()
+    if opened == false then
+        return
+    end
     if input ~= "" and self.inputWidget and type(self.inputWidget.SetText) == "function" then
         self.inputWidget:SetText(input)
         self.inputWidget:SetFocus()
@@ -697,12 +710,19 @@ function Composer:OnEnable()
         if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("composer") then
             return false
         end
+        if not IsComposerEnabled() then
+            return false
+        end
         local module = Chatify:GetModule("Composer", true)
         if module and type(module.Open) == "function" then
             module:Open()
             return true
         end
         return false
+    end
+
+    if type(ns.NotifyQuickChatSettingsChanged) == "function" then
+        ns.NotifyQuickChatSettingsChanged()
     end
 end
 

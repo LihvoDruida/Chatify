@@ -12,6 +12,7 @@ local settingsContainer
 local settingsButton
 local copyButton
 local historyButton
+local composerButton
 local socialButton
 local socialButtonHooked = false
 local buttons = {}
@@ -65,6 +66,7 @@ local MIN_STABLE_CHAT_FRAME_HEIGHT = 80
 local SETTINGS_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\SettingsCog.png"
 local COPY_CHAT_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\CopyChat.png"
 local HISTORY_CHAT_ICON = "Interface\\AddOns\\Chatify\\assets\\icons\\HistoryChat.png"
+local COMPOSER_SECTION_GAP = 4
 
 
 local function GetColorComponents(color, fallback)
@@ -1072,11 +1074,29 @@ end
 
 local BUTTON_DEFS
 
+local function IsComposerQuickButtonEnabled()
+    local db = GetDB()
+    if not db or db.quickChatButtons == false then
+        return false
+    end
+    local composer = type(db.composer) == "table" and db.composer or nil
+    if not composer or composer.enabled ~= true then
+        return false
+    end
+    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("composer") then
+        return false
+    end
+    return true
+end
+
 local function GetOrderedButtons()
     local ordered = {}
     local db = GetDB() or {}
 
     if db.quickChatButtons ~= false then
+        if composerButton and IsComposerQuickButtonEnabled() then
+            table.insert(ordered, composerButton)
+        end
         for _, def in ipairs(BUTTON_DEFS) do
             local button = buttons[def.key]
             if button then
@@ -1596,6 +1616,7 @@ local function GetLayoutSignature()
     local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
     local showQuickButtons = db.quickChatButtons ~= false
     local showSettingsButton = ShouldShowSettingsButton()
+    local showComposerButton = IsComposerQuickButtonEnabled()
     local sidebarFrame, sidebarHostFrame = GetMainSidebarButtonFrame()
     local sidebarMode = IsDetachedClassicSidebarLayout() and "classic-detached" or "native-stack"
     local sidebarSide = sidebarFrame and GetClassicSidebarSide(sidebarFrame, sidebarHostFrame) or "none"
@@ -1622,6 +1643,7 @@ local function GetLayoutSignature()
         tostring(panelAlpha),
         tostring(showQuickButtons),
         tostring(showSettingsButton),
+        tostring(showComposerButton),
     }, "|")
 end
 
@@ -1775,6 +1797,21 @@ UpdateButtonState = function()
 
             RefreshButtonLook(button)
         end
+    end
+
+    if composerButton then
+        local enabled = IsComposerQuickButtonEnabled()
+        composerButton:SetEnabled(true)
+        if composerButton.EnableMouse then
+            composerButton:EnableMouse(enabled)
+        end
+        composerButton.__chatifyDisabled = not enabled
+        composerButton.__chatifySelected = false
+        if composerButton.Label then
+            composerButton.Label:SetText("LM")
+            composerButton.Label:SetAlpha(enabled and 1 or 0.88)
+        end
+        RefreshButtonLook(composerButton)
     end
 
     if settingsButton then
@@ -2690,16 +2727,17 @@ local function LayoutButtons()
 
     local chatHeight = math.max(MIN_STABLE_CHAT_FRAME_HEIGHT, visualHeight, math.floor((frame.GetHeight and frame:GetHeight()) or MIN_STABLE_CHAT_FRAME_HEIGHT))
     local fitHeight = math.max(chatHeight, math.floor(chatHeight * 1.35))
-    local desiredTotalHeight = (buttonHeight * buttonCount) + (spacing * (buttonCount - 1))
+    local sectionGap = (composerButton and orderedButtons[1] == composerButton and buttonCount > 1) and COMPOSER_SECTION_GAP or 0
+    local desiredTotalHeight = (buttonHeight * buttonCount) + (spacing * (buttonCount - 1)) + sectionGap
 
     if desiredTotalHeight > fitHeight then
-        local maxButtonHeight = math.floor((fitHeight - ((buttonCount - 1) * spacing) - (outerPadding * 2)) / buttonCount)
+        local maxButtonHeight = math.floor((fitHeight - ((buttonCount - 1) * spacing) - sectionGap - (outerPadding * 2)) / buttonCount)
         if maxButtonHeight < 18 then
             maxButtonHeight = 18
         end
         buttonHeight = math.max(18, math.min(buttonHeight, maxButtonHeight))
         buttonWidth = math.max(16, math.floor((buttonHeight / math.max(ratio, 0.1)) + 0.5))
-        desiredTotalHeight = (buttonHeight * buttonCount) + (spacing * (buttonCount - 1))
+        desiredTotalHeight = (buttonHeight * buttonCount) + (spacing * (buttonCount - 1)) + sectionGap
     end
 
     local totalHeight = desiredTotalHeight
@@ -2751,7 +2789,11 @@ local function LayoutButtons()
         end
 
         if previous then
-            button:SetPoint("BOTTOM", previous, "TOP", 0, spacing)
+            local gap = spacing
+            if previous == composerButton then
+                gap = gap + COMPOSER_SECTION_GAP
+            end
+            button:SetPoint("BOTTOM", previous, "TOP", 0, gap)
         else
             button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
         end
@@ -2970,6 +3012,73 @@ local function EnsureContainer()
 
         buttons[def.key] = button
     end
+
+    composerButton = CreateFrame("Button", "ChatifyQuickChatButtonComposer", container, backdropTemplate)
+    composerButton:RegisterForClicks("LeftButtonUp")
+    composerButton:SetHitRectInsets(0, 0, 0, 0)
+
+    local composerHighlight = composerButton:CreateTexture(nil, "HIGHLIGHT")
+    composerHighlight:SetTexture("Interface\\Buttons\\WHITE8x8")
+    composerHighlight:SetBlendMode("ADD")
+    composerHighlight:SetVertexColor(1.0, 0.85, 0.25, 0.00)
+    composerHighlight:SetAllPoints(composerButton)
+    composerButton.Highlight = composerHighlight
+
+    local composerLabel = composerButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    composerLabel:SetJustifyH("CENTER")
+    composerLabel:SetJustifyV("MIDDLE")
+    composerLabel:SetPoint("CENTER", composerButton, "CENTER", 0, 0)
+    composerLabel:SetText("LM")
+    composerButton.Label = composerLabel
+
+    composerButton:SetScript("OnClick", function(self)
+        if self.__chatifyDisabled then
+            return
+        end
+        if type(ns.OpenChatComposer) == "function" then
+            ns.OpenChatComposer()
+        end
+    end)
+
+    composerButton:SetScript("OnEnter", function(self)
+        RefreshButtonLook(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(T("Long Message Composer"), 1.00, 0.82, 0.18, true)
+            AddTooltipLine(T("Left Click"), T("Open the long-message editor"), 0.95, 0.95, 0.95)
+            AddTooltipLine(T("Position"), T("Below the quick chat channel buttons"), 0.72, 0.72, 0.72)
+            GameTooltip:Show()
+        end
+    end)
+
+    composerButton:SetScript("OnLeave", function(self)
+        self.__chatifyPressed = false
+        RefreshButtonLook(self)
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+
+    composerButton:SetScript("OnMouseDown", function(self)
+        self.__chatifyPressed = true
+        if self.Label then
+            self.Label:ClearAllPoints()
+            self.Label:SetPoint("CENTER", self, "CENTER", 1, -1)
+        end
+        RefreshButtonLook(self)
+    end)
+
+    composerButton:SetScript("OnMouseUp", function(self)
+        self.__chatifyPressed = false
+        if self.Label then
+            self.Label:ClearAllPoints()
+            self.Label:SetPoint("CENTER", self, "CENTER", 0, 0)
+        end
+        RefreshButtonLook(self)
+    end)
+
+    buttons.COMPOSER = composerButton
 
     settingsContainer = CreateFrame("Frame", "ChatifyChatMenuSettingsContainer", GetAnchorParent(), backdropTemplate)
     settingsContainer:SetFrameStrata("MEDIUM")

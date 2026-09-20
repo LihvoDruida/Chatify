@@ -1342,11 +1342,32 @@ function Chatify:GetOptions()
                                 type = "description",
                                 name = T("Write long messages, split them safely at UTF-8 boundaries, preview every chunk, and send them manually one at a time. Per Line mode supports separate channels on each line."),
                             },
-                            openComposer = {
+                            composerEnabled = {
                                 order = 2,
+                                type = "toggle",
+                                name = T("Enable Long Message Mode"),
+                                desc = T("Enable the long-message editor and show an LM button below the quick chat channel buttons."),
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled == true
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.enabled = value and true or false
+                                    if type(ns.NotifyQuickChatSettingsChanged) == "function" then
+                                        ns.NotifyQuickChatSettingsChanged()
+                                    end
+                                end,
+                            },
+                            openComposer = {
+                                order = 3,
                                 type = "execute",
                                 name = T("Open Message Composer"),
                                 desc = T("Open the long-message editor and chunk preview window."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
                                 func = function()
                                     if type(ns.OpenChatComposer) == "function" then
                                         ns.OpenChatComposer()
@@ -1354,16 +1375,20 @@ function Chatify:GetOptions()
                                 end,
                             },
                             commandHint = {
-                                order = 3,
+                                order = 4,
                                 type = "description",
                                 name = T("Commands: /chatcompose or /chatcomposer"),
                             },
                             chunkLimit = {
-                                order = 4,
+                                order = 5,
                                 type = "range",
                                 name = T("Chunk Byte Limit"),
                                 desc = T("Maximum bytes per outgoing chunk. 245 leaves room below WoW's hard chat limit and is recommended."),
                                 min = 80, max = 255, step = 1,
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
                                 get = function()
                                     local c = self.db.profile.composer or {}
                                     return tonumber(c.chunkLimit) or 245
@@ -1374,10 +1399,14 @@ function Chatify:GetOptions()
                                 end,
                             },
                             showCounter = {
-                                order = 5,
+                                order = 6,
                                 type = "toggle",
                                 name = T("Show Chunk Counter"),
                                 desc = T("Add a counter such as (1/3) to messages that are split into multiple chunks."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
                                 get = function()
                                     local c = self.db.profile.composer or {}
                                     return c.showCounter ~= false
@@ -1388,10 +1417,14 @@ function Chatify:GetOptions()
                                 end,
                             },
                             continuation = {
-                                order = 6,
+                                order = 7,
                                 type = "select",
                                 name = T("Continuation Markers"),
                                 desc = T("Choose where >> markers are added when one logical line needs more than one chunk."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
                                 values = function()
                                     return type(ns.GetComposerContinuationValues) == "function" and ns.GetComposerContinuationValues() or { BOTH = T("Both"), START = T("Start Only"), END = T("End Only"), NONE = T("None") }
                                 end,
@@ -1406,10 +1439,14 @@ function Chatify:GetOptions()
                                 end,
                             },
                             defaultChannel = {
-                                order = 7,
+                                order = 8,
                                 type = "select",
                                 name = T("Default Channel"),
                                 desc = T("Channel selected when the composer window opens."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
                                 values = function()
                                     return type(ns.GetComposerChannelValues) == "function" and ns.GetComposerChannelValues() or { SAY = T("Say") }
                                 end,
@@ -1423,7 +1460,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             perLineHelp = {
-                                order = 8,
+                                order = 9,
                                 type = "description",
                                 name = T("Per Line prefixes: /s, /e, /y, /p, /raid, /rw, /i, /g, /o, /w Name. Raid target markers {rt1} through {rt8} can be inserted from the composer."),
                             },

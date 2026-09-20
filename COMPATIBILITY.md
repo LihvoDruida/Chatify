@@ -100,3 +100,7 @@ The composer operates on text entered by the player, not incoming protected chat
 Splitting is byte-aware because WoW chat limits are byte-based, but cuts are moved to valid UTF-8 boundaries so Ukrainian and other multibyte text is not corrupted. Chunk counters and continuation markers are included in the size calculation before a cut is chosen.
 
 Per-line routing is parsed before splitting. Each logical line keeps its own chat type and whisper target, and channel availability is checked again when the chunk is actually sent. The composer never automatically advances through a timed send queue; each chunk requires a player click.
+
+## Long Message quick access
+
+Long Message Mode is opt-in. When enabled and Quick Chat Buttons are available, Chatify adds an `LM` button below the channel button stack. The button only opens the existing composer; outgoing sends still pass through the same per-client capability, protected-value, and messaging-lockdown checks as the composer itself.

@@ -1,5 +1,13 @@
 # Chatify Changelog
 
+## 2.13.1
+
+- Added an opt-in Long Message Mode toggle.
+- Added an `LM` quick-access button below the Guild/Raid/Party/Instance/Say button stack when Long Message Mode is enabled.
+- The new button uses the active quick-button theme and opens the Long Message Composer directly.
+- Long Message Mode can be toggled at runtime without `/reload`; the quick-button layout refreshes immediately.
+- Composer settings and direct opening are disabled while the mode is off, while the settings tab remains available so it can be enabled again.
+
 ## [2.13.0] - 2026-09-21
 
 ### Long Message Composer
