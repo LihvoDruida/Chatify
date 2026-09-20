@@ -1,8 +1,8 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-09-18**
+Audit date: **2026-09-20**
 
-Chatify 2.11 no longer treats WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.12.1 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -63,7 +63,13 @@ Chatify prefers current namespace APIs and keeps guarded compatibility fallbacks
 
 ## Forever isolation
 
-`Forever.lua` is loaded only by `Chatify_Camelot.toc`. The load-time marker is evaluated before `WOW_PROJECT_MAINLINE`, so Forever does not collapse into Retail even when its runtime project ID looks Mainline. Forever remains a separate client identity while using the modern Mainline-style UI/API capability paths.
+`Forever.lua` is loaded only by `Chatify_Camelot.toc`. The load-time marker is evaluated before runtime project identity, so Forever remains a separate client flavor. Exact executable build numbers are never used for routing.
+
+Forever is treated as a hybrid UI client. Runtime logs show Camelot, Mainline, Shared, and VanillaStyle Blizzard components coexisting in one session, so Chatify probes the API required by each feature instead of assuming that every subsystem follows one family.
+
+Secret-value restrictions are treated as active when the runtime reports them. Chatify checks secret/accessibility inspectors before converting, comparing, matching, storing, copying, or highlighting chat payloads.
+
+Modern Blizzard Settings calls use only the numeric category ID returned by AceConfigDialog. Category names and frame objects are never passed to `Settings.OpenToCategory` or `C_SettingsUtil.OpenSettingsPanel`; legacy frame-based opening is kept as a separate fallback.
 
 ## TOC safety
 
@@ -75,13 +81,13 @@ The package is statically validated for Lua syntax, TOC dependencies, version me
 
 Static validation is not a substitute for launching every Blizzard client. Forever is beta, while Cataclysm 4.4.2 and Wrath 3.4.5 are legacy compatibility targets, so those paths should be considered runtime-probed rather than claimed as live-tested.
 
-## Prat-derived hardening
+## Compatibility hardening
 
-Chatify keeps its own capability model, but adopts several proven Prat 3.0 patterns where they are safer than expansion-specific assumptions:
+Chatify keeps its own capability model and uses modern API patterns where they are safer than expansion-specific assumptions:
 
 - `ChatFrameUtil.GetOutMessageFormatKey()` is preferred for current Blizzard chat formatting, with legacy GlobalString fallback.
 - Joined-channel caches are invalidated after Communities add/remove operations and numbered-channel swaps, not only after channel events.
 - Secret values are rejected before string operations.
 - Modern `ChatFrameUtil` helpers are preferred when Blizzard moved old `ChatFrame_*` globals.
 
-Chatify does not copy Prat's `WOW_PROJECT_MAINLINE` identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because its game identity and its Mainline-style UI capability are separate concerns.
+Chatify does not use `WOW_PROJECT_MAINLINE` as the identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because game identity and UI/API capability are separate concerns.

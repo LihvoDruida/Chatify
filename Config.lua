@@ -1082,11 +1082,19 @@ end
 
 local secretApiProbed, secretApiAvailable
 function ns.HasSecretValueAPI()
-    if not secretApiProbed then
-        secretApiProbed = true
-        secretApiAvailable = type(_G.issecretvalue) == "function"
-            or (type(_G.C_Secrets) == "table" and type(_G.C_Secrets.HasSecretRestrictions) == "function")
+    -- Forever is beta and can load hybrid UI pieces in a different order. A
+    -- negative probe there is not considered session-final; re-check until one
+    -- of the inspectors appears. Other clients keep the old cached hot path.
+    if secretApiProbed and (secretApiAvailable or not IsForeverLoadTarget()) then
+        return secretApiAvailable
     end
+
+    secretApiProbed = true
+    secretApiAvailable = type(_G.issecretvalue) == "function"
+        or type(_G.hasanysecretvalues) == "function"
+        or type(_G.canaccessvalue) == "function"
+        or type(_G.canaccessallvalues) == "function"
+        or (type(_G.C_Secrets) == "table" and type(_G.C_Secrets.HasSecretRestrictions) == "function")
     return secretApiAvailable
 end
 
@@ -1115,27 +1123,34 @@ function ns.IsModernSecretValueBuild()
     -- 120000, and it also future-proofs new protected game types.
     local reported = GetSecretRestrictionState()
     if reported ~= nil then
-        cachedModernSecretBuild = reported
-        return reported
+        -- A positive runtime answer is authoritative. On Forever, keep the
+        -- conservative load-target fallback if a beta build briefly reports
+        -- false while its hybrid UI/security pieces are still initializing.
+        if reported or not IsForeverLoadTarget() then
+            cachedModernSecretBuild = reported
+            return reported
+        end
     end
 
-    local result
+    local result = false
     if IsForeverLoadTarget() then
-        -- Blizzard has explicitly enabled Midnight's restrictions on Forever.
-        -- Keep this conservative fallback for beta builds where C_Secrets may not
-        -- have finished loading or its master switch is temporarily unavailable.
-        result = true
-    elseif WOW_PROJECT_ID == nil or WOW_PROJECT_MAINLINE == nil then
-        result = false
-    elseif WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
-        result = false
-    elseif not ns.HasSecretValueAPI() then
-        result = false
-    else
+        -- Forever logs confirm secret values are active, but the beta mixes
+        -- Camelot/Mainline/VanillaStyle UI code. Treat the load target only as a
+        -- conservative safety hint; individual operations still probe their API.
+        result = ns.HasSecretValueAPI()
+            or (type(ns.Client) == "table" and ns.Client.usesSecretValues == true)
+    elseif ns.HasSecretValueAPI() then
+        -- For non-Forever clients, only current protected-interface generations
+        -- use the interface number as a fallback. Do not infer this from
+        -- WOW_PROJECT_ID: progression and beta clients can reuse project identity.
         result = ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
     end
 
-    cachedModernSecretBuild = result
+    -- Do not freeze a false answer on a modern beta/current client merely
+    -- because security globals were not available at the first probe.
+    if result or (not IsForeverLoadTarget() and ns.GetBuildInterface() < SECRET_VALUES_MIN_INTERFACE) then
+        cachedModernSecretBuild = result
+    end
     return result
 end
 
@@ -1263,7 +1278,10 @@ function ns.HasSecretChatValue(...)
         return false
     end
 
-    if hasAnySecretValues then
+    if type(hasAnySecretValues) ~= "function" then
+        hasAnySecretValues = _G.hasanysecretvalues
+    end
+    if type(hasAnySecretValues) == "function" then
         local ok, result = pcall(hasAnySecretValues, ...)
         if ok then
             return result and true or false
@@ -1289,7 +1307,10 @@ function ns.CanAccessChatValue(...)
         return true
     end
 
-    if canAccessAllValues then
+    if type(canAccessAllValues) ~= "function" then
+        canAccessAllValues = _G.canaccessallvalues
+    end
+    if type(canAccessAllValues) == "function" then
         local ok, result = pcall(canAccessAllValues, ...)
         if ok then
             return result and true or false
@@ -2130,19 +2151,52 @@ local issecretvalue = issecretvalue
 
 function ns.IsSecretValue(value)
     if type(issecretvalue) ~= "function" then
-        return false
+        issecretvalue = _G.issecretvalue
+    end
+    if type(issecretvalue) == "function" then
+        local ok, secret = pcall(issecretvalue, value)
+        if ok then
+            return secret and true or false
+        end
     end
 
-    local ok, secret = pcall(issecretvalue, value)
-    return ok and secret or false
+    -- Some beta/runtime combinations expose only the batch inspector. Use it as
+    -- a fallback so a missing scalar helper never turns a secret value into text.
+    if type(hasAnySecretValues) ~= "function" then
+        hasAnySecretValues = _G.hasanysecretvalues
+    end
+    if type(hasAnySecretValues) == "function" then
+        local ok, secret = pcall(hasAnySecretValues, value)
+        if ok then
+            return secret and true or false
+        end
+    end
+
+    return false
 end
 
 function ns.IsProtectedChatValue(value)
-    -- Prat only treats actual secret values as unreadable. Calling
-    -- canaccessvalue() on every normal chat string is too aggressive on
-    -- modern Retail and can make the copy window think every line is hidden.
     if ns.IsSecretValue(value) then
         return true
+    end
+
+    -- Do not call canaccessvalue() for every ordinary chat string when the scalar
+    -- secret inspector is available; that produced false positives on modern WoW.
+    -- It is only a fail-closed fallback for protected clients where the scalar
+    -- inspector is missing or failed to load.
+    if type(canaccessvalue) ~= "function" then
+        canaccessvalue = _G.canaccessvalue
+    end
+    if type(issecretvalue) ~= "function"
+        and ns.IsModernSecretValueBuild()
+        and type(canaccessvalue) == "function" then
+        local ok, accessible = pcall(canaccessvalue, value)
+        if not ok then
+            return true
+        end
+        if accessible == false then
+            return true
+        end
     end
 
     return false
@@ -2368,6 +2422,9 @@ end
 
 -- Everything the guard in ns.EnsureLastTellTargetGuard needs in order to exist.
 function ns.CanGuardLastTellTarget()
+    if type(issecretvalue) ~= "function" then
+        issecretvalue = _G.issecretvalue
+    end
     if type(issecretvalue) ~= "function" then
         -- Without this we cannot tell a secret sender from an ordinary one, and a
         -- guard that skipped every target would break /r everywhere.

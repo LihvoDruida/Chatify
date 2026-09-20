@@ -1,10 +1,9 @@
 -- WoW: Forever (internal beta codename: Camelot) load-time marker.
 --
--- Forever currently shares Mainline's modern UI/runtime and most 12.1.5 APIs,
--- while using its own game flavor and TOC (Interface 16001).  Runtime project
--- constants are not a reliable discriminator because the beta can identify as
--- WOW_PROJECT_MAINLINE.  This file is therefore listed ONLY by Chatify_Camelot.toc.
--- Keep identity (Forever) separate from capability (modern/secret-value UI).
+-- Forever is a hybrid client: Camelot, Mainline, Shared and VanillaStyle UI
+-- components can coexist in the same runtime. Runtime project constants are not
+-- a reliable discriminator, so this file is listed ONLY by Chatify_Camelot.toc.
+-- Keep game identity separate from capability and probe each API before use.
 local addonName, ns = ...
 
 ns.Client = ns.Client or {}
@@ -20,4 +19,6 @@ ns.Client.usesMainlineUI = true
 ns.Client.usesModernChat = true
 ns.Client.usesSecretValues = true
 ns.Client.chatFrameUtilExpected = true
+ns.Client.hybridUI = true
+ns.Client.prefersCapabilityDetection = true
 

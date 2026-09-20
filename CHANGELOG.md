@@ -1,9 +1,21 @@
 # Chatify Changelog
 
+## [2.12.1] - 2026-09-20
+
+### Forever hardening
+- Treat Forever as a hybrid Camelot/Mainline/VanillaStyle client and route behavior by API capability instead of project identity.
+- Keep client build numbers diagnostic-only; no Forever behavior depends on an exact executable build.
+- Remove the remaining secret-restriction fallback based on `WOW_PROJECT_ID`.
+- Expand secret-value API detection to scalar, batch, and accessibility inspectors and fail closed when the scalar inspector is unavailable.
+- Preserve protected values before any Chatify string processing.
+- Store and validate the numeric Blizzard Settings category ID returned by AceConfigDialog before calling modern Settings APIs.
+- Keep legacy settings opening isolated to `InterfaceOptionsFrame_OpenToCategory`.
+- Remove a duplicate chat-edit capability declaration found during the compatibility audit.
+
 ## [2.12.0] - 2026-09-20
 
 ### Compatibility
-- Compare Chatify chat handling with current Prat 3.0 patterns and adopt the safer modern API routes where they improve reliability.
+- Review current chat-handling patterns and adopt safer modern API routes where they improve reliability.
 - Rebuild joined-channel caches when Communities channels are added/removed and when numbered channels are swapped.
 - Prefer `ChatFrameUtil.GetOutMessageFormatKey()` for built-in chat formatting, with `CHAT_*_GET` fallback for older clients.
 - Keep Forever isolated through the Camelot TOC while adding explicit modern-chat capability hints for diagnostics and beta regressions.

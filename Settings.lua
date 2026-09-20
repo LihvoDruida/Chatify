@@ -2523,11 +2523,23 @@ function Chatify:OnInitialize()
     end
 
     if ACD and type(ACD.AddToBlizOptions) == "function" then
-        local ok, frame = pcall(ACD.AddToBlizOptions, ACD, "Chatify", "Chatify")
+        local ok, frame, categoryID = pcall(ACD.AddToBlizOptions, ACD, "Chatify", "Chatify")
         if ok then
             self.optionsFrame = frame
+            -- Current AceConfigDialog returns the numeric Blizzard Settings ID as
+            -- the second result. Forever's C_SettingsUtil rejects objects, names
+            -- and out-of-range values, so preserve only a valid signed 32-bit ID.
+            if type(categoryID) == "number"
+                and categoryID == math.floor(categoryID)
+                and categoryID >= -2147483648
+                and categoryID <= 2147483647 then
+                self.optionsCategoryID = categoryID
+            else
+                self.optionsCategoryID = nil
+            end
         else
             self.optionsFrame = nil
+            self.optionsCategoryID = nil
             ns.configRegistrationError = frame
         end
     end
@@ -2653,6 +2665,26 @@ function Chatify:WarnIfSettingsWereLost()
         T("Type /chatifydb for details."))
 end
 
+local function GetValidSettingsCategoryID(addon, frame)
+    local categoryID = addon and addon.optionsCategoryID
+
+    -- Older AceConfigDialog revisions stored the category ID on frame.name.
+    -- Accept it only when it is already a real number; never coerce a category
+    -- name or frame object into the modern Settings API.
+    if type(categoryID) ~= "number" and type(frame) == "table" then
+        categoryID = frame.name
+    end
+
+    if type(categoryID) ~= "number"
+        or categoryID ~= math.floor(categoryID)
+        or categoryID < -2147483648
+        or categoryID > 2147483647 then
+        return nil
+    end
+
+    return categoryID
+end
+
 function Chatify:OpenConfig()
     if ACD and type(ACD.Open) == "function" then
         local ok, err = pcall(ACD.Open, ACD, "Chatify")
@@ -2667,15 +2699,26 @@ function Chatify:OpenConfig()
         return
     end
 
-    local category = frame.name or frame
+    local categoryID = GetValidSettingsCategoryID(self, frame)
 
-    if Settings and Settings.OpenToCategory then
-        local ok = pcall(Settings.OpenToCategory, category)
+    if categoryID and Settings and type(Settings.OpenToCategory) == "function" then
+        local ok = pcall(Settings.OpenToCategory, categoryID)
         if ok then
             return
         end
     end
 
+    if categoryID
+        and type(C_SettingsUtil) == "table"
+        and type(C_SettingsUtil.OpenSettingsPanel) == "function" then
+        local ok = pcall(C_SettingsUtil.OpenSettingsPanel, categoryID)
+        if ok then
+            return
+        end
+    end
+
+    -- Legacy clients accept the registered frame directly. Keep this fallback
+    -- isolated from the modern numeric-ID path.
     if InterfaceOptionsFrame_OpenToCategory then
         pcall(InterfaceOptionsFrame_OpenToCategory, frame)
         pcall(InterfaceOptionsFrame_OpenToCategory, frame)
