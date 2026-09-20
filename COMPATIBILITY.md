@@ -104,3 +104,7 @@ Per-line routing is parsed before splitting. Each logical line keeps its own cha
 ## Long Message quick access
 
 Long Message Mode is opt-in. When enabled and Quick Chat Buttons are available, Chatify adds an `LM` button below the channel button stack. The button only opens the existing composer; outgoing sends still pass through the same per-client capability, protected-value, and messaging-lockdown checks as the composer itself.
+## Composer integration
+
+Long Message Composer reuses the active Blizzard chat draft context exposed by Chatify Quick Buttons. When enabled, the LM button can import a visible draft, supported active chat type, and a readable whisper target without clearing the original edit box. Protected or inaccessible values are skipped. Unsupported active chat types never override the Composer channel.
+

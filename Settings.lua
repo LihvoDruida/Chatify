@@ -1359,8 +1359,26 @@ function Chatify:GetOptions()
                                     end
                                 end,
                             },
-                            openComposer = {
+                            importCurrentDraft = {
                                 order = 3,
+                                type = "toggle",
+                                name = T("Use Current Chat Draft"),
+                                desc = T("When the LM button or an empty composer command opens the editor, copy the currently typed chat text, active channel, and whisper target when available. The normal chat draft is left untouched."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.importCurrentDraft ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.importCurrentDraft = value and true or false
+                                end,
+                            },
+                            openComposer = {
+                                order = 4,
                                 type = "execute",
                                 name = T("Open Message Composer"),
                                 desc = T("Open the long-message editor and chunk preview window."),
@@ -1375,12 +1393,12 @@ function Chatify:GetOptions()
                                 end,
                             },
                             commandHint = {
-                                order = 4,
+                                order = 5,
                                 type = "description",
                                 name = T("Commands: /chatcompose or /chatcomposer"),
                             },
                             chunkLimit = {
-                                order = 5,
+                                order = 6,
                                 type = "range",
                                 name = T("Chunk Byte Limit"),
                                 desc = T("Maximum bytes per outgoing chunk. 245 leaves room below WoW's hard chat limit and is recommended."),
@@ -1399,7 +1417,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             showCounter = {
-                                order = 6,
+                                order = 7,
                                 type = "toggle",
                                 name = T("Show Chunk Counter"),
                                 desc = T("Add a counter such as (1/3) to messages that are split into multiple chunks."),
@@ -1417,7 +1435,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             continuation = {
-                                order = 7,
+                                order = 8,
                                 type = "select",
                                 name = T("Continuation Markers"),
                                 desc = T("Choose where >> markers are added when one logical line needs more than one chunk."),
@@ -1439,7 +1457,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             defaultChannel = {
-                                order = 8,
+                                order = 9,
                                 type = "select",
                                 name = T("Default Channel"),
                                 desc = T("Channel selected when the composer window opens."),
@@ -1460,7 +1478,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             perLineHelp = {
-                                order = 9,
+                                order = 10,
                                 type = "description",
                                 name = T("Per Line prefixes: /s, /e, /y, /p, /raid, /rw, /i, /g, /o, /w Name. Raid target markers {rt1} through {rt8} can be inserted from the composer."),
                             },

@@ -1,3 +1,12 @@
+## 2.13.2 - 2026-09-21
+
+- Integrated the existing quick-chat draft preservation path with Long Message Composer.
+- LM now imports the currently typed visible chat draft, active supported chat type and whisper target when available.
+- Added a Use Current Chat button for refreshing the Composer from the active Blizzard chat input without clearing the original draft.
+- Added an option to disable automatic current-draft import while keeping manual import available.
+- Kept protected/secret chat values fail-closed during draft and target import.
+- Preserved the selected Composer channel when the active Blizzard chat type is unsupported by Composer.
+
 # Chatify Changelog
 
 ## 2.13.1

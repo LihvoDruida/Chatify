@@ -983,6 +983,7 @@ ns.defaults = {
         -- === LONG MESSAGE COMPOSER ===
         composer = {
             enabled = false,
+            importCurrentDraft = true,
             chunkLimit = 245,
             showCounter = true,
             continuation = "BOTH",

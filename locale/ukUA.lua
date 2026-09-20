@@ -504,4 +504,11 @@ Locale:RegisterLocale("ukUA", {
     ["Skull"] = "Череп",
     ["WoW may temporarily block addon chat sends during protected activities. The composer stays available and sends only when the client allows it."] = "WoW може тимчасово блокувати надсилання чату аддонами під час захищених активностей. Редактор залишається доступним і надсилає повідомлення лише тоді, коли клієнт це дозволяє.",
     ["WoW protected this message or target. It was not sent."] = "WoW захистив це повідомлення або отримувача. Повідомлення не надіслано.",
+    ["Use Current Chat Draft"] = "Використовувати поточний текст чату",
+    ["When the LM button or an empty composer command opens the editor, copy the currently typed chat text, active channel, and whisper target when available. The normal chat draft is left untouched."] = "Коли кнопка LM або команда без тексту відкриває редактор, копіювати поточний введений текст, активний канал і отримувача шепоту, якщо вони доступні. Звичайний чернетковий текст у чаті не змінюється.",
+    ["Use Current Chat"] = "Взяти з поточного чату",
+    ["No active chat input was found."] = "Активне поле введення чату не знайдено.",
+    ["Current chat draft and channel imported."] = "Поточний текст і канал чату перенесено в редактор.",
+    ["Current chat draft imported. The selected Composer channel was kept."] = "Поточний текст перенесено в редактор. Вибраний канал Composer залишено без змін.",
+    ["Current chat draft imported."] = "Поточний текст чату перенесено в редактор.",
 })

@@ -502,4 +502,11 @@ Locale:RegisterLocale("enUS", {
     ["Skull"] = "Skull",
     ["WoW may temporarily block addon chat sends during protected activities. The composer stays available and sends only when the client allows it."] = "WoW may temporarily block addon chat sends during protected activities. The composer stays available and sends only when the client allows it.",
     ["WoW protected this message or target. It was not sent."] = "WoW protected this message or target. It was not sent.",
+    ["Use Current Chat Draft"] = "Use Current Chat Draft",
+    ["When the LM button or an empty composer command opens the editor, copy the currently typed chat text, active channel, and whisper target when available. The normal chat draft is left untouched."] = "When the LM button or an empty composer command opens the editor, copy the currently typed chat text, active channel, and whisper target when available. The normal chat draft is left untouched.",
+    ["Use Current Chat"] = "Use Current Chat",
+    ["No active chat input was found."] = "No active chat input was found.",
+    ["Current chat draft and channel imported."] = "Current chat draft and channel imported.",
+    ["Current chat draft imported. The selected Composer channel was kept."] = "Current chat draft imported. The selected Composer channel was kept.",
+    ["Current chat draft imported."] = "Current chat draft imported.",
 })

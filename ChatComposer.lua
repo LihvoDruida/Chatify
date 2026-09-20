@@ -162,6 +162,24 @@ local function GetAvailableChannelList()
     return values, order
 end
 
+local function IsComposerChannel(chatType)
+    if type(chatType) ~= "string" then return false end
+    for _, entry in ipairs(CHANNELS) do
+        if entry.value == chatType and entry.value ~= "PER_LINE" then
+            return true
+        end
+    end
+    return false
+end
+
+local function GetCurrentChatImport()
+    if type(ns.GetActiveChatDraftContext) ~= "function" then return nil end
+    local ok, context = pcall(ns.GetActiveChatDraftContext)
+    if not ok or type(context) ~= "table" then return nil end
+    if context.isShown ~= true then return nil end
+    return context
+end
+
 local function NormalizeInput(text)
     if type(text) ~= "string" then return "" end
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
@@ -451,7 +469,8 @@ function Composer:BuildChunks(text, channel, whisperTarget)
     return SplitMessage(text, channel, whisperTarget, profile)
 end
 
-function Composer:Open()
+function Composer:Open(options)
+    options = type(options) == "table" and options or {}
     if not IsComposerEnabled() then
         self:Print(T("Long Message Mode is disabled. Enable it in Chatify settings."))
         return false
@@ -464,6 +483,9 @@ function Composer:Open()
 
     if self.window then
         if self.window.frame and self.window.frame.Show then self.window.frame:Show() end
+        if options.importCurrentChat and type(self.ImportCurrentChat) == "function" then
+            self:ImportCurrentChat()
+        end
         return
     end
 
@@ -490,6 +512,20 @@ function Composer:Open()
         whisperTarget = "",
     }
 
+    local initialImport = nil
+    if options.importCurrentChat and profile.importCurrentDraft ~= false then
+        initialImport = GetCurrentChatImport()
+        if initialImport and IsComposerChannel(initialImport.chatType) then
+            local usable = initialImport.chatType == "WHISPER" or IsChannelUsable(initialImport.chatType)
+            if usable then
+                state.channel = initialImport.chatType
+                if initialImport.chatType == "WHISPER" then
+                    state.whisperTarget = Trim(initialImport.tellTarget)
+                end
+            end
+        end
+    end
+
     local channelValues, channelOrder = GetAvailableChannelList()
     if not channelValues[state.channel] then
         state.channel = channelOrder[1] or "SAY"
@@ -505,7 +541,7 @@ function Composer:Open()
     local targetBox = AceGUI:Create("EditBox")
     targetBox:SetLabel(T("Whisper Target"))
     targetBox:SetRelativeWidth(0.36)
-    targetBox:SetText("")
+    targetBox:SetText(state.whisperTarget or "")
     frame:AddChild(targetBox)
 
     local markerDrop = AceGUI:Create("Dropdown")
@@ -525,6 +561,9 @@ function Composer:Open()
     input:SetNumLines(12)
     input:SetFullWidth(true)
     input:DisableButton(true)
+    if initialImport and type(initialImport.text) == "string" and initialImport.text ~= "" then
+        input:SetText(initialImport.text)
+    end
     frame:AddChild(input)
 
     local hint = AceGUI:Create("Label")
@@ -532,18 +571,23 @@ function Composer:Open()
     hint:SetText(T("Per Line mode supports /s, /e, /y, /p, /raid, /rw, /i, /g, /o and /w Name. Each non-empty line is parsed separately."))
     frame:AddChild(hint)
 
+    local importButton = AceGUI:Create("Button")
+    importButton:SetText(T("Use Current Chat"))
+    importButton:SetRelativeWidth(0.24)
+    frame:AddChild(importButton)
+
     local splitButton = AceGUI:Create("Button")
     splitButton:SetText(T("Split / Refresh Preview"))
-    splitButton:SetRelativeWidth(0.34)
+    splitButton:SetRelativeWidth(0.30)
     frame:AddChild(splitButton)
 
     local clearButton = AceGUI:Create("Button")
     clearButton:SetText(T("Clear"))
-    clearButton:SetRelativeWidth(0.18)
+    clearButton:SetRelativeWidth(0.14)
     frame:AddChild(clearButton)
 
     local status = AceGUI:Create("Label")
-    status:SetRelativeWidth(0.48)
+    status:SetRelativeWidth(0.32)
     status:SetText(T("No chunks yet."))
     frame:AddChild(status)
 
@@ -622,6 +666,45 @@ function Composer:Open()
         UpdatePreview()
     end
 
+    local function ImportCurrentChat()
+        local context = GetCurrentChatImport()
+        if not context then
+            UpdatePreview(T("No active chat input was found."))
+            return false
+        end
+
+        local importedChannel = false
+        if IsComposerChannel(context.chatType) then
+            local usable = context.chatType == "WHISPER" or IsChannelUsable(context.chatType)
+            if usable and channelValues[context.chatType] then
+                state.channel = context.chatType
+                channelDrop:SetValue(state.channel)
+                importedChannel = true
+                if state.channel == "WHISPER" then
+                    state.whisperTarget = Trim(context.tellTarget)
+                    targetBox:SetText(state.whisperTarget)
+                end
+            end
+        end
+
+        if type(context.text) == "string" and context.text ~= "" then
+            input:SetText(context.text)
+        end
+        state.chunks = {}
+        state.index = 1
+        UpdateTargetVisibility()
+
+        if importedChannel then
+            UpdatePreview(T("Current chat draft and channel imported."))
+        else
+            UpdatePreview(T("Current chat draft imported. The selected Composer channel was kept."))
+        end
+        return true
+    end
+
+    self.ImportCurrentChat = ImportCurrentChat
+    importButton:SetCallback("OnClick", ImportCurrentChat)
+
     channelDrop:SetCallback("OnValueChanged", function(_, _, value)
         state.channel = value
         profile.defaultChannel = value
@@ -682,13 +765,17 @@ function Composer:Open()
     end)
 
     UpdateTargetVisibility()
-    UpdatePreview()
+    if initialImport and type(initialImport.text) == "string" and initialImport.text ~= "" then
+        UpdatePreview(T("Current chat draft imported."))
+    else
+        UpdatePreview()
+    end
     input:SetFocus()
 end
 
 function Composer:HandleCommand(input)
     input = Trim(input)
-    local opened = self:Open()
+    local opened = self:Open({ importCurrentChat = input == "" })
     if opened == false then
         return
     end
@@ -706,7 +793,7 @@ function Composer:OnEnable()
 
     self:RegisterChatCommand("chatcompose", "HandleCommand")
     self:RegisterChatCommand("chatcomposer", "HandleCommand")
-    ns.OpenChatComposer = function()
+    ns.OpenChatComposer = function(options)
         if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("composer") then
             return false
         end
@@ -715,7 +802,7 @@ function Composer:OnEnable()
         end
         local module = Chatify:GetModule("Composer", true)
         if module and type(module.Open) == "function" then
-            module:Open()
+            module:Open(options)
             return true
         end
         return false

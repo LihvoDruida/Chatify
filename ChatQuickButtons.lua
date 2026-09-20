@@ -1730,6 +1730,61 @@ local function GetCurrentChatType()
     return nil
 end
 
+local function GetSafeChatString(value)
+    if value == nil then return nil end
+    if type(ns.IsProtectedChatValue) == "function" and ns.IsProtectedChatValue(value) then
+        return nil
+    end
+    if type(ns.TryMakeSafeText) == "function" then
+        local safe = ns.TryMakeSafeText(value)
+        if type(safe) == "string" then return safe end
+    end
+    if type(value) == "string" then return value end
+    return nil
+end
+
+local function GetSafeEditBoxAttribute(editBox, key)
+    if not editBox or type(editBox.GetAttribute) ~= "function" then return nil end
+    local ok, value = pcall(editBox.GetAttribute, editBox, key)
+    if not ok then return nil end
+    return GetSafeChatString(value)
+end
+
+-- Shared with the long-message composer. This deliberately mirrors the old
+-- quick-button draft preservation path: only a visible edit box is treated as
+-- an active draft, so stale hidden text is never resurrected.
+function ns.GetActiveChatDraftContext()
+    local editBox = GetActiveEditBox()
+    if not editBox then return nil end
+
+    local shown = true
+    if type(editBox.IsShown) == "function" then
+        local ok, value = pcall(editBox.IsShown, editBox)
+        shown = ok and value and true or false
+    end
+
+    local text = ""
+    if shown and type(editBox.GetText) == "function" then
+        local ok, value = pcall(editBox.GetText, editBox)
+        if ok then text = GetSafeChatString(value) or "" end
+    end
+
+    local chatType = GetSafeEditBoxAttribute(editBox, "chatType")
+        or GetSafeChatString(editBox.chatType)
+    local tellTarget = GetSafeEditBoxAttribute(editBox, "tellTarget")
+        or GetSafeChatString(editBox.tellTarget)
+    local channelTarget = GetSafeEditBoxAttribute(editBox, "channelTarget")
+        or GetSafeChatString(editBox.channelTarget)
+
+    return {
+        text = text,
+        chatType = chatType,
+        tellTarget = tellTarget,
+        channelTarget = channelTarget,
+        isShown = shown,
+    }
+end
+
 -- Holding Alt previews the alternate channel on buttons that have one
 -- (Guild -> Officer, Raid -> Raid Warning), matching what Alt + Left Click does.
 local function IsAltModifierDown()
@@ -3036,7 +3091,7 @@ local function EnsureContainer()
             return
         end
         if type(ns.OpenChatComposer) == "function" then
-            ns.OpenChatComposer()
+            ns.OpenChatComposer({ importCurrentChat = true })
         end
     end)
 
