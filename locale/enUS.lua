@@ -475,7 +475,7 @@ Locale:RegisterLocale("enUS", {
     ["Chatify settings are not ready yet."] = "Chatify settings are not ready yet.",
     ["The message composer UI is not available on this client."] = "The message composer UI is not available on this client.",
     ["Chatify - Long Message Composer"] = "Chatify - Long Message Composer",
-    ["Messages are sent one chunk at a time. Chatify never auto-spams the queue."] = "Messages are sent one chunk at a time. Chatify never auto-spams the queue.",
+    ["Messages are sent one chunk at a time. Chatify never auto-spams the queue."] = "Manual sending is available one chunk at a time. Optional queue automation can send supported chunks in order.",
     ["Whisper Target"] = "Whisper Target",
     ["Insert Raid Marker"] = "Insert Raid Marker",
     ["Message"] = "Message",
@@ -531,6 +531,46 @@ Locale:RegisterLocale("enUS", {
     ["Message changed. Refresh preview before sending."] = "Message changed. Refresh preview before sending.",
     ["Refresh preview to apply Per Line mode."] = "Refresh preview to apply Per Line mode.",
     ["Press Split / Refresh Preview to apply Per Line routing."] = "Press Split / Refresh Preview to apply Per Line routing.",
+    ["Automatic queue sending pauses when WoW requires a hardware click or blocks addon chat. Manual sending remains available."] = "Automatic queue sending pauses when WoW requires a hardware click or blocks addon chat. Manual sending remains available.",
+    ["Write long messages, split them safely at UTF-8 boundaries, preview every chunk, send manually, or use optional queue automation on supported channels. Per Line mode supports separate channels on each line."] = "Write long messages, split them safely at UTF-8 boundaries, preview every chunk, send manually, or use optional queue automation on supported channels. Per Line mode supports separate channels on each line.",
+    ["Manual sending is always available. Queue automation sends only supported channels and pauses when WoW requires a hardware click."] = "Manual sending is always available. Queue automation sends only supported channels and pauses when WoW requires a hardware click.",
+    ["Enable Queue Automation"] = "Enable Queue Automation",
+    ["Automation Delay"] = "Automation Delay",
+    ["Auto-start After Split"] = "Auto-start After Split",
+    ["Resume After Manual Chunk"] = "Resume After Manual Chunk",
+    ["Resume After Chat Lockdown"] = "Resume After Chat Lockdown",
+    ["Automation works for channels that WoW allows addons to send without a hardware click. Say, Yell and other restricted channels pause and wait for manual Send."] = "Automation works for channels that WoW allows addons to send without a hardware click. Say, Yell and other restricted channels pause and wait for manual Send.",
+    ["Start Auto Send"] = "Start Auto Send",
+    ["Stop Auto Send"] = "Stop Auto Send",
+    ["Resume Auto Send"] = "Resume Auto Send",
+    ["Automation stopped."] = "Automation stopped.",
+    ["Automation finished."] = "Automation finished.",
+    ["Queue automation is disabled."] = "Queue automation is disabled.",
+    ["Build a current preview before starting automation."] = "Build a current preview before starting automation.",
+    ["Automation running."] = "Automation running.",
+    ["Automation stopped because it was disabled."] = "Automation stopped because it was disabled.",
+    ["Automation paused because the preview changed."] = "Automation paused because the preview changed.",
+    ["Automation paused. Refresh the preview to apply Per Line routing."] = "Automation paused. Refresh the preview to apply Per Line routing.",
+    ["Automation paused. This channel requires a manual Send click."] = "Automation paused. This channel requires a manual Send click.",
+    ["Automation is waiting for chat lockdown to end."] = "Automation is waiting for chat lockdown to end.",
+    ["Automation paused because no timer API is available."] = "Automation paused because no timer API is available.",
+    ["Automation paused while WoW blocks addon chat."] = "Automation paused while WoW blocks addon chat.",
+    ["Automation paused: "] = "Automation paused: ",
+    ["Automation finished. Final chunk sent."] = "Automation finished. Final chunk sent.",
+    ["Automation stopped because the channel changed."] = "Automation stopped because the channel changed.",
+    ["Automation stopped because the target changed."] = "Automation stopped because the target changed.",
+    ["Automation disabled."] = "Automation disabled.",
+    ["Automation stopped because the message changed."] = "Automation stopped because the message changed.",
+    ["Automation stopped for manual navigation."] = "Automation stopped for manual navigation.",
+    ["Manual chunk sent."] = "Manual chunk sent.",
+    ["Composer Automation"] = "Composer Automation",
+    ["Queue automation sends prepared chunks in order with a configurable delay. WoW channels that require a hardware click pause automatically and wait for manual Send."] = "Queue automation sends prepared chunks in order with a configurable delay. WoW channels that require a hardware click pause automatically and wait for manual Send.",
+    ["Enable Start Auto Send and automation controls in the Composer. Automation never bypasses Blizzard chat restrictions."] = "Enable Start Auto Send and automation controls in the Composer. Automation never bypasses Blizzard chat restrictions.",
+    ["Delay in seconds between automatic chunk sends."] = "Delay in seconds between automatic chunk sends.",
+    ["Start queue automation immediately after you press Split / Refresh Preview."] = "Start queue automation immediately after you press Split / Refresh Preview.",
+    ["When automation pauses for a channel that needs a manual click, continue the queue after you send that chunk manually."] = "When automation pauses for a channel that needs a manual click, continue the queue after you send that chunk manually.",
+    ["Keep the automation queue waiting while WoW blocks addon chat, then continue automatically when sending becomes available again."] = "Keep the automation queue waiting while WoW blocks addon chat, then continue automatically when sending becomes available again.",
+    ["Say, Yell and other hardware-restricted channels are never sent from a timer. Automation pauses on those chunks and waits for your Send click."] = "Say, Yell and other hardware-restricted channels are never sent from a timer. Automation pauses on those chunks and waits for your Send click.",
     ["Preview rebuilt with the new settings."] = "Preview rebuilt with the new settings.",
     ["Chunk sent."] = "Chunk sent.",
     ["LONG_MESSAGE_COMPOSER_HELP"] = [[LONG MESSAGE COMPOSER
@@ -540,7 +580,7 @@ Quick start
 2. Choose a channel. Whisper also needs a target.
 3. Use Split / Refresh Preview.
 4. Review chunks with Previous Chunk and Next Chunk.
-5. Send This Chunk sends exactly one message. It never auto-sends the full queue.
+5. Send This Chunk sends one message manually. If Queue Automation is enabled, Start Auto Send can process supported chunks in order.
 
 Lines and channels
 Each non-empty line is a hard message boundary. Per Line mode supports /s, /e, /y, /p, /raid, /rw, /i, /g, /o and /w Name. Long lines keep their assigned channel and whisper target after splitting. With a normal channel, you may change the selected channel between already-built chunks without rebuilding.
@@ -549,7 +589,10 @@ Counters and continuation
 Chunk counters and continuation markers reserve their bytes before splitting. Changing Chunk Byte Limit, Show Chunk Counter or Continuation Markers automatically rebuilds an already-loaded preview.
 
 Sending
-Advance After Send selects the next chunk after a successful send. Protect Final Chunk disables Send after the final chunk to reduce accidental duplicates. Browsing to another chunk, rebuilding or clearing unlocks it.
+Advance After Send selects the next chunk after a successful manual send. Protect Final Chunk disables Send after the final chunk to reduce accidental duplicates. Browsing to another chunk, rebuilding or clearing unlocks it.
+
+Automation
+Queue Automation can send prepared chunks in order with a configurable delay. Say, Yell and any other hardware-restricted chat type pause the queue and require a manual Send click. Resume After Manual Chunk can continue automation after that click. Chat lockdown can either pause the queue or wait and resume automatically, depending on your setting.
 
 Current chat
 Use Current Chat copies the current Blizzard chat draft, active channel and whisper target when available without clearing the normal chat box.

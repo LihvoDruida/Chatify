@@ -986,6 +986,11 @@ ns.defaults = {
             importCurrentDraft = true,
             autoPreview = true,
             autoAdvance = true,
+            automationEnabled = false,
+            automationDelay = 1.5,
+            automationAutoStart = false,
+            automationResumeAfterManual = true,
+            automationResumeAfterLockdown = false,
             lockFinalChunk = true,
             rememberWhisperTarget = true,
             spellcheckIntegration = true,
@@ -2023,6 +2028,19 @@ function ns.GetFeatureSupport(feature)
         -- clients can temporarily block addon-initiated sends. Keep the tool
         -- available and warn rather than hiding it.
         return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
+    elseif feature == "composerAutomation" then
+        if ns.GetFeatureSupport("composer") == FEATURE_UNAVAILABLE then
+            return FEATURE_UNAVAILABLE
+        end
+        local hasTimer = (type(C_Timer) == "table" and type(C_Timer.After) == "function")
+            or type(CreateFrame) == "function"
+        if not hasTimer then
+            return FEATURE_UNAVAILABLE
+        end
+        -- Automatic queue sends must still obey chat lockdown and per-channel
+        -- hardware-event restrictions. Keep the controls visible with a warning
+        -- on protected clients rather than pretending every channel can be timed.
+        return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
     elseif feature == "channels" then
         if type(GetChannelList) ~= "function" then
             return FEATURE_UNAVAILABLE
@@ -2058,6 +2076,7 @@ local FEATURE_WARNING_TEXT = {
     copy = "Protected messages cannot be copied. Readable messages remain available.",
     autoReply = "Whisper and Battle.net auto replies are disabled while protected chat is active.",
     composer = "WoW may temporarily block addon chat sends during protected activities. The composer stays available and sends only when the client allows it.",
+    composerAutomation = "Automatic queue sending pauses when WoW requires a hardware click or blocks addon chat. Manual sending remains available.",
     autoReplyGuild = "Guild auto replies pause while Blizzard blocks addon chat.",
     chatTabs = "This older WoW client uses compatibility mode. Some tab actions may be unavailable.",
 }
@@ -2599,7 +2618,7 @@ function ns.GetChatTaintReport()
     add("SetLastTellTarget guarded", ns.IsLastTellTargetGuarded() and "yes" or "no")
 
     if type(ns.GetFeatureSupport) == "function" then
-        local features = { "channels", "sounds", "quickButtons", "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet", "autoReplyGuild", "chatTabs", "communities" }
+        local features = { "channels", "sounds", "quickButtons", "composer", "composerAutomation", "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet", "autoReplyGuild", "chatTabs", "communities" }
         for i = 1, #features do
             local feature = features[i]
             add("Feature " .. feature, tostring(ns.GetFeatureSupport(feature)))

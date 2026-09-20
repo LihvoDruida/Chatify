@@ -2,7 +2,7 @@
 
 Audit date: **2026-09-20**
 
-Chatify 2.13.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.15.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -37,6 +37,7 @@ This double check is intentional: old SavedVariables can still contain `enabled 
 | Chat sounds | `PlaySoundFile` | hide Sounds settings and do not enable module |
 | Quick chat buttons | modern/legacy OpenChat resolver plus a valid chat-edit ParseText path | hide entire Quick Buttons group |
 | Long Message Composer | outgoing chat API plus runtime channel/lockdown checks | hide if no send API; orange warning on protected clients |
+| Composer queue automation | outgoing chat API plus timer scheduler and per-channel hardware-event gate | pause on restricted channels or chat lockdown; manual send remains available |
 | Spam filters | message-event filter API | hide if absent; orange warning when protected chat restrictions are active |
 | Mentions | safe render path or message-event filters | hide if no viable path; orange warning on protected clients |
 | History | readable chat payloads only | orange warning on protected clients; protected/secret lines are skipped |
@@ -99,7 +100,7 @@ The composer operates on text entered by the player, not incoming protected chat
 
 Splitting is byte-aware because WoW chat limits are byte-based, but cuts are moved to valid UTF-8 boundaries so Ukrainian and other multibyte text is not corrupted. Chunk counters and continuation markers are included in the size calculation before a cut is chosen.
 
-Per-line routing is parsed before splitting. Each logical line keeps its own chat type and whisper target, and channel availability is checked again when the chunk is actually sent. The composer never automatically advances through a timed send queue; each chunk requires a player click.
+Per-line routing is parsed before splitting. Each logical line keeps its own chat type and whisper target, and channel availability is checked again when the chunk is actually sent. Manual one-chunk sending is always available; optional queue automation can advance through supported chunks with a configured delay and pauses on hardware-restricted routes.
 
 ## Long Message quick access
 
@@ -109,7 +110,11 @@ Long Message Mode is opt-in. When enabled and Quick Chat Buttons are available, 
 Long Message Composer reuses the active Blizzard chat draft context exposed by Chatify Quick Buttons. When enabled, the LM button can import a visible draft, supported active chat type, and a readable whisper target without clearing the original edit box. Protected or inaccessible values are skipped. Unsupported active chat types never override the Composer channel.
 ## Composer session and automation
 
-Long Message Composer keeps its draft and preview state when its window is hidden during the current UI session. It still sends exactly one chunk per player click; there is no timed queue or automatic multi-message sender.
+Long Message Composer keeps its draft and preview state when its window is hidden during the current UI session. Manual one-chunk sending remains available, and optional queue automation can send supported prepared chunks in order with a configurable delay.
+
+Automation is capability-gated rather than client-name-gated. Party, Raid, Raid Warning, Instance, Guild, Officer, Whisper, and other non-hardware routes can use timed sends when the current client allows them. Say, Yell, Channel, or another route treated as hardware-event restricted pauses the queue and waits for a player Send click. If Resume After Manual Chunk is enabled, automation continues from the next chunk after that click.
+
+During chat messaging lockdown the queue pauses. Resume After Chat Lockdown can keep the queue waiting and retry only after the runtime guard reports that addon chat sending is available again. Closing the Composer, editing the draft, changing routing, rebuilding the preview, or disabling automation invalidates pending timer callbacks.
 
 Splitter settings are available both in Chatify Settings and directly inside Composer. Changing byte limit, counter, or continuation-marker settings rebuilds an already-loaded preview. Optional automation can also build the preview after importing the active Blizzard chat draft or opening Composer with text from a slash command.
 

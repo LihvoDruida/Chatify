@@ -477,7 +477,7 @@ Locale:RegisterLocale("ukUA", {
     ["Chatify settings are not ready yet."] = "Налаштування Chatify ще не готові.",
     ["The message composer UI is not available on this client."] = "Редактор повідомлень недоступний у цьому клієнті.",
     ["Chatify - Long Message Composer"] = "Chatify - редактор довгих повідомлень",
-    ["Messages are sent one chunk at a time. Chatify never auto-spams the queue."] = "Повідомлення надсилаються по одній частині. Chatify не надсилає чергу автоматично.",
+    ["Messages are sent one chunk at a time. Chatify never auto-spams the queue."] = "Ручне надсилання доступне по одній частині. За потреби автоматизація черги може надсилати підтримувані частини по черзі.",
     ["Whisper Target"] = "Отримувач шепоту",
     ["Insert Raid Marker"] = "Вставити рейдову мітку",
     ["Message"] = "Повідомлення",
@@ -533,6 +533,46 @@ Locale:RegisterLocale("ukUA", {
     ["Message changed. Refresh preview before sending."] = "Текст змінено. Оновіть перегляд перед надсиланням.",
     ["Refresh preview to apply Per Line mode."] = "Оновіть перегляд, щоб застосувати режим окремих каналів по рядках.",
     ["Press Split / Refresh Preview to apply Per Line routing."] = "Натисніть «Розбити / оновити перегляд», щоб застосувати маршрутизацію по рядках.",
+    ["Automatic queue sending pauses when WoW requires a hardware click or blocks addon chat. Manual sending remains available."] = "Автоматичне надсилання черги зупиняється, коли WoW вимагає ручного натискання або блокує чат адонів. Ручне надсилання залишається доступним.",
+    ["Write long messages, split them safely at UTF-8 boundaries, preview every chunk, send manually, or use optional queue automation on supported channels. Per Line mode supports separate channels on each line."] = "Пишіть довгі повідомлення, безпечно розбивайте їх по межах UTF-8, переглядайте кожну частину, надсилайте вручну або використовуйте автоматизацію черги для підтримуваних каналів. Режим по рядках підтримує окремі канали для кожного рядка.",
+    ["Manual sending is always available. Queue automation sends only supported channels and pauses when WoW requires a hardware click."] = "Ручне надсилання завжди доступне. Автоматизація черги надсилає лише підтримувані канали та зупиняється, коли WoW вимагає ручного натискання.",
+    ["Enable Queue Automation"] = "Увімкнути автоматизацію черги",
+    ["Automation Delay"] = "Затримка автоматизації",
+    ["Auto-start After Split"] = "Автозапуск після розбиття",
+    ["Resume After Manual Chunk"] = "Продовжувати після ручної частини",
+    ["Resume After Chat Lockdown"] = "Продовжувати після блокування чату",
+    ["Automation works for channels that WoW allows addons to send without a hardware click. Say, Yell and other restricted channels pause and wait for manual Send."] = "Автоматизація працює для каналів, які WoW дозволяє надсилати без ручного натискання. Say, Yell та інші обмежені канали ставлять чергу на паузу й очікують ручного надсилання.",
+    ["Start Auto Send"] = "Запустити автонадсилання",
+    ["Stop Auto Send"] = "Зупинити автонадсилання",
+    ["Resume Auto Send"] = "Продовжити автонадсилання",
+    ["Automation stopped."] = "Автоматизацію зупинено.",
+    ["Automation finished."] = "Автоматизацію завершено.",
+    ["Queue automation is disabled."] = "Автоматизацію черги вимкнено.",
+    ["Build a current preview before starting automation."] = "Створіть актуальний перегляд перед запуском автоматизації.",
+    ["Automation running."] = "Автоматизація працює.",
+    ["Automation stopped because it was disabled."] = "Автоматизацію зупинено, бо її вимкнено.",
+    ["Automation paused because the preview changed."] = "Автоматизацію призупинено, бо перегляд змінився.",
+    ["Automation paused. Refresh the preview to apply Per Line routing."] = "Автоматизацію призупинено. Оновіть перегляд, щоб застосувати маршрутизацію по рядках.",
+    ["Automation paused. This channel requires a manual Send click."] = "Автоматизацію призупинено. Цей канал потребує ручного натискання кнопки надсилання.",
+    ["Automation is waiting for chat lockdown to end."] = "Автоматизація очікує завершення блокування чату.",
+    ["Automation paused because no timer API is available."] = "Автоматизацію призупинено: API таймера недоступний.",
+    ["Automation paused while WoW blocks addon chat."] = "Автоматизацію призупинено, поки WoW блокує чат адонів.",
+    ["Automation paused: "] = "Автоматизацію призупинено: ",
+    ["Automation finished. Final chunk sent."] = "Автоматизацію завершено. Останню частину надіслано.",
+    ["Automation stopped because the channel changed."] = "Автоматизацію зупинено через зміну каналу.",
+    ["Automation stopped because the target changed."] = "Автоматизацію зупинено через зміну отримувача.",
+    ["Automation disabled."] = "Автоматизацію вимкнено.",
+    ["Automation stopped because the message changed."] = "Автоматизацію зупинено через зміну повідомлення.",
+    ["Automation stopped for manual navigation."] = "Автоматизацію зупинено для ручної навігації.",
+    ["Manual chunk sent."] = "Ручну частину надіслано.",
+    ["Composer Automation"] = "Автоматизація Composer",
+    ["Queue automation sends prepared chunks in order with a configurable delay. WoW channels that require a hardware click pause automatically and wait for manual Send."] = "Автоматизація черги надсилає підготовлені частини по черзі із заданою затримкою. Канали WoW, які вимагають ручного натискання, автоматично ставлять чергу на паузу.",
+    ["Enable Start Auto Send and automation controls in the Composer. Automation never bypasses Blizzard chat restrictions."] = "Додає запуск автонадсилання та налаштування автоматизації в Composer. Автоматизація не обходить обмеження чату Blizzard.",
+    ["Delay in seconds between automatic chunk sends."] = "Затримка в секундах між автоматичним надсиланням частин.",
+    ["Start queue automation immediately after you press Split / Refresh Preview."] = "Запускати автоматизацію черги одразу після натискання «Розбити / оновити перегляд».",
+    ["When automation pauses for a channel that needs a manual click, continue the queue after you send that chunk manually."] = "Якщо автоматизація зупинилася на каналі, що потребує ручного натискання, продовжувати чергу після ручного надсилання цієї частини.",
+    ["Keep the automation queue waiting while WoW blocks addon chat, then continue automatically when sending becomes available again."] = "Залишати чергу в очікуванні, поки WoW блокує чат адонів, і автоматично продовжувати після зняття блокування.",
+    ["Say, Yell and other hardware-restricted channels are never sent from a timer. Automation pauses on those chunks and waits for your Send click."] = "Say, Yell та інші канали з вимогою ручного натискання ніколи не надсилаються таймером. Автоматизація зупиняється на таких частинах і чекає кнопки надсилання.",
     ["Preview rebuilt with the new settings."] = "Перегляд перебудовано з новими налаштуваннями.",
     ["Chunk sent."] = "Частину надіслано.",
     ["LONG_MESSAGE_COMPOSER_HELP"] = [[РЕДАКТОР ДОВГИХ ПОВІДОМЛЕНЬ
@@ -542,7 +582,7 @@ Locale:RegisterLocale("ukUA", {
 2. Виберіть канал. Для шепоту також потрібен отримувач.
 3. Натисніть «Розбити / оновити перегляд».
 4. Переглядайте частини кнопками «Попередня частина» та «Наступна частина».
-5. «Надіслати цю частину» надсилає рівно одне повідомлення. Вся черга автоматично не надсилається.
+5. «Надіслати цю частину» надсилає одне повідомлення вручну. Якщо автоматизацію черги ввімкнено, «Запустити автонадсилання» може обробляти підтримувані частини по черзі.
 
 Рядки та канали
 Кожен непорожній рядок є окремою межею повідомлення. Режим окремих каналів по рядках підтримує /s, /e, /y, /p, /raid, /rw, /i, /g, /o та /w Ім'я. Довгі рядки зберігають свій канал і отримувача шепоту після розбиття. Для звичайного режиму канал можна змінювати між уже підготовленими частинами без повторного розбиття.
@@ -551,7 +591,10 @@ Locale:RegisterLocale("ukUA", {
 Лічильники частин і позначки продовження резервують байти до розбиття. Зміна ліміту, лічильника або позначок продовження автоматично перебудовує завантажений перегляд.
 
 Надсилання
-«Переходити після надсилання» вибирає наступну частину після успішної відправки. «Захищати останню частину» вимикає повторне надсилання фінальної частини. Перехід до іншої частини, перебудова або очищення знімають блокування.
+«Переходити після надсилання» вибирає наступну частину після успішного ручного надсилання. «Захищати останню частину» вимикає повторне надсилання фінальної частини. Перехід до іншої частини, перебудова або очищення знімають блокування.
+
+Автоматизація
+Автоматизація черги може надсилати підготовлені частини по черзі із заданою затримкою. Say, Yell та інші канали, що потребують ручного натискання, ставлять чергу на паузу. Після ручного надсилання можна автоматично продовжити чергу. Під час блокування чату черга може залишатися на паузі або очікувати зняття блокування залежно від налаштувань.
 
 Поточний чат
 «Взяти з поточного чату» копіює поточну чернетку Blizzard, активний канал і отримувача шепоту, якщо вони доступні, не очищаючи звичайне поле чату.

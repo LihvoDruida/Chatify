@@ -1340,7 +1340,7 @@ function Chatify:GetOptions()
                             composerDescription = {
                                 order = 1,
                                 type = "description",
-                                name = T("Write long messages, split them safely at UTF-8 boundaries, preview every chunk, and send them manually one at a time. Per Line mode supports separate channels on each line."),
+                                name = T("Write long messages, split them safely at UTF-8 boundaries, preview every chunk, send manually, or use optional queue automation on supported channels. Per Line mode supports separate channels on each line."),
                             },
                             composerEnabled = {
                                 order = 2,
@@ -1584,6 +1584,129 @@ function Chatify:GetOptions()
                                 order = 15,
                                 type = "description",
                                 name = T("Per Line prefixes: /s, /e, /y, /p, /raid, /rw, /i, /g, /o, /w Name. Raid target markers {rt1} through {rt8} can be inserted from the composer."),
+                            },
+                        },
+                    },
+                    groupComposerAutomation = {
+                        name = T("Composer Automation"),
+                        type = "group",
+                        inline = true,
+                        order = 2,
+                        hidden = function() return IsFeatureHidden("composerAutomation") end,
+                        args = {
+                            automationWarning = {
+                                order = 0,
+                                type = "description",
+                                name = function() return GetFeatureWarningDescription("composerAutomation") end,
+                                hidden = function() return not IsFeatureRisky("composerAutomation") end,
+                            },
+                            automationDescription = {
+                                order = 1,
+                                type = "description",
+                                name = T("Queue automation sends prepared chunks in order with a configurable delay. WoW channels that require a hardware click pause automatically and wait for manual Send."),
+                            },
+                            automationEnabled = {
+                                order = 2,
+                                type = "toggle",
+                                name = T("Enable Queue Automation"),
+                                desc = T("Enable Start Auto Send and automation controls in the Composer. Automation never bypasses Blizzard chat restrictions."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.automationEnabled == true
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.automationEnabled = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            automationDelay = {
+                                order = 3,
+                                type = "range",
+                                name = T("Automation Delay"),
+                                desc = T("Delay in seconds between automatic chunk sends."),
+                                min = 0.8, max = 10, step = 0.1,
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true or c.automationEnabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return tonumber(c.automationDelay) or 1.5
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    local delay = tonumber(value) or 1.5
+                                    if delay < 0.8 then delay = 0.8 elseif delay > 10 then delay = 10 end
+                                    self.db.profile.composer.automationDelay = math.floor(delay * 10 + 0.5) / 10
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            automationAutoStart = {
+                                order = 4,
+                                type = "toggle",
+                                name = T("Auto-start After Split"),
+                                desc = T("Start queue automation immediately after you press Split / Refresh Preview."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true or c.automationEnabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.automationAutoStart == true
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.automationAutoStart = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            automationResumeAfterManual = {
+                                order = 5,
+                                type = "toggle",
+                                name = T("Resume After Manual Chunk"),
+                                desc = T("When automation pauses for a channel that needs a manual click, continue the queue after you send that chunk manually."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true or c.automationEnabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.automationResumeAfterManual ~= false
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.automationResumeAfterManual = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            automationResumeAfterLockdown = {
+                                order = 6,
+                                type = "toggle",
+                                name = T("Resume After Chat Lockdown"),
+                                desc = T("Keep the automation queue waiting while WoW blocks addon chat, then continue automatically when sending becomes available again."),
+                                disabled = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.enabled ~= true or c.automationEnabled ~= true
+                                end,
+                                get = function()
+                                    local c = self.db.profile.composer or {}
+                                    return c.automationResumeAfterLockdown == true
+                                end,
+                                set = function(_, value)
+                                    self.db.profile.composer = self.db.profile.composer or {}
+                                    self.db.profile.composer.automationResumeAfterLockdown = value and true or false
+                                    if type(ns.NotifyComposerSettingsChanged) == "function" then ns.NotifyComposerSettingsChanged() end
+                                end,
+                            },
+                            automationSafety = {
+                                order = 7,
+                                type = "description",
+                                name = T("Say, Yell and other hardware-restricted channels are never sent from a timer. Automation pauses on those chunks and waits for your Send click."),
                             },
                         },
                     },

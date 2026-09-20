@@ -72,6 +72,51 @@ local function ClampLimit(value)
     return value
 end
 
+local function ClampAutomationDelay(value)
+    value = tonumber(value) or 1.5
+    if value < 0.8 then value = 0.8 end
+    if value > 10 then value = 10 end
+    return math.floor(value * 10 + 0.5) / 10
+end
+
+local fallbackTimerFrame
+local fallbackTimerQueue = {}
+
+local function ScheduleAfter(delay, callback)
+    delay = tonumber(delay) or 0
+    if type(callback) ~= "function" then return false end
+    if type(C_Timer) == "table" and type(C_Timer.After) == "function" then
+        C_Timer.After(delay, callback)
+        return true
+    end
+    if type(CreateFrame) ~= "function" then return false end
+    if not fallbackTimerFrame then
+        fallbackTimerFrame = CreateFrame("Frame")
+        fallbackTimerFrame:SetScript("OnUpdate", function(_, dt)
+            dt = tonumber(dt) or 0
+            for i = #fallbackTimerQueue, 1, -1 do
+                local task = fallbackTimerQueue[i]
+                task.remaining = task.remaining - dt
+                if task.remaining <= 0 then
+                    table.remove(fallbackTimerQueue, i)
+                    pcall(task.callback)
+                end
+            end
+        end)
+    end
+    fallbackTimerQueue[#fallbackTimerQueue + 1] = {
+        remaining = math.max(0, delay),
+        callback = callback,
+    }
+    return true
+end
+
+local function AutomationNeedsHardwareEvent(chatType)
+    -- These channels are hardware-event restricted on current clients in at
+    -- least some contexts. Timed sends must never assume they are safe.
+    return chatType == "SAY" or chatType == "YELL" or chatType == "CHANNEL"
+end
+
 local function GetProfile()
     local db = Chatify.db and Chatify.db.profile
     if not db then return nil end
@@ -88,6 +133,11 @@ local function GetProfile()
     if type(c.whisperTarget) ~= "string" then c.whisperTarget = "" end
     if c.autoPreview == nil then c.autoPreview = true end
     if c.autoAdvance == nil then c.autoAdvance = true end
+    if c.automationEnabled == nil then c.automationEnabled = false end
+    c.automationDelay = ClampAutomationDelay(c.automationDelay)
+    if c.automationAutoStart == nil then c.automationAutoStart = false end
+    if c.automationResumeAfterManual == nil then c.automationResumeAfterManual = true end
+    if c.automationResumeAfterLockdown == nil then c.automationResumeAfterLockdown = false end
     if c.lockFinalChunk == nil then c.lockFinalChunk = true end
     if c.rememberWhisperTarget == nil then c.rememberWhisperTarget = true end
     if c.spellcheckIntegration == nil then c.spellcheckIntegration = true end
@@ -607,8 +657,19 @@ function Composer:Open(options)
         channel = profile.defaultChannel or "SAY",
         whisperTarget = profile.rememberWhisperTarget ~= false and (profile.whisperTarget or "") or "",
         inputText = "",
+        automationRunning = false,
+        automationPaused = false,
+        automationWaitingManual = false,
+        automationWaitingLockdown = false,
+        automationRunId = 0,
+        automationMessage = nil,
     }
     self.sessionState = state
+    state.automationRunning = state.automationRunning == true
+    state.automationPaused = state.automationPaused == true
+    state.automationWaitingManual = state.automationWaitingManual == true
+    state.automationWaitingLockdown = state.automationWaitingLockdown == true
+    state.automationRunId = tonumber(state.automationRunId) or 0
 
     local initialImport = nil
     if options.importCurrentChat and profile.importCurrentDraft ~= false then
@@ -637,14 +698,15 @@ function Composer:Open(options)
     local frame = AceGUI:Create("Frame")
     self.window = frame
     frame:SetTitle(T("Chatify - Long Message Composer"))
-    frame:SetStatusText(T("Messages are sent one chunk at a time. Chatify never auto-spams the queue."))
+    frame:SetStatusText(T("Manual sending is always available. Queue automation sends only supported channels and pauses when WoW requires a hardware click."))
     frame:SetLayout("Flow")
     frame:SetWidth(800)
-    frame:SetHeight(760)
+    frame:SetHeight(880)
     frame:SetCallback("OnClose", function(widget)
         if self.inputWidget and type(self.inputWidget.GetText) == "function" then
             state.inputText = self.inputWidget:GetText() or ""
         end
+        if type(self.StopAutomation) == "function" then self:StopAutomation(nil, true) end
         if widget.frame and widget.frame.Hide then widget.frame:Hide() end
     end)
 
@@ -733,6 +795,53 @@ function Composer:Open(options)
     finalLockCheck:SetRelativeWidth(0.34)
     frame:AddChild(finalLockCheck)
 
+    local automationCheck = AceGUI:Create("CheckBox")
+    automationCheck:SetLabel(T("Enable Queue Automation"))
+    automationCheck:SetValue(profile.automationEnabled == true)
+    automationCheck:SetRelativeWidth(0.33)
+    frame:AddChild(automationCheck)
+
+    local automationDelaySlider = AceGUI:Create("Slider")
+    automationDelaySlider:SetLabel(T("Automation Delay"))
+    automationDelaySlider:SetSliderValues(0.8, 10, 0.1)
+    automationDelaySlider:SetValue(ClampAutomationDelay(profile.automationDelay))
+    automationDelaySlider:SetRelativeWidth(0.33)
+    automationDelaySlider:SetDisabled(profile.automationEnabled ~= true)
+    frame:AddChild(automationDelaySlider)
+
+    local automationAutoStartCheck = AceGUI:Create("CheckBox")
+    automationAutoStartCheck:SetLabel(T("Auto-start After Split"))
+    automationAutoStartCheck:SetValue(profile.automationAutoStart == true)
+    automationAutoStartCheck:SetRelativeWidth(0.34)
+    automationAutoStartCheck:SetDisabled(profile.automationEnabled ~= true)
+    frame:AddChild(automationAutoStartCheck)
+
+    local automationResumeManualCheck = AceGUI:Create("CheckBox")
+    automationResumeManualCheck:SetLabel(T("Resume After Manual Chunk"))
+    automationResumeManualCheck:SetValue(profile.automationResumeAfterManual ~= false)
+    automationResumeManualCheck:SetRelativeWidth(0.50)
+    automationResumeManualCheck:SetDisabled(profile.automationEnabled ~= true)
+    frame:AddChild(automationResumeManualCheck)
+
+    local automationResumeLockdownCheck = AceGUI:Create("CheckBox")
+    automationResumeLockdownCheck:SetLabel(T("Resume After Chat Lockdown"))
+    automationResumeLockdownCheck:SetValue(profile.automationResumeAfterLockdown == true)
+    automationResumeLockdownCheck:SetRelativeWidth(0.50)
+    automationResumeLockdownCheck:SetDisabled(profile.automationEnabled ~= true)
+    frame:AddChild(automationResumeLockdownCheck)
+
+    local automationHint = AceGUI:Create("Label")
+    automationHint:SetFullWidth(true)
+    local automationHintText = T("Automation works for channels that WoW allows addons to send without a hardware click. Say, Yell and other restricted channels pause and wait for manual Send.")
+    if type(ns.IsFeatureRisky) == "function" and ns.IsFeatureRisky("composerAutomation") then
+        local warning = type(ns.GetFeatureWarningText) == "function" and ns.GetFeatureWarningText("composerAutomation") or nil
+        if type(warning) == "string" and warning ~= "" then
+            automationHintText = "|cffd69a5b" .. T("Warning:") .. " " .. T(warning) .. "|r\n" .. automationHintText
+        end
+    end
+    automationHint:SetText(automationHintText)
+    frame:AddChild(automationHint)
+
     local input = AceGUI:Create("MultiLineEditBox")
     self.inputWidget = input
     input:SetLabel(T("Message"))
@@ -797,11 +906,21 @@ function Composer:Open(options)
 
     local sendButton = AceGUI:Create("Button")
     sendButton:SetText(T("Send This Chunk"))
-    sendButton:SetRelativeWidth(0.28)
+    sendButton:SetRelativeWidth(0.24)
     frame:AddChild(sendButton)
 
+    local automationStartButton = AceGUI:Create("Button")
+    automationStartButton:SetText(T("Start Auto Send"))
+    automationStartButton:SetRelativeWidth(0.20)
+    frame:AddChild(automationStartButton)
+
+    local automationStopButton = AceGUI:Create("Button")
+    automationStopButton:SetText(T("Stop Auto Send"))
+    automationStopButton:SetRelativeWidth(0.20)
+    frame:AddChild(automationStopButton)
+
     local info = AceGUI:Create("Label")
-    info:SetRelativeWidth(0.32)
+    info:SetRelativeWidth(0.36)
     info:SetText("")
     frame:AddChild(info)
 
@@ -821,12 +940,20 @@ function Composer:Open(options)
         autoPreviewCheck = autoPreviewCheck,
         autoAdvanceCheck = autoAdvanceCheck,
         finalLockCheck = finalLockCheck,
+        automationCheck = automationCheck,
+        automationDelaySlider = automationDelaySlider,
+        automationAutoStartCheck = automationAutoStartCheck,
+        automationResumeManualCheck = automationResumeManualCheck,
+        automationResumeLockdownCheck = automationResumeLockdownCheck,
+        automationHint = automationHint,
         input = input,
         status = status,
         preview = preview,
         prevButton = prevButton,
         nextButton = nextButton,
         sendButton = sendButton,
+        automationStartButton = automationStartButton,
+        automationStopButton = automationStopButton,
         info = info,
     }
 
@@ -846,15 +973,154 @@ function Composer:Open(options)
         return self:GetEffectiveRouting(state, chunk)
     end
 
-    local function UpdatePreview(message)
+    local UpdatePreview
+
+    local function InvalidateAutomationRun()
+        state.automationRunId = (tonumber(state.automationRunId) or 0) + 1
+        return state.automationRunId
+    end
+
+    local function SetAutomationStopped(message, paused, waitingManual, waitingLockdown)
+        InvalidateAutomationRun()
+        state.automationRunning = false
+        state.automationPaused = paused == true
+        state.automationWaitingManual = waitingManual == true
+        state.automationWaitingLockdown = waitingLockdown == true
+        state.automationMessage = message
+        if UpdatePreview then UpdatePreview(message) end
+    end
+
+    local function StopAutomation(message, silent)
+        InvalidateAutomationRun()
+        state.automationRunning = false
+        state.automationPaused = false
+        state.automationWaitingManual = false
+        state.automationWaitingLockdown = false
+        state.automationMessage = message
+        if not silent and UpdatePreview then UpdatePreview(message or T("Automation stopped.")) end
+    end
+    self.StopAutomation = StopAutomation
+
+    local function FinishAutomation(message)
+        InvalidateAutomationRun()
+        state.automationRunning = false
+        state.automationPaused = false
+        state.automationWaitingManual = false
+        state.automationWaitingLockdown = false
+        state.automationMessage = message or T("Automation finished.")
+        if UpdatePreview then UpdatePreview(state.automationMessage) end
+    end
+
+    local function StartAutomation(fromHardwareEvent)
+        if profile.automationEnabled ~= true then
+            UpdatePreview(T("Queue automation is disabled."))
+            return false
+        end
+        if #state.chunks == 0 or state.previewDirty then
+            UpdatePreview(T("Build a current preview before starting automation."))
+            return false
+        end
+
+        local runId = InvalidateAutomationRun()
+        state.automationRunning = true
+        state.automationPaused = false
+        state.automationWaitingManual = false
+        state.automationWaitingLockdown = false
+        state.automationMessage = T("Automation running.")
+
+        local function Step(hardwareEvent)
+            if runId ~= state.automationRunId or not state.automationRunning then return end
+            if profile.automationEnabled ~= true then
+                StopAutomation(T("Automation stopped because it was disabled."))
+                return
+            end
+            if state.previewDirty or #state.chunks == 0 then
+                SetAutomationStopped(T("Automation paused because the preview changed."), true, false, false)
+                return
+            end
+            if state.index < 1 then state.index = 1 end
+            if state.index > #state.chunks then
+                FinishAutomation(T("Automation finished."))
+                return
+            end
+
+            local chunk = state.chunks[state.index]
+            local chatType, target = EffectiveRouting(chunk)
+            if not chatType then
+                SetAutomationStopped(T("Automation paused. Refresh the preview to apply Per Line routing."), true, false, false)
+                return
+            end
+
+            if AutomationNeedsHardwareEvent(chatType) and not hardwareEvent then
+                SetAutomationStopped(T("Automation paused. This channel requires a manual Send click."), true, true, false)
+                return
+            end
+
+            if type(ns.CanSendAddonChat) == "function" and not ns.CanSendAddonChat() then
+                if profile.automationResumeAfterLockdown == true then
+                    state.automationWaitingLockdown = true
+                    state.automationMessage = T("Automation is waiting for chat lockdown to end.")
+                    if UpdatePreview then UpdatePreview(state.automationMessage) end
+                    local delay = ClampAutomationDelay(profile.automationDelay)
+                    if not ScheduleAfter(delay, function()
+                        if runId ~= state.automationRunId or not state.automationRunning then return end
+                        state.automationWaitingLockdown = false
+                        Step(false)
+                    end) then
+                        SetAutomationStopped(T("Automation paused because no timer API is available."), true, false, false)
+                    end
+                else
+                    SetAutomationStopped(T("Automation paused while WoW blocks addon chat."), true, false, true)
+                end
+                return
+            end
+
+            local outgoing = {
+                text = StripSpellcheckMarkup(chunk.text or ""),
+                channel = chatType,
+                target = target,
+            }
+            local ok, reason = SendChunk(outgoing)
+            if not ok then
+                local shown = type(reason) == "string" and reason or T("The message could not be sent.")
+                SetAutomationStopped(T("Automation paused: ") .. shown, true, false, false)
+                return
+            end
+
+            state.lastSentIndex = state.index
+            state.finalChunkSent = false
+            if state.index >= #state.chunks then
+                state.finalChunkSent = true
+                FinishAutomation(T("Automation finished. Final chunk sent."))
+                return
+            end
+
+            state.index = state.index + 1
+            state.automationMessage = T("Automation running.")
+            if UpdatePreview then UpdatePreview(state.automationMessage) end
+            local delay = ClampAutomationDelay(profile.automationDelay)
+            if not ScheduleAfter(delay, function() Step(false) end) then
+                SetAutomationStopped(T("Automation paused because no timer API is available."), true, false, false)
+            end
+        end
+
+        Step(fromHardwareEvent == true)
+        return true
+    end
+    self.StartAutomation = StartAutomation
+
+    UpdatePreview = function(message)
         local count = #state.chunks
         if count == 0 then
             preview:SetText("")
-            status:SetText(message or T("No chunks yet."))
+            status:SetText(message or state.automationMessage or T("No chunks yet."))
             info:SetText("")
             prevButton:SetDisabled(true)
             nextButton:SetDisabled(true)
             sendButton:SetDisabled(true)
+            automationStartButton:SetDisabled(true)
+            automationStopButton:SetDisabled(not (state.automationRunning or state.automationPaused))
+            automationStartButton:SetText(state.automationPaused and T("Resume Auto Send") or T("Start Auto Send"))
             return
         end
         if state.index < 1 then state.index = 1 end
@@ -868,15 +1134,23 @@ function Composer:Open(options)
         if state.previewDirty then
             chunkStatus = T("Message changed. Refresh preview before sending.") .. "  " .. chunkStatus
         end
-        if type(message) == "string" and message ~= "" then
-            chunkStatus = message .. "  " .. chunkStatus
+        local shownMessage = message
+        if (type(shownMessage) ~= "string" or shownMessage == "") and type(state.automationMessage) == "string" then
+            shownMessage = state.automationMessage
+        end
+        if type(shownMessage) == "string" and shownMessage ~= "" then
+            chunkStatus = shownMessage .. "  " .. chunkStatus
         end
         status:SetText(chunkStatus)
         info:SetText(string.format(T("%d / %d bytes"), #(chunk.text or ""), ClampLimit(profile.chunkLimit)))
-        prevButton:SetDisabled(state.index <= 1)
-        nextButton:SetDisabled(state.index >= count)
+        prevButton:SetDisabled(state.index <= 1 or state.automationRunning)
+        nextButton:SetDisabled(state.index >= count or state.automationRunning)
         local finalLocked = profile.lockFinalChunk ~= false and state.finalChunkSent and state.index == count
-        sendButton:SetDisabled(state.previewDirty or finalLocked or not chatType)
+        local manualSendLocked = state.automationRunning and not state.automationWaitingManual
+        sendButton:SetDisabled(state.previewDirty or finalLocked or not chatType or manualSendLocked)
+        automationStartButton:SetText(state.automationPaused and T("Resume Auto Send") or T("Start Auto Send"))
+        automationStartButton:SetDisabled(profile.automationEnabled ~= true or state.previewDirty or finalLocked or not chatType or state.automationRunning)
+        automationStopButton:SetDisabled(not (state.automationRunning or state.automationPaused))
     end
 
     self.UpdateComposerUI = function()
@@ -885,6 +1159,7 @@ function Composer:Open(options)
     end
 
     local function Rebuild(message)
+        if state.automationRunning or state.automationPaused then StopAutomation(nil, true) end
         state.whisperTarget = targetBox:GetText() or state.whisperTarget or ""
         if profile.rememberWhisperTarget ~= false then
             profile.whisperTarget = state.whisperTarget
@@ -914,6 +1189,7 @@ function Composer:Open(options)
     self.RebuildPreview = Rebuild
 
     local function ImportCurrentChat(autoBuild)
+        if state.automationRunning or state.automationPaused then StopAutomation(nil, true) end
         local context = GetCurrentChatImport()
         if not context then
             UpdatePreview(T("No active chat input was found."))
@@ -962,6 +1238,7 @@ function Composer:Open(options)
     end
 
     channelDrop:SetCallback("OnValueChanged", function(_, _, value)
+        if state.automationRunning or state.automationPaused then StopAutomation(T("Automation stopped because the channel changed.")) end
         state.channel = value
         profile.defaultChannel = value
         UpdateTargetVisibility()
@@ -975,6 +1252,7 @@ function Composer:Open(options)
     end)
 
     targetBox:SetCallback("OnTextChanged", function(_, _, value)
+        if state.automationRunning or state.automationPaused then StopAutomation(T("Automation stopped because the target changed.")) end
         state.whisperTarget = value or ""
         if profile.rememberWhisperTarget ~= false then profile.whisperTarget = state.whisperTarget end
         UpdatePreview()
@@ -1018,8 +1296,30 @@ function Composer:Open(options)
         profile.lockFinalChunk = value and true or false
         UpdatePreview()
     end)
+    automationCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.automationEnabled = value and true or false
+        automationDelaySlider:SetDisabled(not value)
+        automationAutoStartCheck:SetDisabled(not value)
+        automationResumeManualCheck:SetDisabled(not value)
+        automationResumeLockdownCheck:SetDisabled(not value)
+        if not value then StopAutomation(T("Automation disabled."), false) end
+        UpdatePreview()
+    end)
+    automationDelaySlider:SetCallback("OnValueChanged", function(_, _, value)
+        profile.automationDelay = ClampAutomationDelay(value)
+    end)
+    automationAutoStartCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.automationAutoStart = value and true or false
+    end)
+    automationResumeManualCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.automationResumeAfterManual = value and true or false
+    end)
+    automationResumeLockdownCheck:SetCallback("OnValueChanged", function(_, _, value)
+        profile.automationResumeAfterLockdown = value and true or false
+    end)
 
     input:SetCallback("OnTextChanged", function(_, _, value)
+        if state.automationRunning or state.automationPaused then StopAutomation(T("Automation stopped because the message changed.")) end
         state.inputText = value or ""
         if #state.chunks > 0 then
             state.previewDirty = true
@@ -1028,8 +1328,13 @@ function Composer:Open(options)
     end)
 
     importButton:SetCallback("OnClick", function() ImportCurrentChat(profile.autoPreview ~= false) end)
-    splitButton:SetCallback("OnClick", function() Rebuild() end)
+    splitButton:SetCallback("OnClick", function()
+        if Rebuild() and profile.automationEnabled == true and profile.automationAutoStart == true then
+            StartAutomation(true)
+        end
+    end)
     clearButton:SetCallback("OnClick", function()
+        StopAutomation(nil, true)
         input:SetText("")
         state.inputText = ""
         state.chunks = {}
@@ -1046,14 +1351,25 @@ function Composer:Open(options)
     settingsButton:SetCallback("OnClick", function() self:OpenSettings() end)
 
     prevButton:SetCallback("OnClick", function()
+        if state.automationRunning or state.automationPaused then StopAutomation(T("Automation stopped for manual navigation.")) end
         if state.index > 1 then state.index = state.index - 1 end
         state.finalChunkSent = false
         UpdatePreview()
     end)
     nextButton:SetCallback("OnClick", function()
+        if state.automationRunning or state.automationPaused then StopAutomation(T("Automation stopped for manual navigation.")) end
         if state.index < #state.chunks then state.index = state.index + 1 end
         state.finalChunkSent = false
         UpdatePreview()
+    end)
+    automationStartButton:SetCallback("OnClick", function()
+        if #state.chunks == 0 or state.previewDirty then
+            if not Rebuild() then return end
+        end
+        StartAutomation(true)
+    end)
+    automationStopButton:SetCallback("OnClick", function()
+        StopAutomation(T("Automation stopped."))
     end)
     sendButton:SetCallback("OnClick", function()
         if #state.chunks == 0 or state.previewDirty then
@@ -1084,10 +1400,28 @@ function Composer:Open(options)
             return
         end
 
+        local resumeAutomation = state.automationPaused and state.automationWaitingManual and profile.automationEnabled == true
         state.lastSentIndex = state.index
+        state.automationPaused = false
+        state.automationWaitingManual = false
+        state.automationWaitingLockdown = false
+        state.automationMessage = nil
         if state.index >= #state.chunks then
             state.finalChunkSent = true
             UpdatePreview(T("Final chunk sent."))
+        elseif resumeAutomation then
+            state.finalChunkSent = false
+            state.index = state.index + 1
+            UpdatePreview(T("Manual chunk sent."))
+            if profile.automationResumeAfterManual ~= false then
+                local expectedIndex = state.index
+                local delay = ClampAutomationDelay(profile.automationDelay)
+                ScheduleAfter(delay, function()
+                    if self.sessionState == state and state.index == expectedIndex and not state.previewDirty then
+                        StartAutomation(false)
+                    end
+                end)
+            end
         elseif profile.autoAdvance ~= false then
             state.finalChunkSent = false
             state.index = state.index + 1
@@ -1140,6 +1474,26 @@ function Composer:OnSettingsChanged()
     if ui.autoPreviewCheck then ui.autoPreviewCheck:SetValue(profile.autoPreview ~= false) end
     if ui.autoAdvanceCheck then ui.autoAdvanceCheck:SetValue(profile.autoAdvance ~= false) end
     if ui.finalLockCheck then ui.finalLockCheck:SetValue(profile.lockFinalChunk ~= false) end
+    if ui.automationCheck then ui.automationCheck:SetValue(profile.automationEnabled == true) end
+    if ui.automationDelaySlider then
+        ui.automationDelaySlider:SetValue(ClampAutomationDelay(profile.automationDelay))
+        ui.automationDelaySlider:SetDisabled(profile.automationEnabled ~= true)
+    end
+    if ui.automationAutoStartCheck then
+        ui.automationAutoStartCheck:SetValue(profile.automationAutoStart == true)
+        ui.automationAutoStartCheck:SetDisabled(profile.automationEnabled ~= true)
+    end
+    if ui.automationResumeManualCheck then
+        ui.automationResumeManualCheck:SetValue(profile.automationResumeAfterManual ~= false)
+        ui.automationResumeManualCheck:SetDisabled(profile.automationEnabled ~= true)
+    end
+    if ui.automationResumeLockdownCheck then
+        ui.automationResumeLockdownCheck:SetValue(profile.automationResumeAfterLockdown == true)
+        ui.automationResumeLockdownCheck:SetDisabled(profile.automationEnabled ~= true)
+    end
+    if profile.automationEnabled ~= true and type(self.StopAutomation) == "function" then
+        self:StopAutomation(nil, true)
+    end
     if self.sessionState and #self.sessionState.chunks == 0 and profile.defaultChannel then
         self.sessionState.channel = profile.defaultChannel
         if ui.channelDrop then ui.channelDrop:SetValue(profile.defaultChannel) end
@@ -1193,6 +1547,7 @@ function Composer:OnEnable()
 end
 
 function Composer:OnDisable()
+    if type(self.StopAutomation) == "function" then self:StopAutomation(nil, true) end
     ns.OpenChatComposer = nil
     ns.NotifyComposerSettingsChanged = nil
     if self.window then

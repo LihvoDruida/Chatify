@@ -1,5 +1,23 @@
 # Chatify Changelog
 
+## 2.15.0 - 2026-09-21
+
+### Composer queue automation
+
+- Restore timed queue automation as an optional Composer workflow.
+- Add Start Auto Send, Resume Auto Send, and Stop Auto Send controls directly in the Composer.
+- Add configurable automation delay from 0.8 to 10 seconds.
+- Add optional auto-start immediately after a manual Split / Refresh Preview action.
+- Add optional resume after a hardware-restricted chunk is sent manually.
+- Add optional wait-and-resume behavior when Blizzard temporarily enables chat messaging lockdown.
+- Pause automation instead of attempting timer sends for Say, Yell, Channel, or any other route treated as hardware-event restricted.
+- Stop active automation when the draft, channel, whisper target, navigation state, or split configuration changes.
+- Keep manual Send available when automation pauses for a required player click.
+- Add a timer fallback for clients without `C_Timer.After`, using a lightweight frame OnUpdate scheduler.
+- Keep outgoing messages behind the existing channel permission, protected-value, client capability, and chat-lockdown checks.
+- Expose automation settings both in Chatify Settings and inside the Composer window.
+- Add automation capability diagnostics and compatibility documentation.
+
 ## 2.14.0 - 2026-09-21
 
 ### Long Message Composer parity and automation
