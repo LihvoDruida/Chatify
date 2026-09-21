@@ -1,5 +1,26 @@
 # Chatify Changelog
 
+## 2.16.1 - 2026-09-21
+
+### Per-tab history isolation
+
+- Replace CHAT_MSG event-registration routing as the primary History capture path with exact per-ChatFrame `AddMessage` post-hooks.
+- Store a line only in the Blizzard chat frame that actually received it, preventing General, Guild, Raid, Whisper, and other tabs from bleeding into each other.
+- Keep the old event router only as a fallback when `hooksecurefunc` is unavailable; never run both capture paths at once.
+- Persist the new history schema as version 3 with `captureMode = frame-addmessage`.
+- Drop legacy frame buckets once when upgrading because already-merged version 2 history cannot be separated reliably after the fact; virtual history is preserved.
+- Keep protected-line placeholders scoped to the exact frame that received the protected message.
+- Reattach the History post-hook if another addon replaces a chat frame's `AddMessage` implementation after Chatify initialized.
+
+### Tab-scoped history search
+
+- Bind History Search to the exact current chat-frame key instead of a shared popup entry list.
+- Refuse to render stale search results if the selected History tab changes before its source is refreshed.
+- Show the active search scope directly in the label, for example `Search in Guild`.
+- Keep the same query when switching tabs, but re-run it only against the newly opened tab.
+- Refresh the current frame history before each search so an open History window can see newly captured lines without borrowing data from another tab.
+- Add explicit Ukrainian/Cyrillic case folding for literal search because Lua byte-based `string.lower` does not case-fold UTF-8 Cyrillic.
+
 ## 2.16.0 - 2026-09-21
 
 ### Secure post-render chat pipeline

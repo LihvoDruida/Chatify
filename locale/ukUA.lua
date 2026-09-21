@@ -620,6 +620,7 @@ Locale:RegisterLocale("ukUA", {
     ["Export Settings"] = "Експортувати налаштування",
     ["Import Settings"] = "Імпортувати налаштування",
     ["Search"] = "Пошук",
+    ["Search in %s"] = "Пошук у %s",
     ["%d lines"] = "%d рядків",
     ["%d matches"] = "%d збігів",
     ["No history lines match this search."] = "В історії немає рядків, що відповідають пошуку.",

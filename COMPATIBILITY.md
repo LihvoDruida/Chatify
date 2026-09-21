@@ -84,9 +84,13 @@ Sender shortening changes only the visible label inside a player hyperlink. The 
 
 ## History storage budget and search
 
+Persistent history is captured from the Blizzard chat frame that actually receives each `AddMessage` call. This is the primary routing source on clients with `hooksecurefunc`, so Chatify does not infer History destinations from shared `CHAT_MSG_*` registrations. General, Guild, Raid, Whisper, and custom chat tabs therefore keep independent frame buckets. The older event-routing path is retained only as a compatibility fallback when secure post-hooks are unavailable. Chatify also detects when another addon replaces a frame's `AddMessage` method after initialization and reattaches the observer on the next chat-window refresh.
+
+History schema version 3 records `captureMode = frame-addmessage`. Older frame buckets created by event-routing heuristics are discarded once during migration because a bucket that was already merged cannot be separated reliably after storage. `Virtual` history remains preserved.
+
 Persistent history is bounded twice: per-tab line limits and a global approximate byte budget. The default byte budget is 128 KiB, the settings UI exposes 32-512 KiB, and the internal clamp is 32-1024 KiB. Individual stored lines over 4096 bytes are rejected. When the budget is exceeded, Chatify removes oldest entries fairly across stored buckets instead of allowing one busy tab to evict every other tab. Virtual-chat history participates in the same estimate and pruning path.
 
-The Chatify History window includes a literal, case-insensitive search field. It filters only the currently selected chat tab and never evaluates the query as a Lua pattern or code. Copy mode remains unchanged.
+The Chatify History window includes a literal, case-insensitive search field. The search source is bound to the exact selected chat-frame key; switching History tabs replaces the source before the query is evaluated. A stale entry list from another tab is never searched. Before filtering, Chatify refreshes entries from that same frame only, so newly captured lines can appear while the History window remains open. The UI shows the current scope (`Search in <tab>`). ASCII case folding is supplemented with explicit Ukrainian/Cyrillic uppercase-to-lowercase pairs because stock Lua byte-based `string.lower` does not case-fold those UTF-8 characters. Copy mode remains unchanged.
 
 ## Profile backup format
 

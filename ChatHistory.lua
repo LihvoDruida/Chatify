@@ -62,6 +62,10 @@ local targetFrameCache = {}
 local activeEventTypeMap = {}
 local savedSeeded = false
 local restoredToChatFrames = false
+local exactFrameCaptureActive = false
+local historyCaptureEnabled = false
+local historyHookedFrames = setmetatable({}, { __mode = "k" })
+local historyHookTargets = setmetatable({}, { __mode = "k" })
 local unpack = table.unpack or unpack
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
@@ -421,6 +425,9 @@ function ns.GetHistoryStorageBudgetBytes()
     return GetHistoryBudgetBytes()
 end
 
+local lastWasProtected = {}
+local ClearProtectedRun
+
 local function AddFrameHistory(chatID, message, limit)
     chatID = NormalizeFrameID(chatID)
     if not chatID then
@@ -434,6 +441,86 @@ local function AddFrameHistory(chatID, message, limit)
     end
 end
 
+-- Exact per-frame history capture. Blizzard has already routed a line to the
+-- correct ScrollingMessageFrame before this secure post-hook runs, so there is
+-- no need to infer destinations from event registrations. This is the source
+-- of truth for History whenever hooksecurefunc is available.
+local function StoreRenderedHistoryLine(frame, rawText, ...)
+    if not historyCaptureEnabled or not exactFrameCaptureActive then return end
+    local db = GetHistoryDB()
+    if not db or db.enableHistory == false or not IsFrameAllowed(frame) then return end
+
+    local chatID = NormalizeFrameID(frame)
+    if not chatID then return end
+
+    local safeText = GetSafeText(rawText)
+    if not safeText then
+        if db.historyKeepProtected == false or lastWasProtected[chatID] then return end
+        local label = L("Protected chat line omitted.")
+        local line = "|cff888888" .. label .. "|r"
+        AddFrameHistory(chatID, line, tonumber(db.historyLimit) or 250)
+        lastWasProtected[chatID] = true
+        return
+    end
+
+    -- Match the final Chatify presentation when the modern AddMessage metadata
+    -- is readable. If metadata is absent on an older client, the raw rendered
+    -- line is still the exact text Blizzard routed into this frame.
+    local event, eventArgs = select(7, ...), select(8, ...)
+    if type(ns.TransformRenderedChatLine) == "function" and type(event) == "string" then
+        local ok, transformed = pcall(ns.TransformRenderedChatLine, safeText, event, eventArgs, frame)
+        if ok and type(transformed) == "string" then safeText = transformed end
+    end
+
+    AddFrameHistory(chatID, safeText, tonumber(db.historyLimit) or 250)
+    ClearProtectedRun(chatID)
+end
+
+local function AttachHistoryFrame(frame)
+    if not frame or not IsFrameAllowed(frame) then return false end
+    if type(frame.AddMessage) ~= "function" or type(hooksecurefunc) ~= "function" then return false end
+
+    -- If another addon replaced AddMessage after our previous hook, the secure
+    -- hook no longer observes the new method. Detect that on every chat-window
+    -- refresh and attach to the replacement as well.
+    if historyHookedFrames[frame] and historyHookTargets[frame] == frame.AddMessage then
+        return true
+    end
+
+    local target = frame.AddMessage
+    local ok = pcall(hooksecurefunc, frame, "AddMessage", StoreRenderedHistoryLine)
+    if ok then
+        historyHookedFrames[frame] = true
+        historyHookTargets[frame] = target
+        return true
+    end
+    return false
+end
+
+local function AttachAllHistoryFrames()
+    local hooked, eligible = 0, 0
+    for i = 1, GetMaxChatWindows() do
+        local frame = _G["ChatFrame" .. i]
+        if frame and IsFrameAllowed(frame) then
+            eligible = eligible + 1
+            if AttachHistoryFrame(frame) then
+                hooked = hooked + 1
+            end
+        end
+    end
+
+    -- Use exact capture only when every currently eligible chat frame is hooked.
+    -- Event handlers stay registered as a hot fallback, but OnChatEvent exits
+    -- while this flag is true so the two paths never write the same line.
+    exactFrameCaptureActive = eligible > 0 and hooked == eligible
+    return hooked, eligible
+end
+
+function History:RefreshFrameCapture()
+    InvalidateTargetFrameCache()
+    AttachAllHistoryFrames()
+end
+
 local function SeedFrameHistoryFromSaved()
     if savedSeeded then
         return
@@ -443,6 +530,18 @@ local function SeedFrameHistoryFromSaved()
     local db = GetHistoryDB()
     local limit = tonumber(db and db.historyLimit) or 250
     if type(ChatifyHistoryDB) ~= "table" then
+        return
+    end
+
+    -- Version 2 history was assigned to frames from CHAT_MSG_* registration
+    -- heuristics. Once those buckets have been merged there is no reliable way
+    -- to reconstruct which line belonged to which Blizzard chat tab. Start the
+    -- per-frame store clean exactly once and preserve only Virtual history.
+    if ChatifyHistoryDB.captureMode ~= "frame-addmessage" then
+        frameHistory = {}
+        ChatifyHistoryDB.frames = nil
+        ChatifyHistoryDB.version = 3
+        ChatifyHistoryDB.captureMode = "frame-addmessage"
         return
     end
 
@@ -553,8 +652,6 @@ end
 -- markers would push twenty-five real lines out of the buffer and do it again every
 -- pull. Marking that a gap exists is useful; letting the marks evict the surviving
 -- chat would be a worse bug than the one being fixed.
-local lastWasProtected = {}
-
 local function RecordProtectedLine(event)
     local db = GetHistoryDB()
     if not db or db.enableHistory == false or db.historyKeepProtected == false then
@@ -586,7 +683,7 @@ end
 
 -- Called on every readable line, so the next unreadable one starts a fresh gap marker
 -- rather than being swallowed by the previous one.
-local function ClearProtectedRun(chatID)
+ClearProtectedRun = function(chatID)
     chatID = NormalizeFrameID(chatID)
     if chatID then
         lastWasProtected[chatID] = nil
@@ -597,6 +694,11 @@ end
 -- EVENT HANDLER
 -- =========================================================
 function History:OnChatEvent(event, message, author, ...)
+    -- Exact AddMessage hooks already know the real destination frame. Running
+    -- the event router as well would duplicate a line and can merge it into
+    -- other tabs that happen to register the same CHAT_MSG_* event.
+    if exactFrameCaptureActive then return end
+
     if type(ns.NoteChatEntryPoint) == "function" then
         ns.NoteChatEntryPoint("history capture", event)
     end
@@ -706,7 +808,7 @@ function History:SAVED_VARIABLES_TOO_LARGE(event, addon)
     end
 
     frameHistory = {}
-    ChatifyHistoryDB = { version = 2, savedAt = time(), frames = {} }
+    ChatifyHistoryDB = { version = 3, captureMode = "frame-addmessage", savedAt = time(), frames = {} }
 
     local frame = DEFAULT_CHAT_FRAME
     if frame and type(frame.AddMessage) == "function" then
@@ -761,7 +863,8 @@ function History:SaveHistoryUnprotected()
     end
 
     local output = {
-        version = 2,
+        version = 3,
+        captureMode = "frame-addmessage",
         savedAt = time(),
         frames = {},
     }
@@ -832,6 +935,7 @@ end
 -- INIT
 -- =========================================================
 function History:OnEnable()
+    historyCaptureEnabled = false
     if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("history") then
         return
     end
@@ -844,8 +948,14 @@ function History:OnEnable()
         return
     end
 
+    historyCaptureEnabled = true
     activeEventTypeMap = GetActiveEventTypeMap()
+    AttachAllHistoryFrames()
 
+    -- Keep the event router registered as a hot compatibility fallback.
+    -- OnChatEvent returns immediately while exact frame capture is healthy, so
+    -- the two paths never write the same line. If a client cannot hook every
+    -- chat frame, the fallback becomes active without requiring a reload.
     for event in pairs(activeEventTypeMap) do
         if type(ns.RegisterEventIfSupported) == "function" then
             ns.RegisterEventIfSupported(self, event, "OnChatEvent")
@@ -858,16 +968,16 @@ function History:OnEnable()
         ns.RegisterEventIfSupported(self, "PLAYER_LOGOUT", "SaveHistory")
         ns.RegisterEventIfSupported(self, "SAVED_VARIABLES_TOO_LARGE", "SAVED_VARIABLES_TOO_LARGE")
         ns.RegisterEventIfSupported(self, "PLAYER_LEAVING_WORLD", "SaveHistory")
-        ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
+        ns.RegisterEventIfSupported(self, "UPDATE_CHAT_WINDOWS", "RefreshFrameCapture")
+        ns.RegisterEventIfSupported(self, "UPDATE_FLOATING_CHAT_WINDOWS", "RefreshFrameCapture")
+        ns.RegisterEventIfSupported(self, "CHANNEL_UI_UPDATE", "RefreshFrameCapture")
     else
         pcall(self.RegisterEvent, self, "PLAYER_LOGOUT", "SaveHistory")
         pcall(self.RegisterEvent, self, "SAVED_VARIABLES_TOO_LARGE", "SAVED_VARIABLES_TOO_LARGE")
         pcall(self.RegisterEvent, self, "PLAYER_LEAVING_WORLD", "SaveHistory")
-        pcall(self.RegisterEvent, self, "UPDATE_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        pcall(self.RegisterEvent, self, "UPDATE_FLOATING_CHAT_WINDOWS", InvalidateTargetFrameCache)
-        pcall(self.RegisterEvent, self, "CHANNEL_UI_UPDATE", InvalidateTargetFrameCache)
+        pcall(self.RegisterEvent, self, "UPDATE_CHAT_WINDOWS", "RefreshFrameCapture")
+        pcall(self.RegisterEvent, self, "UPDATE_FLOATING_CHAT_WINDOWS", "RefreshFrameCapture")
+        pcall(self.RegisterEvent, self, "CHANNEL_UI_UPDATE", "RefreshFrameCapture")
     end
 
     InvalidateTargetFrameCache()
@@ -877,6 +987,7 @@ function History:OnEnable()
 end
 
 function History:OnDisable()
+    historyCaptureEnabled = false
     self:UnregisterAllEvents()
     InvalidateTargetFrameCache()
 end

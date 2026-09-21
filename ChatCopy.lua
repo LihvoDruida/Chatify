@@ -557,6 +557,8 @@ local copySourceEntries = nil
 local copySearchBox
 local copySearchLabel
 local copySearchStatus
+local copySearchSourceKey
+local copySearchSourceLabel
 local RefreshHistorySearch
 local copyTextValue = ""
 -- Text the deferred layout pass should size the scroll child against. Kept
@@ -1799,11 +1801,35 @@ BuildTextFromEntries = function(entries, maxChars)
     return table.concat(lines, "\n")
 end
 
+local CYRILLIC_SEARCH_FOLD = {
+    {"А", "а"}, {"Б", "б"}, {"В", "в"}, {"Г", "г"}, {"Ґ", "ґ"},
+    {"Д", "д"}, {"Е", "е"}, {"Є", "є"}, {"Ё", "ё"}, {"Ж", "ж"},
+    {"З", "з"}, {"И", "и"}, {"І", "і"}, {"Ї", "ї"}, {"Й", "й"},
+    {"К", "к"}, {"Л", "л"}, {"М", "м"}, {"Н", "н"}, {"О", "о"},
+    {"П", "п"}, {"Р", "р"}, {"С", "с"}, {"Т", "т"}, {"У", "у"},
+    {"Ф", "ф"}, {"Х", "х"}, {"Ц", "ц"}, {"Ч", "ч"}, {"Ш", "ш"},
+    {"Щ", "щ"}, {"Ъ", "ъ"}, {"Ы", "ы"}, {"Ь", "ь"}, {"Э", "э"},
+    {"Ю", "ю"}, {"Я", "я"},
+}
+
+local function NormalizeHistorySearchText(value)
+    if type(value) ~= "string" then return "" end
+    local ok, lowered = pcall(string.lower, value)
+    if not ok or type(lowered) ~= "string" then return "" end
+
+    -- Lua's byte-based string.lower does not case-fold Ukrainian/Cyrillic UTF-8.
+    -- Add the common Cyrillic uppercase pairs explicitly so a search for
+    -- "ГІЛЬДІЯ" also finds "гільдія" without changing literal-match rules.
+    for i = 1, #CYRILLIC_SEARCH_FOLD do
+        local pair = CYRILLIC_SEARCH_FOLD[i]
+        lowered = lowered:gsub(pair[1], pair[2])
+    end
+    return lowered
+end
+
 local function FilterCopyEntries(entries, query)
     if type(entries) ~= "table" then return entries, 0, 0 end
-    query = type(query) == "string" and query or ""
-    local okLower, lowered = pcall(string.lower, query)
-    query = okLower and lowered or ""
+    query = NormalizeHistorySearchText(type(query) == "string" and query or "")
     if query == "" then return entries, #entries, #entries end
 
     local filtered, total = {}, 0
@@ -1811,8 +1837,8 @@ local function FilterCopyEntries(entries, query)
         local line = BuildPlainLine(entries[i])
         if IsNonEmptyString(line) then
             total = total + 1
-            local okLine, lowerLine = pcall(string.lower, line)
-            if okLine and type(lowerLine) == "string" and string.find(lowerLine, query, 1, true) then
+            local lowerLine = NormalizeHistorySearchText(line)
+            if lowerLine ~= "" and string.find(lowerLine, query, 1, true) then
                 filtered[#filtered + 1] = entries[i]
             end
         end
@@ -1822,6 +1848,28 @@ end
 
 RefreshHistorySearch = function()
     if copyWindowMode ~= "history" or not copySearchBox then return end
+
+    -- Search is deliberately bound to one Blizzard chat frame. Never reuse
+    -- entries from the previously opened tab if the selected History tab
+    -- changed while the window was already visible.
+    local currentKey = copyCurrentFrame and GetCopyFrameKey(copyCurrentFrame, GetChatFrameID(copyCurrentFrame)) or nil
+    if not currentKey or currentKey ~= copySearchSourceKey then
+        RenderCopyPreview({})
+        if copySearchStatus then copySearchStatus:SetText(string.format(L("%d lines"), 0)) end
+        if copyHint then copyHint:SetText(L("This chat tab has no saved history yet.")) end
+        return
+    end
+
+    -- Refresh from the exact open tab before each search. This keeps a History
+    -- window that has been left open from searching a stale snapshot while new
+    -- lines arrive, and never asks any other tab for candidates.
+    if type(ns.GetChatifyHistoryEntriesForFrame) == "function" and copyCurrentFrame then
+        local ok, latest = pcall(ns.GetChatifyHistoryEntriesForFrame, copyCurrentFrame, copyCurrentMaxLines)
+        if ok and type(latest) == "table" and #latest > 0 then
+            copySourceEntries = latest
+        end
+    end
+
     local query = copySearchBox:GetText() or ""
     local entries, matches, total = FilterCopyEntries(copySourceEntries or {}, query)
     RenderCopyPreview(entries)
@@ -1831,6 +1879,10 @@ RefreshHistorySearch = function()
         else
             copySearchStatus:SetText(string.format(L("%d matches"), matches))
         end
+    end
+    if copySearchLabel then
+        local label = copySearchSourceLabel or GetChatFrameDisplayName(copyCurrentFrame, GetChatFrameID(copyCurrentFrame))
+        copySearchLabel:SetText(string.format(L("Search in %s"), label))
     end
     if copyHint and query ~= "" and matches == 0 then
         copyHint:SetText(L("No history lines match this search."))
@@ -1884,12 +1936,23 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     copyCurrentFrame = chatFrame or copyCurrentFrame
     copyCurrentMaxLines = tonumber(maxLines) or copyCurrentMaxLines or COPY_WINDOW_MAX_LINES
     copyWindowMode = mode == "history" and "history" or "copy"
+
+    if copyWindowMode == "history" and copyCurrentFrame then
+        copySearchSourceKey = GetCopyFrameKey(copyCurrentFrame, GetChatFrameID(copyCurrentFrame))
+        copySearchSourceLabel = GetChatFrameDisplayName(copyCurrentFrame, GetChatFrameID(copyCurrentFrame))
+    else
+        copySearchSourceKey = nil
+        copySearchSourceLabel = nil
+    end
     if copyTitle then
         copyTitle:SetText(title or (copyWindowMode == "history" and L("Chatify History") or L("Chatify Copy")))
     end
     ApplyCopyWindowModeStyle(copyWindowMode)
     RefreshCopyTabs(false)
     copySourceEntries = entries
+    if copyWindowMode == "history" and copySearchLabel and copySearchSourceLabel then
+        copySearchLabel:SetText(string.format(L("Search in %s"), copySearchSourceLabel))
+    end
     if copyHint then
         if copyWindowMode == "history" then
             copyHint:SetText(L("Chat history is shown only here. Click Select History or select only the needed lines."))
