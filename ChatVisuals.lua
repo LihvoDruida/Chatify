@@ -1031,21 +1031,20 @@ local function InstallChannelLabelHook(frame)
                     ns.NoteChatEntryCleared("AddMessage wrapper")
                 end
 
-                if ChannelLabelsWanted() then
-                    local ok, rewritten = pcall(ns.ApplyChannelLabels, output)
-                    if ok and type(rewritten) == "string" then
-                        output = rewritten
+                local event, eventArgs = select(7, ...), select(8, ...)
+                if type(ns.TransformRenderedChatLine) == "function" then
+                    local okTransform, transformed = pcall(ns.TransformRenderedChatLine, output, event, eventArgs, self)
+                    if okTransform and type(transformed) == "string" then
+                        output = transformed
                     end
-                end
-
-                -- Deliberately after the labels. The label templates match on the
-                -- phrasing Blizzard wrote around the player name ("Bob whispers: "),
-                -- and a colour code inserted into that name first would stop them
-                -- matching.
-                if type(ns.HighlightMentionsInRenderedLine) == "function" then
-                    local okMention, highlighted = pcall(ns.HighlightMentionsInRenderedLine, output)
-                    if okMention and type(highlighted) == "string" then
-                        output = highlighted
+                else
+                    if ChannelLabelsWanted() then
+                        local ok, rewritten = pcall(ns.ApplyChannelLabels, output)
+                        if ok and type(rewritten) == "string" then output = rewritten end
+                    end
+                    if type(ns.HighlightMentionsInRenderedLine) == "function" then
+                        local okMention, highlighted = pcall(ns.HighlightMentionsInRenderedLine, output)
+                        if okMention and type(highlighted) == "string" then output = highlighted end
                     end
                 end
             end
@@ -1339,6 +1338,9 @@ function ns.ApplyVisuals()
     -- pre-0.11.26 build overwrote is restored by FrameXML on the next /reload.
     RunVisualStage("labelCache", ns.InvalidateChannelLabelCache)
     RunVisualStage("labelHook", ns.RefreshChannelLabelHook)
+    if type(ns.RefreshSecureChatTransforms) == "function" then
+        RunVisualStage("postRender", ns.RefreshSecureChatTransforms)
+    end
 end
 
 -- =========================================================

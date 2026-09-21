@@ -189,7 +189,7 @@ local function EnsureHistoryStore()
 end
 
 local function SaveVirtualLine(frameID, text, limit)
-    if not frameID or frameID == 2 or not text then
+    if not frameID or frameID == 2 or type(text) ~= "string" or text == "" or #text > 4096 then
         return
     end
 
@@ -200,6 +200,9 @@ local function SaveVirtualLine(frameID, text, limit)
     tinsert(bucket, text)
     while #bucket > limit do
         tremove(bucket, 1)
+    end
+    if type(ns.PruneChatifyHistoryStorage) == "function" then
+        ns.PruneChatifyHistoryStorage()
     end
 end
 

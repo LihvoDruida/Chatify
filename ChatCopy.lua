@@ -553,6 +553,11 @@ local copyAvailableTabs = {}
 local copyCurrentFrame
 local copyCurrentMaxLines = COPY_WINDOW_MAX_LINES
 local copyWindowMode = "copy"
+local copySourceEntries = nil
+local copySearchBox
+local copySearchLabel
+local copySearchStatus
+local RefreshHistorySearch
 local copyTextValue = ""
 -- Text the deferred layout pass should size the scroll child against. Kept
 -- separately from copyTextValue so a second window opened in between cannot make
@@ -1460,6 +1465,29 @@ local function CreateCopyWindow()
         ShiftCopyTabOffset(delta and delta > 0 and -1 or 1)
     end)
 
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("TOPLEFT", 18, -84)
+    searchLabel:SetText(L("Search"))
+    searchLabel:Hide()
+
+    local searchBox = CreateFrame("EditBox", "ChatifyHistorySearchBox", f, "InputBoxTemplate")
+    searchBox:SetSize(360, 24)
+    searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 10, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetMaxLetters(120)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    searchBox:SetScript("OnTextChanged", function(self)
+        if type(RefreshHistorySearch) == "function" then RefreshHistorySearch() end
+    end)
+    searchBox:Hide()
+
+    local searchStatus = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    searchStatus:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
+    searchStatus:SetPoint("RIGHT", f, "RIGHT", -36, 0)
+    searchStatus:SetJustifyH("RIGHT")
+    searchStatus:SetText("")
+    searchStatus:Hide()
+
     local previewBg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
     previewBg:SetPoint("TOPLEFT", 16, -78)
     previewBg:SetPoint("BOTTOMRIGHT", -34, 58)
@@ -1646,6 +1674,9 @@ local function CreateCopyWindow()
     copyHint = hint
     copyButton = btn
     copyPreviewBg = previewBg
+    copySearchBox = searchBox
+    copySearchLabel = searchLabel
+    copySearchStatus = searchStatus
     copyTabs = tabs
     copyTabPrevButton = prevTab
     copyTabNextButton = nextTab
@@ -1768,8 +1799,65 @@ BuildTextFromEntries = function(entries, maxChars)
     return table.concat(lines, "\n")
 end
 
+local function FilterCopyEntries(entries, query)
+    if type(entries) ~= "table" then return entries, 0, 0 end
+    query = type(query) == "string" and query or ""
+    local okLower, lowered = pcall(string.lower, query)
+    query = okLower and lowered or ""
+    if query == "" then return entries, #entries, #entries end
+
+    local filtered, total = {}, 0
+    for i = 1, #entries do
+        local line = BuildPlainLine(entries[i])
+        if IsNonEmptyString(line) then
+            total = total + 1
+            local okLine, lowerLine = pcall(string.lower, line)
+            if okLine and type(lowerLine) == "string" and string.find(lowerLine, query, 1, true) then
+                filtered[#filtered + 1] = entries[i]
+            end
+        end
+    end
+    return filtered, #filtered, total
+end
+
+RefreshHistorySearch = function()
+    if copyWindowMode ~= "history" or not copySearchBox then return end
+    local query = copySearchBox:GetText() or ""
+    local entries, matches, total = FilterCopyEntries(copySourceEntries or {}, query)
+    RenderCopyPreview(entries)
+    if copySearchStatus then
+        if query == "" then
+            copySearchStatus:SetText(string.format(L("%d lines"), total))
+        else
+            copySearchStatus:SetText(string.format(L("%d matches"), matches))
+        end
+    end
+    if copyHint and query ~= "" and matches == 0 then
+        copyHint:SetText(L("No history lines match this search."))
+    elseif copyHint then
+        copyHint:SetText(L("Search filters only the selected history tab. Select text and press Ctrl+C to copy."))
+    end
+end
+
+local function SetVisible(widget, visible)
+    if not widget then return end
+    if visible then
+        if type(widget.Show) == "function" then widget:Show() end
+    else
+        if type(widget.Hide) == "function" then widget:Hide() end
+    end
+end
+
 local function ApplyCopyWindowModeStyle(mode)
     local isHistory = mode == "history"
+    SetVisible(copySearchBox, isHistory)
+    SetVisible(copySearchLabel, isHistory)
+    SetVisible(copySearchStatus, isHistory)
+    if copyPreviewBg then
+        copyPreviewBg:ClearAllPoints()
+        copyPreviewBg:SetPoint("TOPLEFT", 16, isHistory and -112 or -78)
+        copyPreviewBg:SetPoint("BOTTOMRIGHT", -34, 58)
+    end
     if copyPreviewBg and copyPreviewBg.SetBackdropBorderColor then
         if isHistory then
             copyPreviewBg:SetBackdropBorderColor(0.28, 0.50, 0.85, 0.95)
@@ -1801,6 +1889,7 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     end
     ApplyCopyWindowModeStyle(copyWindowMode)
     RefreshCopyTabs(false)
+    copySourceEntries = entries
     if copyHint then
         if copyWindowMode == "history" then
             copyHint:SetText(L("Chat history is shown only here. Click Select History or select only the needed lines."))
@@ -1809,7 +1898,11 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
         end
     end
 
-    RenderCopyPreview(entries)
+    if copyWindowMode == "history" and type(RefreshHistorySearch) == "function" then
+        RefreshHistorySearch()
+    else
+        RenderCopyPreview(entries)
+    end
 
     if IsBlankCopyEntries(entries) and copyHint then
         copyHint:SetText(entries.__chatifyHint or (copyWindowMode == "history" and L("This chat tab has no saved history yet.") or L("This chat tab has no messages to copy.")))

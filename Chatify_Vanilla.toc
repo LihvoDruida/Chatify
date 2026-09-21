@@ -7,7 +7,7 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.15.1
+## Version: 2.16.0
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
@@ -29,12 +29,14 @@ Config.lua
 
 ChatProxy.lua
 Settings.lua
+ProfileTransfer.lua
 ChatCopy.lua
 ChatRouter.lua
 ChatVisuals.lua
 ChatQuickButtons.lua
 ChatComposer.lua
 ChatFilters.lua
+ChatTransforms.lua
 ChatHistory.lua
 ChatSounds.lua
 ChatAutoReply.lua

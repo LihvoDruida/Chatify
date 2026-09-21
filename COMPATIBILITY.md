@@ -1,8 +1,8 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-09-20**
+Audit date: **2026-09-21**
 
-Chatify 2.15.1 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.16.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -72,6 +72,25 @@ Forever is treated as a hybrid UI client. Runtime logs show Camelot, Mainline, S
 Secret-value restrictions are treated as active when the runtime reports them. Chatify checks secret/accessibility inspectors before converting, comparing, matching, storing, copying, or highlighting chat payloads.
 
 Modern Blizzard Settings calls use only the numeric category ID returned by AceConfigDialog. Category names and frame objects are never passed to `Settings.OpenToCategory` or `C_SettingsUtil.OpenSettingsPanel`; legacy frame-based opening is kept as a separate fallback.
+
+
+## Secure post-render formatting
+
+On clients that expose `ScrollingMessageFrame:TransformMessages`, Chatify observes Blizzard `AddMessage` with `hooksecurefunc` and transforms only the exact readable entry after Blizzard has rendered it. The match includes the rendered message, event name, and event-argument table identity. Chatify returns Blizzard color and metadata fields unchanged.
+
+This path is preferred over replacing `frame.AddMessage`. The legacy wrapper remains only for older clients without the post-render API. Channel labels, mention highlighting, URL decoration, short visible player names, and optional race/class sender icons all use the same formatter so modern and legacy clients do not maintain separate feature logic. Blizzard currently uses `TransformMessages` in its own chat-frame utilities, making it the preferred low-interference path where available.
+
+Sender shortening changes only the visible label inside a player hyperlink. The `|Hplayer:Name-Realm:...|h` routing payload remains untouched. Race/class decoration requires readable event metadata and `GetPlayerInfoByGUID`; inaccessible or protected values are skipped rather than guessed.
+
+## History storage budget and search
+
+Persistent history is bounded twice: per-tab line limits and a global approximate byte budget. The default byte budget is 128 KiB, the settings UI exposes 32-512 KiB, and the internal clamp is 32-1024 KiB. Individual stored lines over 4096 bytes are rejected. When the budget is exceeded, Chatify removes oldest entries fairly across stored buckets instead of allowing one busy tab to evict every other tab. Virtual-chat history participates in the same estimate and pruning path.
+
+The Chatify History window includes a literal, case-insensitive search field. It filters only the currently selected chat tab and never evaluates the query as a Lua pattern or code. Copy mode remains unchanged.
+
+## Profile backup format
+
+Chatify can export and import its profile through `/chatifyexport`, `/chatifyimport`, or Settings. The backup contains profile settings only; `ChatifyHistoryDB` is never included. The import format is parsed as typed data without `load`, `loadstring`, or execution of pasted text. Parsing is bounded by total bytes, entry count, nesting depth, key size, and string size, and unknown top-level profile keys are discarded.
 
 ## TOC safety
 

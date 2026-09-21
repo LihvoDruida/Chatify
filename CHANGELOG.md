@@ -1,5 +1,39 @@
 # Chatify Changelog
 
+## 2.16.0 - 2026-09-21
+
+### Secure post-render chat pipeline
+
+- Add `ChatTransforms.lua` and prefer Blizzard `ScrollingMessageFrame:TransformMessages()` for readable chat entries when the API is available.
+- Observe `AddMessage` with `hooksecurefunc` instead of replacing it on modern protected-chat clients.
+- Match the exact rendered entry by message, event, and event-argument identity before transforming it.
+- Route channel labels, mention highlighting, URL decoration, short visible player names, and sender icons through one post-render formatter.
+- Stop taking ownership of `frame.AddMessage` when the secure post-render API is available; keep the existing legacy wrapper only as a fallback for older clients.
+- Preserve Blizzard message colors and metadata when a line is transformed.
+
+### Sender formatting
+
+- Add Short Player Names while preserving the full `Name-Realm` player-link routing target.
+- Add optional race and class atlas icons before readable player senders.
+- Add sender icon scale and baseline offset controls.
+- Skip sender decoration when GUID, sender, class, race, sex, atlas metadata, or event arguments are protected or unavailable.
+
+### History safety and search
+
+- Add a persistent history byte budget with a 128 KiB default and a configurable 32-512 KiB UI range.
+- Reject individual history lines larger than 4096 bytes and prune the oldest lines before SavedVariables becomes dangerously large.
+- Include virtual-chat history in the storage estimate and proactive pruning path.
+- Add literal, case-insensitive search directly inside Chatify History for the currently selected chat tab.
+- Keep search local to the selected history tab and preserve normal Copy mode without an extra search row.
+
+### Profile backup
+
+- Add `/chatifyexport` and `/chatifyimport`.
+- Add Export Settings and Import Settings controls in Chatify settings.
+- Export only Chatify profile settings; persistent chat history is intentionally excluded.
+- Parse imports as a bounded typed data format instead of executing pasted Lua.
+- Reject unknown top-level settings, excessive nesting, oversized values, invalid keys, invalid numbers, and oversized exports.
+
 ## 2.15.1 - 2026-09-21
 
 ### AceGUI text safety

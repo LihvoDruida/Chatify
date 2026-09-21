@@ -590,8 +590,64 @@ function Chatify:GetOptions()
                                 get = function(info) return self.db.profile.urlColor or "0099FF" end,
                             },
 
-                            hoverHyperlinkTooltips = {
+                            shortPlayerNames = {
                                 order = 6,
+                                name = T("Short Player Names"),
+                                desc = T("Show only the character name in player links while keeping the full Name-Realm routing target unchanged."),
+                                type = "toggle",
+                                width = "full",
+                                set = function(info, val) self.db.profile.shortPlayerNames = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.shortPlayerNames == true end,
+                            },
+                            senderRaceIcon = {
+                                order = 7,
+                                name = T("Race Icon Before Sender"),
+                                desc = T("Show a race icon before readable player senders when the client exposes the required metadata."),
+                                type = "toggle",
+                                hidden = function()
+                                    return type(GetPlayerInfoByGUID) ~= "function" or type(GetRaceAtlas) ~= "function"
+                                end,
+                                set = function(info, val) self.db.profile.senderRaceIcon = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.senderRaceIcon == true end,
+                            },
+                            senderClassIcon = {
+                                order = 8,
+                                name = T("Class Icon Before Sender"),
+                                desc = T("Show a class icon before readable player senders when the client exposes the required metadata."),
+                                type = "toggle",
+                                hidden = function()
+                                    return type(GetPlayerInfoByGUID) ~= "function" or type(GetClassAtlas) ~= "function"
+                                end,
+                                set = function(info, val) self.db.profile.senderClassIcon = val; ns.ApplyVisuals() end,
+                                get = function(info) return self.db.profile.senderClassIcon == true end,
+                            },
+                            senderIconScale = {
+                                order = 9,
+                                name = T("Sender Icon Scale"),
+                                type = "range", min = 60, max = 110, step = 5,
+                                hidden = function()
+                                    if type(GetPlayerInfoByGUID) ~= "function" then return true end
+                                    return type(GetRaceAtlas) ~= "function" and type(GetClassAtlas) ~= "function"
+                                end,
+                                disabled = function() return not self.db.profile.senderRaceIcon and not self.db.profile.senderClassIcon end,
+                                set = function(info, val) self.db.profile.senderIconScale = val end,
+                                get = function(info) return tonumber(self.db.profile.senderIconScale) or 85 end,
+                            },
+                            senderIconOffset = {
+                                order = 10,
+                                name = T("Sender Icon Offset"),
+                                type = "range", min = -6, max = 6, step = 1,
+                                hidden = function()
+                                    if type(GetPlayerInfoByGUID) ~= "function" then return true end
+                                    return type(GetRaceAtlas) ~= "function" and type(GetClassAtlas) ~= "function"
+                                end,
+                                disabled = function() return not self.db.profile.senderRaceIcon and not self.db.profile.senderClassIcon end,
+                                set = function(info, val) self.db.profile.senderIconOffset = val end,
+                                get = function(info) return tonumber(self.db.profile.senderIconOffset) or 0 end,
+                            },
+
+                            hoverHyperlinkTooltips = {
+                                order = 11,
                                 name = T("Show Link Tooltips on Hover"),
                                 desc = T("When enabled, item/spell/achievement links in chat show their tooltip on mouseover.\nDisable this if hover-tooltips keep getting in your way."),
                                 type = "toggle",
@@ -2045,6 +2101,26 @@ function Chatify:GetOptions()
                         }
                     },
 
+                    groupProfileBackup = {
+                        name = T("Profile Backup"),
+                        type = "group",
+                        order = 1.5,
+                        args = {
+                            profileBackupInfo = {
+                                order = 1, type = "description",
+                                name = T("Export or import Chatify settings as plain text. Chat history is never included, and imported text is parsed as data rather than executed as Lua."),
+                            },
+                            exportProfile = {
+                                order = 2, type = "execute", name = T("Export Settings"),
+                                func = function() if type(ns.OpenProfileExport) == "function" then ns.OpenProfileExport() end end,
+                            },
+                            importProfile = {
+                                order = 3, type = "execute", name = T("Import Settings"),
+                                func = function() if type(ns.OpenProfileImport) == "function" then ns.OpenProfileImport() end end,
+                            },
+                        },
+                    },
+
                     -- 2. HISTORY GROUP
                     groupHistory = {
                         name = T("Chat History"),
@@ -2075,6 +2151,18 @@ function Chatify:GetOptions()
                                     disabled = function() return not self.db.profile.enableHistory end,
                                     set = function(info, val) self.db.profile.historyLimit = val end,
                                     get = function(info) return self.db.profile.historyLimit end,
+                                },
+                                historyStorageKB = {
+                                    order = 3,
+                                    name = T("Saved History Storage"),
+                                    desc = T("Maximum approximate storage for persistent chat history. Oldest lines are removed before SavedVariables becomes dangerously large."),
+                                    type = "range", min = 32, max = 512, step = 16,
+                                    disabled = function() return not self.db.profile.enableHistory end,
+                                    set = function(info, val)
+                                        self.db.profile.historyStorageKB = math.floor(tonumber(val) or 128)
+                                        if type(ns.PruneChatifyHistoryStorage) == "function" then ns.PruneChatifyHistoryStorage() end
+                                    end,
+                                    get = function(info) return tonumber(self.db.profile.historyStorageKB) or 128 end,
                                 }
                         }
                     },
@@ -2947,6 +3035,8 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
     self:RegisterChatCommand("chatifytrace", "PrintChatEntryTrace")
     self:RegisterChatCommand("chatifytaint", "PrintChatTaintReport")
+    self:RegisterChatCommand("chatifyexport", function() if type(ns.OpenProfileExport) == "function" then ns.OpenProfileExport() end end)
+    self:RegisterChatCommand("chatifyimport", function() if type(ns.OpenProfileImport) == "function" then ns.OpenProfileImport() end end)
     
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after

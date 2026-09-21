@@ -871,6 +871,7 @@ ns.defaults = {
         useVirtualChat = false,      -- На modern Retail лишається вимкненим: прямий chat-frame layer конфліктує з secret values
         enableHistory = true,
         historyLimit = 250,         -- Зберігати 250 рядків для History popup
+        historyStorageKB = 128,     -- Proactive SavedVariables budget for persistent chat history
 
         -- Keep a marker in history where a line could not be read, matching what the
         -- copy window has always done. Consecutive markers collapse, so a boss fight
@@ -999,6 +1000,11 @@ ns.defaults = {
         -- across on first load. Not read anywhere else.
         channelLabelsNumbered = {},
         shortChannels = true,       -- [Party] -> [P]
+        shortPlayerNames = false,    -- Keep full player-link target but shorten visible Name-Realm label
+        senderRaceIcon = false,      -- Optional race atlas before the sender label when metadata is readable
+        senderClassIcon = false,     -- Optional class atlas before the sender label when metadata is readable
+        senderIconScale = 85,        -- Inline sender icon size relative to chat font
+        senderIconOffset = 0,        -- Fine baseline adjustment for inline sender icons
         urlColor = "0099FF",        -- Колір посилань
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
         quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
@@ -2008,7 +2014,8 @@ function ns.GetFeatureSupport(feature)
     elseif feature == "mentions" then
         if secretRestricted then
             local canRender = type(ns.CanReplaceChatFrameAddMessage) == "function" and ns.CanReplaceChatFrameAddMessage()
-            if not canRender and not HasMessageFilterAPI() then
+            local canPostRender = type(ns.HasSecurePostRenderAPI) == "function" and ns.HasSecurePostRenderAPI()
+            if not canRender and not canPostRender and not HasMessageFilterAPI() then
                 return FEATURE_UNAVAILABLE
             end
             return FEATURE_WARNING
@@ -2515,6 +2522,16 @@ end
 -- is itself a write from tainted code, so the field stays tainted until /reload.
 -- That is why the guard, once installed, is never removed either.
 function ns.CanReplaceChatFrameAddMessage()
+    -- Modern chat frames can transform already-rendered entries without replacing
+    -- AddMessage. Prefer that path whenever it exists: owning AddMessage is a taint
+    -- vector and is no longer necessary for labels/mentions/URLs on Forever/Midnight.
+    if type(ns.HasSecurePostRenderAPI) == "function" then
+        local ok, available = pcall(ns.HasSecurePostRenderAPI)
+        if ok and available then
+            return false
+        end
+    end
+
     -- Checked before anything else so the diagnostic lever works on every client, not
     -- only the ones with secret values.
     local db = ns.db

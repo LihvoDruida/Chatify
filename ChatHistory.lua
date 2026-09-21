@@ -289,8 +289,13 @@ local function GetTargetFrames(event, channelBaseName, zoneChannelID)
     return frames
 end
 
+local HISTORY_LINE_BYTE_LIMIT = 4096
+
 local function AddWithLimit(tbl, message, limit)
     if type(tbl) ~= "table" or type(message) ~= "string" or message == "" then
+        return
+    end
+    if #message > HISTORY_LINE_BYTE_LIMIT then
         return
     end
 
@@ -347,6 +352,75 @@ local function FormatMessage(msg, author)
     return string.format("%s%s", prefix, msg)
 end
 
+local function GetHistoryBudgetBytes()
+    local db = GetHistoryDB()
+    local kb = tonumber(db and db.historyStorageKB) or 128
+    if kb < 32 then kb = 32 elseif kb > 1024 then kb = 1024 end
+    return math.floor(kb * 1024)
+end
+
+local function PruneBucketLineSize(bucket)
+    if type(bucket) ~= "table" then return 0 end
+    local bytes = 0
+    local writeIndex = 1
+    for i = 1, #bucket do
+        local value = bucket[i]
+        if type(value) == "string" and value ~= "" and #value <= HISTORY_LINE_BYTE_LIMIT then
+            bucket[writeIndex] = value
+            writeIndex = writeIndex + 1
+            bytes = bytes + #value + 16
+        end
+    end
+    for i = writeIndex, #bucket do bucket[i] = nil end
+    return bytes
+end
+
+function ns.PruneChatifyHistoryStorage()
+    local budget = GetHistoryBudgetBytes()
+    local buckets, total = {}, 0
+
+    local function addBuckets(container)
+        if type(container) ~= "table" then return end
+        for _, bucket in pairs(container) do
+            if type(bucket) == "table" then
+                local bytes = PruneBucketLineSize(bucket)
+                total = total + bytes
+                buckets[#buckets + 1] = bucket
+            end
+        end
+    end
+
+    addBuckets(frameHistory)
+    if type(ChatifyHistoryDB) == "table" then
+        addBuckets(ChatifyHistoryDB.Virtual)
+    end
+
+    -- Buckets do not carry a common timestamp. Remove oldest entries in a fair
+    -- round-robin instead of letting one busy tab evict every other tab.
+    local safety = 0
+    while total > budget and #buckets > 0 and safety < 20000 do
+        safety = safety + 1
+        local removedAny = false
+        for i = 1, #buckets do
+            local bucket = buckets[i]
+            local value = bucket[1]
+            if type(value) == "string" then
+                total = total - (#value + 16)
+                table.remove(bucket, 1)
+                removedAny = true
+                if total <= budget then break end
+            end
+        end
+        if not removedAny then break end
+    end
+
+    return total, budget
+end
+
+function ns.GetHistoryStorageBudgetBytes()
+    return GetHistoryBudgetBytes()
+end
+
 local function AddFrameHistory(chatID, message, limit)
     chatID = NormalizeFrameID(chatID)
     if not chatID then
@@ -355,6 +429,9 @@ local function AddFrameHistory(chatID, message, limit)
 
     frameHistory[chatID] = frameHistory[chatID] or {}
     AddWithLimit(frameHistory[chatID], message, limit)
+    if type(ns.PruneChatifyHistoryStorage) == "function" then
+        ns.PruneChatifyHistoryStorage()
+    end
 end
 
 local function SeedFrameHistoryFromSaved()
@@ -648,19 +725,22 @@ function ns.EstimateHistorySize()
         return 0
     end
 
-    for _, messages in pairs(ChatifyHistoryDB.frames or {}) do
-        if type(messages) == "table" then
-            for index = 1, #messages do
-                local value = messages[index]
-                if type(value) == "string" then
-                    -- The string, its quotes, the index and the surrounding
-                    -- syntax the client writes around each entry.
-                    total = total + #value + 16
+    local function addContainer(container)
+        if type(container) ~= "table" then return end
+        for _, messages in pairs(container) do
+            if type(messages) == "table" then
+                for index = 1, #messages do
+                    local value = messages[index]
+                    if type(value) == "string" then
+                        total = total + #value + 16
+                    end
                 end
             end
         end
     end
 
+    addContainer(ChatifyHistoryDB.frames)
+    addContainer(ChatifyHistoryDB.Virtual)
     return total
 end
 
@@ -676,6 +756,9 @@ function History:SaveHistoryUnprotected()
     local db = GetHistoryDB()
     if not db or db.enableHistory == false then return end
     SeedFrameHistoryFromSaved()
+    if type(ns.PruneChatifyHistoryStorage) == "function" then
+        ns.PruneChatifyHistoryStorage()
+    end
 
     local output = {
         version = 2,

@@ -864,6 +864,8 @@ local function DecorateLinksInText(text)
     return TransformPlainTextSegments(text, DecorateLinksInSegment)
 end
 
+ns.DecorateLinksInText = DecorateLinksInText
+
 local MentionCooldowns = {}
 
 local function NormalizeColor(value, fallback)
@@ -1258,7 +1260,13 @@ function ns.ShouldHighlightMentionsOnRender()
         return false
     end
 
-    if type(ns.CanReplaceChatFrameAddMessage) == "function" then
+    local hasPostRender = false
+    if type(ns.HasSecurePostRenderAPI) == "function" then
+        local okPost, available = pcall(ns.HasSecurePostRenderAPI)
+        hasPostRender = okPost and available and true or false
+    end
+
+    if not hasPostRender and type(ns.CanReplaceChatFrameAddMessage) == "function" then
         local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
         if ok and not allowed then
             return false
