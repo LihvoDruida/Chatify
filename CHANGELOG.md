@@ -1,5 +1,18 @@
 # Chatify Changelog
 
+## 2.16.2 - 2026-09-21
+
+### Fixed
+
+- Stop stacking secure `AddMessage` history hooks when chat-window refresh events fire.
+- Add an eventArgs identity guard so one Blizzard message cannot be stored several times by duplicate post-hook callbacks.
+- Migrate 2.16.1 frame history to schema v4 and collapse adjacent duplicate rows created by the old hook stacking bug.
+- Keep History Search bound to the currently open chat frame and replace its source even when that frame is empty.
+- Use the current frame's own `GetMessageInfo` buffer as the only search fallback; never reuse a previous tab's results.
+- Automatically select the docked Blizzard chat tab that receives Guild, Party, Raid, Raid Warning, Instance, Say, or Yell when Chatify changes chat type.
+- Apply the same receiving-tab selection to native slash chat type changes through `ChatEdit_UpdateHeader`, preventing Party/Raid messages from remaining hidden until the tab is clicked.
+
+
 ## 2.16.1 - 2026-09-21
 
 ### Per-tab history isolation

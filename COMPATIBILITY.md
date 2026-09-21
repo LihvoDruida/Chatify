@@ -153,3 +153,12 @@ If the optional Misspelled addon is present, Composer can attach it to the edito
 ## AceGUI shared-widget safety
 
 AceGUI widget registrations are global through LibStub. When several addons embed AceGUI, the active core and individual widgets can come from different addon folders depending on their registered revisions. Chatify therefore ships the current Label widget surface plus a protected-text guard as a newer Label revision. Values that are secret, inaccessible, or not valid FontString text are dropped before `FontString:SetText` is called. Chatify also sanitizes its own dynamic option names, descriptions, and joined-channel names before they reach AceConfig.
+
+
+## History hook and dock-tab routing (2.16.2)
+
+Chatify history secure-hooks each concrete Blizzard `ChatFrame:AddMessage` exactly once per UI session. `hooksecurefunc` itself replaces the method with a secure wrapper, so method-identity comparisons must not be used as a signal to re-hook on `UPDATE_CHAT_WINDOWS`; doing so stacks callbacks and duplicates persisted rows. Schema v4 migrates 2.16.1 buckets by collapsing adjacent exact duplicates.
+
+History Search always refreshes from the currently selected frame bucket and may fall back only to that same frame's `GetMessageInfo` buffer. Empty tabs replace the search source with an empty list rather than retaining a previous tab snapshot.
+
+When a user changes to Guild/Party/Raid/Raid Warning/Instance/Say/Yell and the currently selected dock tab does not receive that message group, Chatify selects the first docked Blizzard chat frame whose `ContainsMessageGroup` reports that it does. This applies to both Chatify quick-channel buttons and native slash chat-type changes where `ChatEdit_UpdateHeader` is available. Older clients without `ContainsMessageGroup` use a conservative `messageTypeList` fallback; if neither is readable Chatify leaves Blizzard's selected tab unchanged.

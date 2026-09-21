@@ -560,6 +560,7 @@ local copySearchStatus
 local copySearchSourceKey
 local copySearchSourceLabel
 local RefreshHistorySearch
+local ReadMessageHistory
 local copyTextValue = ""
 -- Text the deferred layout pass should size the scroll child against. Kept
 -- separately from copyTextValue so a second window opened in between cannot make
@@ -1863,11 +1864,25 @@ RefreshHistorySearch = function()
     -- Refresh from the exact open tab before each search. This keeps a History
     -- window that has been left open from searching a stale snapshot while new
     -- lines arrive, and never asks any other tab for candidates.
-    if type(ns.GetChatifyHistoryEntriesForFrame) == "function" and copyCurrentFrame then
-        local ok, latest = pcall(ns.GetChatifyHistoryEntriesForFrame, copyCurrentFrame, copyCurrentMaxLines)
-        if ok and type(latest) == "table" and #latest > 0 then
-            copySourceEntries = latest
+    if copyCurrentFrame then
+        local latest
+        if type(ns.GetChatifyHistoryEntriesForFrame) == "function" then
+            local ok, stored = pcall(ns.GetChatifyHistoryEntriesForFrame, copyCurrentFrame, copyCurrentMaxLines)
+            if ok and type(stored) == "table" then
+                latest = stored
+            end
         end
+        -- A fresh session may not have a persisted bucket yet. The frame's own
+        -- GetMessageInfo buffer is still per-tab, so it is a safe fallback and
+        -- keeps Search scoped to the open tab instead of reusing the previous
+        -- tab's snapshot.
+        if not HasAnyCopyEntries(latest) then
+            local live = ReadMessageHistory(copyCurrentFrame, copyCurrentMaxLines)
+            if type(live) == "table" then latest = live end
+        end
+        copySourceEntries = type(latest) == "table" and latest or {}
+    else
+        copySourceEntries = {}
     end
 
     local query = copySearchBox:GetText() or ""
@@ -2206,7 +2221,7 @@ local function CanUseGlobalCopyFallback(chatFrame, messageCount, entries)
     return not HasAnyCopyEntries(entries) or HasReadableEntries(entries) == false
 end
 
-local function ReadMessageHistory(chatFrame, maxLines)
+ReadMessageHistory = function(chatFrame, maxLines)
     if not chatFrame then
         return nil
     end

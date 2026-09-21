@@ -1708,6 +1708,76 @@ local function ResolveChatTarget(def, useAlt)
     }
 end
 
+
+local AUTO_TAB_CHAT_TYPES = {
+    GUILD = true,
+    OFFICER = true,
+    PARTY = true,
+    RAID = true,
+    RAID_WARNING = true,
+    INSTANCE_CHAT = true,
+    SAY = true,
+    YELL = true,
+}
+
+local autoSelectingChatTab = false
+
+local function FrameContainsMessageGroup(frame, chatType)
+    if not frame or type(chatType) ~= "string" then return false end
+    if type(frame.ContainsMessageGroup) == "function" then
+        local ok, contains = pcall(frame.ContainsMessageGroup, frame, chatType)
+        if ok then return contains == true end
+    end
+
+    -- Compatibility fallback for older clients that expose the list directly.
+    local list = frame.messageTypeList
+    if type(list) == "table" then
+        if list[chatType] then return true end
+        for key, value in pairs(list) do
+            if key == chatType or value == chatType then return true end
+        end
+    end
+    return false
+end
+
+local function SelectDockedChatFrameForType(chatType)
+    if autoSelectingChatTab or not AUTO_TAB_CHAT_TYPES[chatType] then return nil end
+
+    local selected = GetSelectedDockFrame()
+    if selected and FrameContainsMessageGroup(selected, chatType) then
+        return selected
+    end
+
+    local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
+    for i = 1, maxFrames do
+        local frame = NormalizeChatFrame(_G["ChatFrame" .. i])
+        if frame and frame ~= _G.ChatFrame2 and frame.isDocked and FrameContainsMessageGroup(frame, chatType) then
+            autoSelectingChatTab = true
+            local switched = false
+            if type(_G.FCF_SelectDockFrame) == "function" then
+                local ok = pcall(_G.FCF_SelectDockFrame, frame)
+                switched = ok
+            elseif _G.GeneralDockManager and type(_G.FCFDock_SelectWindow) == "function" then
+                local ok = pcall(_G.FCFDock_SelectWindow, _G.GeneralDockManager, frame)
+                switched = ok
+            else
+                local tab = type(frame.GetName) == "function" and _G[(frame:GetName() or "") .. "Tab"] or nil
+                if tab and type(tab.Click) == "function" then
+                    local ok = pcall(tab.Click, tab, "LeftButton")
+                    switched = ok
+                end
+            end
+            autoSelectingChatTab = false
+            if switched then
+                return frame
+            end
+        end
+    end
+    return selected
+end
+
+ns.SelectChatifyTabForChatType = SelectDockedChatFrameForType
+
 local function GetCurrentChatType()
     local editBox = GetActiveEditBox()
     if editBox then
@@ -1914,7 +1984,11 @@ local function ActivateChatType(def, useAlt)
         return
     end
 
-    local frame = GetAnchorFrame()
+    -- If Chatify created dedicated Guild/Raid/Party tabs, move the Blizzard
+    -- dock to the tab that actually receives this chat type before opening the
+    -- edit box. Otherwise an outgoing /p or /raid line is routed correctly but
+    -- remains invisible until the user clicks that tab manually.
+    local frame = SelectDockedChatFrameForType(target.chatType) or GetAnchorFrame()
     if not frame then
         return
     end
@@ -3323,10 +3397,36 @@ local function HookGeneralRefreshSignals()
         end)
     end
 
+    local function HandleChatHeaderUpdate(editBox)
+        -- Native slash commands (/p, /g, /raid, ...) can change the active chat
+        -- type without touching Chatify's quick buttons. Mirror the quick-button
+        -- behavior so the receiving Blizzard tab becomes visible immediately.
+        local chatType
+        if editBox and type(editBox.GetChatType) == "function" then
+            local okType, value = pcall(editBox.GetChatType, editBox)
+            if okType and type(value) == "string" then chatType = value end
+        end
+        if not chatType and editBox and type(editBox.GetAttribute) == "function" then
+            local okType, value = pcall(editBox.GetAttribute, editBox, "chatType")
+            if okType and type(value) == "string" then chatType = value end
+        end
+        if not chatType and editBox and type(editBox.chatType) == "string" then
+            chatType = editBox.chatType
+        end
+        if chatType then SelectDockedChatFrameForType(chatType) end
+        ScheduleButtonStateUpdate()
+    end
+
+    -- Legacy clients expose a flat helper; modern clients call the edit-box
+    -- mixin method directly. Hook whichever surfaces exist. Selecting an already
+    -- correct tab is a no-op, so dual exposure on transitional clients is safe.
     if type(_G.ChatEdit_UpdateHeader) == "function" then
-        pcall(hooksecurefunc, "ChatEdit_UpdateHeader", function()
-            ScheduleButtonStateUpdate()
-        end)
+        pcall(hooksecurefunc, "ChatEdit_UpdateHeader", HandleChatHeaderUpdate)
+    end
+    if type(_G.ChatFrameEditBoxMixin) == "table" and type(_G.ChatFrameEditBoxMixin.UpdateHeader) == "function" then
+        pcall(hooksecurefunc, _G.ChatFrameEditBoxMixin, "UpdateHeader", HandleChatHeaderUpdate)
+    elseif type(_G.ChatFrameEditBoxMixinBase) == "table" and type(_G.ChatFrameEditBoxMixinBase.UpdateHeader) == "function" then
+        pcall(hooksecurefunc, _G.ChatFrameEditBoxMixinBase, "UpdateHeader", HandleChatHeaderUpdate)
     end
 
     if _G.ChatFrameUtil then

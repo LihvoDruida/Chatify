@@ -65,7 +65,9 @@ local restoredToChatFrames = false
 local exactFrameCaptureActive = false
 local historyCaptureEnabled = false
 local historyHookedFrames = setmetatable({}, { __mode = "k" })
-local historyHookTargets = setmetatable({}, { __mode = "k" })
+local lastCapturedEntry = setmetatable({}, { __mode = "k" })
+local HISTORY_SCHEMA_VERSION = 4
+local HISTORY_CAPTURE_MODE = "frame-addmessage-once"
 local unpack = table.unpack or unpack
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
@@ -463,10 +465,38 @@ local function StoreRenderedHistoryLine(frame, rawText, ...)
         return
     end
 
+    -- hooksecurefunc(table, "AddMessage", ...) replaces the table method with
+    -- its own secure wrapper. Re-attaching the same post-hook on every chat
+    -- refresh therefore stacks callbacks and stores one rendered line several
+    -- times. Keep one hook per frame for the whole UI session and, as an extra
+    -- guard, collapse callbacks that carry the exact same eventArgs table.
+    local event, eventArgs = select(7, ...), select(8, ...)
+    if type(eventArgs) == "table" then
+        local accessible = true
+        if type(ns.IsProtectedChatValue) == "function" then
+            local okProtected, protected = pcall(ns.IsProtectedChatValue, eventArgs)
+            if not okProtected or protected then accessible = false end
+        end
+        if accessible and type(ns.CanAccessChatValue) == "function" then
+            local okAccess, canAccess = pcall(ns.CanAccessChatValue, eventArgs)
+            if not okAccess or not canAccess then accessible = false end
+        end
+        if accessible and type(canaccesstable) == "function" then
+            local okAccess, canAccess = pcall(canaccesstable, eventArgs)
+            accessible = okAccess and canAccess == true
+        end
+        if accessible then
+            local previous = lastCapturedEntry[frame]
+            if previous and previous.eventArgs == eventArgs and previous.text == safeText and previous.event == event then
+                return
+            end
+            lastCapturedEntry[frame] = { eventArgs = eventArgs, text = safeText, event = event }
+        end
+    end
+
     -- Match the final Chatify presentation when the modern AddMessage metadata
     -- is readable. If metadata is absent on an older client, the raw rendered
     -- line is still the exact text Blizzard routed into this frame.
-    local event, eventArgs = select(7, ...), select(8, ...)
     if type(ns.TransformRenderedChatLine) == "function" and type(event) == "string" then
         local ok, transformed = pcall(ns.TransformRenderedChatLine, safeText, event, eventArgs, frame)
         if ok and type(transformed) == "string" then safeText = transformed end
@@ -480,18 +510,18 @@ local function AttachHistoryFrame(frame)
     if not frame or not IsFrameAllowed(frame) then return false end
     if type(frame.AddMessage) ~= "function" or type(hooksecurefunc) ~= "function" then return false end
 
-    -- If another addon replaced AddMessage after our previous hook, the secure
-    -- hook no longer observes the new method. Detect that on every chat-window
-    -- refresh and attach to the replacement as well.
-    if historyHookedFrames[frame] and historyHookTargets[frame] == frame.AddMessage then
+    -- Secure-hook each concrete ChatFrame exactly once. hooksecurefunc installs
+    -- its own wrapper into frame.AddMessage, so comparing the method identity on
+    -- later UPDATE_CHAT_WINDOWS events incorrectly looks like another addon
+    -- replaced it and stacks another history callback. That was the source of
+    -- the 4x/6x duplicated rows visible in the History window.
+    if historyHookedFrames[frame] then
         return true
     end
 
-    local target = frame.AddMessage
     local ok = pcall(hooksecurefunc, frame, "AddMessage", StoreRenderedHistoryLine)
     if ok then
         historyHookedFrames[frame] = true
-        historyHookTargets[frame] = target
         return true
     end
     return false
@@ -533,15 +563,38 @@ local function SeedFrameHistoryFromSaved()
         return
     end
 
-    -- Version 2 history was assigned to frames from CHAT_MSG_* registration
-    -- heuristics. Once those buckets have been merged there is no reliable way
-    -- to reconstruct which line belonged to which Blizzard chat tab. Start the
-    -- per-frame store clean exactly once and preserve only Virtual history.
-    if ChatifyHistoryDB.captureMode ~= "frame-addmessage" then
+    -- 2.16.1 already had exact per-frame buckets, but its refresh path could
+    -- secure-hook the same AddMessage method repeatedly and persist the same row
+    -- several times. Preserve that history while collapsing only adjacent exact
+    -- duplicates during the one-time schema v4 migration.
+    if ChatifyHistoryDB.captureMode == "frame-addmessage" and type(ChatifyHistoryDB.frames) == "table" then
+        for chatID, messages in pairs(ChatifyHistoryDB.frames) do
+            chatID = NormalizeFrameID(chatID)
+            if chatID and type(messages) == "table" then
+                local previous
+                frameHistory[chatID] = frameHistory[chatID] or {}
+                for _, msg in ipairs(messages) do
+                    local safeMsg = GetSafeText(msg)
+                    if safeMsg and safeMsg ~= previous then
+                        AddWithLimit(frameHistory[chatID], safeMsg, limit)
+                        previous = safeMsg
+                    end
+                end
+            end
+        end
+        ChatifyHistoryDB.version = HISTORY_SCHEMA_VERSION
+        ChatifyHistoryDB.captureMode = HISTORY_CAPTURE_MODE
+        return
+    end
+
+    -- Older event-routed history could already be merged across tabs and cannot
+    -- be separated reliably. Start those frame buckets clean once and preserve
+    -- only Virtual history.
+    if ChatifyHistoryDB.captureMode ~= HISTORY_CAPTURE_MODE then
         frameHistory = {}
         ChatifyHistoryDB.frames = nil
-        ChatifyHistoryDB.version = 3
-        ChatifyHistoryDB.captureMode = "frame-addmessage"
+        ChatifyHistoryDB.version = HISTORY_SCHEMA_VERSION
+        ChatifyHistoryDB.captureMode = HISTORY_CAPTURE_MODE
         return
     end
 
@@ -808,7 +861,7 @@ function History:SAVED_VARIABLES_TOO_LARGE(event, addon)
     end
 
     frameHistory = {}
-    ChatifyHistoryDB = { version = 3, captureMode = "frame-addmessage", savedAt = time(), frames = {} }
+    ChatifyHistoryDB = { version = HISTORY_SCHEMA_VERSION, captureMode = HISTORY_CAPTURE_MODE, savedAt = time(), frames = {} }
 
     local frame = DEFAULT_CHAT_FRAME
     if frame and type(frame.AddMessage) == "function" then
@@ -863,8 +916,8 @@ function History:SaveHistoryUnprotected()
     end
 
     local output = {
-        version = 3,
-        captureMode = "frame-addmessage",
+        version = HISTORY_SCHEMA_VERSION,
+        captureMode = HISTORY_CAPTURE_MODE,
         savedAt = time(),
         frames = {},
     }
