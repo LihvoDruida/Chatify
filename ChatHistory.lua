@@ -198,15 +198,18 @@ end
 -- how this bug hid - on 12.x every test below was answering nil, so every frame was
 -- kept and the message appeared in all history tabs.
 --
--- The direct global reference was the cause. ChatFrame_ContainsChannel moved into
--- the ChatFrameUtil namespace along with the rest of the ChatFrame_* API, so on a
--- current client `type(ChatFrame_ContainsChannel) == "function"` is false and the
--- test was skipped without a word. ns.GetChatAPI resolves either spelling; it exists
--- precisely for this rename and simply was not used here.
+-- Current FrameXML owns ContainsChannel on ChatFrameMixin. Older clients exposed
+-- a ChatFrame_ContainsChannel global. ChatFrameUtil is not the owner of this API,
+-- so route it through the frame-method compatibility helper.
 local function FrameReceivesChannel(frame, channelBaseName, zoneChannelID)
     if type(channelBaseName) == "string" and channelBaseName ~= "" then
-        local ok, contains = ns.CallChatAPI(
-            "ChatFrame_ContainsChannel", "ContainsChannel", frame, channelBaseName)
+        local ok, contains = false, nil
+        if type(ns.CallChatFrameMethod) == "function" then
+            ok, contains = ns.CallChatFrameMethod(
+                frame, "ContainsChannel", "ChatFrame_ContainsChannel", channelBaseName)
+        elseif type(frame) == "table" and type(frame.ContainsChannel) == "function" then
+            ok, contains = pcall(frame.ContainsChannel, frame, channelBaseName)
+        end
         if ok and contains ~= nil then
             return contains and true or false
         end

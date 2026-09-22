@@ -2759,7 +2759,7 @@ end
 -- activations and nothing else.
 -- Prints what the client can tell us about chat taint.
 --
--- The open question behind docs/own_handler_scope.md is whether a message-event filter
+-- The open protected-chat question is whether a message-event filter
 -- can still taint Blizzard's chat dispatch on 12.x. Blizzard's ChatFrameFilters.lua
 -- says it cannot: an addon filter is skipped outright when any argument is a secret,
 -- and it is invoked through securecallfunction, which restores the caller's taint.
@@ -3271,22 +3271,29 @@ end
 
 local function SafeRemoveAllMessageGroups(frame)
     if not frame then return end
-    if type(frame.RemoveAllMessageGroups) == "function" then pcall(frame.RemoveAllMessageGroups, frame); return end
-    -- Third: the ChatFrameUtil spelling. Same rename that hid the history channel
-    -- routing bug; a direct global reference is silently false on a current client.
-    ns.CallChatAPI("ChatFrame_RemoveAllMessageGroups", "RemoveAllMessageGroups", frame)
+    if type(ns.CallChatFrameMethod) == "function" then
+        ns.CallChatFrameMethod(frame, "RemoveAllMessageGroups", "ChatFrame_RemoveAllMessageGroups")
+        return
+    end
+    if type(frame.RemoveAllMessageGroups) == "function" then pcall(frame.RemoveAllMessageGroups, frame) end
 end
 
 local function SafeRemoveAllChannels(frame)
     if not frame then return end
-    if type(frame.RemoveAllChannels) == "function" then pcall(frame.RemoveAllChannels, frame); return end
-    ns.CallChatAPI("ChatFrame_RemoveAllChannels", "RemoveAllChannels", frame)
+    if type(ns.CallChatFrameMethod) == "function" then
+        ns.CallChatFrameMethod(frame, "RemoveAllChannels", "ChatFrame_RemoveAllChannels")
+        return
+    end
+    if type(frame.RemoveAllChannels) == "function" then pcall(frame.RemoveAllChannels, frame) end
 end
 
 local function SafeAddMessageGroup(frame, group)
     if not frame or type(group) ~= "string" or group == "" then return end
-    if type(frame.AddMessageGroup) == "function" then pcall(frame.AddMessageGroup, frame, group); return end
-    ns.CallChatAPI("ChatFrame_AddMessageGroup", "AddMessageGroup", frame, group)
+    if type(ns.CallChatFrameMethod) == "function" then
+        ns.CallChatFrameMethod(frame, "AddMessageGroup", "ChatFrame_AddMessageGroup", group)
+        return
+    end
+    if type(frame.AddMessageGroup) == "function" then pcall(frame.AddMessageGroup, frame, group) end
 end
 
 local function ConfigureTabFrame(frame, groups)
@@ -3319,10 +3326,10 @@ function Chatify:SetupDefaultTabs()
         local existed = frame and true or false
         if not frame then
             local okOpen, newFrame = false, nil
-            if type(ns.CallChatAPI) == "function" then
-                okOpen, newFrame = ns.CallChatAPI("FCF_OpenNewWindow", "OpenNewWindow", tabInfo.name)
-            elseif type(FCF_OpenNewWindow) == "function" then
+            if type(FCF_OpenNewWindow) == "function" then
                 okOpen, newFrame = pcall(FCF_OpenNewWindow, tabInfo.name)
+            elseif type(ns.CallChatAPI) == "function" then
+                okOpen, newFrame = ns.CallChatAPI("FCF_OpenNewWindow", nil, tabInfo.name)
             end
             if okOpen then
                 frame = newFrame

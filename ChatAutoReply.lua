@@ -216,13 +216,6 @@ local function SendBNetMessage(accountID, message)
         end
     end
 
-    -- Older transitional builds exposed this alternate helper. Keep it only as
-    -- a final compatibility fallback; current clients use SendWhisper.
-    if C_BattleNet and type(C_BattleNet.SendAccountMessage) == "function" then
-        local ok = pcall(C_BattleNet.SendAccountMessage, accountID, message)
-        return ok
-    end
-
     return false
 end
 

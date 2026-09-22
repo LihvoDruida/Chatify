@@ -3,6 +3,8 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("ukUA", {
+    ["Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy."] = "Автоматично відповідати, коли ви AFK, у черзі, в інстансі або вручну позначили себе зайнятими.",
+    ["Never modify protected whispers"] = "Не змінювати захищені шепоти",
     ["Warning:"] = "Увага:",
     ["%s unavailable"] = "%s недоступний",
     ["(Blocklist is empty)"] = "(Список блокування порожній)",

@@ -3,6 +3,8 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("enUS", {
+    ["Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy."] = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.",
+    ["Never modify protected whispers"] = "Never modify protected whispers",
     ["%s unavailable"] = "%s unavailable",
     ["(Blocklist is empty)"] = "(Blocklist is empty)",
     ["-------------- Chat History --------------"] = "-------------- Chat History --------------",

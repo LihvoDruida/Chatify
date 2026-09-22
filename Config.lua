@@ -1079,8 +1079,8 @@ ns.defaults = {
         -- Diagnostic lever, off by default and not exposed in the options UI.
         --
         -- 0.11.51 made the AddMessage wrapper unconditional on 12.0+, which removed
-        -- the only way to run the experiment that docs/own_handler_scope.md section 0
-        -- depends on: filters on, wrapper off, whisper inside instanced content. Set
+        -- the only way to run the protected-chat taint isolation experiment:
+        -- filters on, wrapper off, whisper inside instanced content. Set
         -- via /chatifytaint filtertest, cleared via /chatifytaint reset.
         disableRenderHook = false,
 
@@ -1661,6 +1661,30 @@ function ns.CallChatAPI(legacyName, utilName, ...)
     return false
 end
 
+-- Operations owned by ChatFrameMixin are methods on the frame on current UI
+-- builds. Keep legacy ChatFrame_* globals only for old compatibility targets;
+-- do not route these through ChatFrameUtil, which does not own these methods.
+function ns.CallChatFrameMethod(frame, methodName, legacyName, ...)
+    if frame == nil or type(methodName) ~= "string" then
+        return false
+    end
+
+    -- Frames are tables on current clients but older branches have exposed
+    -- userdata-backed frame objects. Read the method defensively so the
+    -- compatibility helper does not reject those clients before trying them.
+    local okMethod, method = pcall(function() return frame[methodName] end)
+    if okMethod and type(method) == "function" then
+        return pcall(method, frame, ...)
+    end
+
+    local legacy = type(legacyName) == "string" and _G[legacyName] or nil
+    if type(legacy) == "function" then
+        return pcall(legacy, frame, ...)
+    end
+
+    return false
+end
+
 function ns.ResetChatAPICache()
     chatApiRoute = {}
     chatUtilCallStyle = {}
@@ -1985,9 +2009,10 @@ local function HasNativeChatSelectionAPI()
 end
 
 local function HasChatTabManagementAPI()
-    local openWindow = type(_G.FCF_OpenNewWindow) == "function"
-        or (type(_G.ChatFrameUtil) == "table" and type(_G.ChatFrameUtil.OpenNewWindow) == "function")
-    return openWindow and type(_G.GetChatWindowInfo) == "function"
+    -- FCF_OpenNewWindow and GetChatWindowInfo are still global in current FrameXML.
+    -- ChatFrameUtil has helpers around windows, but no OpenNewWindow replacement.
+    return type(_G.FCF_OpenNewWindow) == "function"
+        and type(_G.GetChatWindowInfo) == "function"
 end
 
 local function HasChatEditRoutingAPI()
@@ -2290,17 +2315,32 @@ end
 -- User-authored strings are validated before they reach Blizzard, and modern
 -- clients are checked for messaging lockdown immediately before the send.
 function ns.SendChatMessageCompat(message, chatType, languageID, target)
-    if type(message) ~= "string" or message == "" or type(chatType) ~= "string" or chatType == "" then
+    if type(chatType) ~= "string" or chatType == "" then
+        return false, "invalid chat type"
+    end
+
+    -- Blizzard explicitly allows an empty payload for AFK/DND to clear the state.
+    local mayBeEmpty = chatType == "AFK" or chatType == "DND"
+    if type(message) ~= "string" or (message == "" and not mayBeEmpty) then
         return false, "invalid message"
     end
     if ns.IsProtectedChatValue(message) then
         return false, "protected message"
     end
+    if languageID ~= nil and type(languageID) ~= "number" then
+        return false, "invalid language"
+    end
     if target ~= nil then
         if ns.IsProtectedChatValue(target) then
             return false, "protected target"
         end
-        if type(target) ~= "string" or target == "" then
+        if chatType == "CHANNEL" then
+            local channel = tonumber(target)
+            if not channel or channel <= 0 or channel % 1 ~= 0 then
+                return false, "invalid channel target"
+            end
+            target = channel
+        elseif type(target) ~= "string" or target == "" then
             return false, "invalid target"
         end
     end
@@ -2416,7 +2456,9 @@ function ns.GetRetailChatFilterMode()
         db = addon.db.profile
     end
     if not db then
-        return "lockdown"
+        -- Module enable can happen before AceDB attaches the profile. On protected
+        -- clients, fail closed instead of briefly installing message filters.
+        return "off"
     end
 
     local mode = db.retailChatFilterMode
@@ -2461,7 +2503,9 @@ function ns.CanUseMessageEventFilters()
     end
 
     if not db then
-        return true
+        -- Secret-value clients must not install filters before the profile (and
+        -- therefore the user's explicit mode) is available.
+        return false
     end
 
     local mode = db.retailChatFilterMode
@@ -2618,8 +2662,8 @@ end
 
 -- What the client can actually tell us about chat taint, gathered in one place.
 --
--- This exists because the central question in docs/own_handler_scope.md is not
--- answerable offline. Reading Blizzard's ChatFrameFilters.lua shows that on 12.x an
+-- This exists because the central protected-chat taint question is not answerable
+-- offline. Reading Blizzard's ChatFrameFilters.lua shows that on 12.x an
 -- addon's message-event filter is wrapped so that it is SKIPPED ENTIRELY when any
 -- argument is a secret (canaccessvalue) and is invoked through securecallfunction,
 -- which restores the caller's taint afterwards. If both hold at runtime then a filter

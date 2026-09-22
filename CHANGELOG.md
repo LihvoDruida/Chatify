@@ -1,5 +1,22 @@
 # Chatify Changelog
 
+## 2.16.3 - 2026-09-22
+
+### Fixed
+
+- Route channel membership checks through the current `ChatFrameMixin:ContainsChannel()` API with `ChatFrame_ContainsChannel` retained only as a legacy fallback.
+- Route `RemoveAllMessageGroups`, `RemoveAllChannels`, and `AddMessageGroup` through one frame-method compatibility helper instead of assuming equivalent `ChatFrameUtil` functions exist.
+- Accept numeric channel targets in the central send wrapper and preserve Blizzard's valid empty-message behavior for AFK/DND clearing.
+- Fail closed when protected-client message filters initialize before the saved profile is attached.
+- Add the two missing English/Ukrainian localization entries used by Settings.
+
+### Changed
+
+- Remove the unfinished `ChatProxy.lua` prototype from the production package; manifests loaded it, but no runtime path consumed it and its own integration plan was never started.
+- Remove the orphaned legacy `locale_loader.lua`; current localization is exclusively handled by `Locales.lua` and `Locale:RegisterLocale`.
+- Remove the obsolete `C_BattleNet.SendAccountMessage` fallback; current clients use `C_BattleNet.SendWhisper`, with `BNSendWhisper` retained for legacy clients.
+- Re-verify current packaging targets without changing their interface numbers.
+
 ## 2.16.2 - 2026-09-21
 
 ### Fixed

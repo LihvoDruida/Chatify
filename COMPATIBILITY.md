@@ -1,8 +1,8 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-09-21**
+Audit date: **2026-09-22**
 
-Chatify 2.16.0 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Chatify 2.16.3 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
 
 ## Packaging targets
 
@@ -58,10 +58,10 @@ Chatify prefers current namespace APIs and keeps guarded compatibility fallbacks
 - Battle.net whisper: `C_BattleNet.SendWhisper` -> legacy `BNSendWhisper` fallback;
 - addon metadata/loading: `C_AddOns` first, legacy addon globals only as fallback;
 - friends: `C_FriendList` first, with indexed legacy friend lookup fallback;
-- chat frame/edit helpers: `ChatFrameUtil` and current edit-box mixins first where Blizzard moved the old globals;
+- chat frame/edit helpers: frame-owned operations use `ChatFrameMixin` methods first; `ChatFrameUtil` is used only for helpers it actually owns, with guarded legacy globals where required;
 - mouse focus: modern `GetMouseFoci` compatibility path instead of assuming old `GetMouseFocus`;
 - protected chat: `C_Secrets.HasSecretRestrictions()` is the primary capability signal;
-- chat messaging lockdown: `C_ChatInfo.InChatMessagingLockdown()` is checked before protected outgoing actions.
+- chat messaging lockdown: `C_ChatInfo.InChatMessagingLockdown()` is checked before protected outgoing player-chat actions.
 
 ## Forever isolation
 

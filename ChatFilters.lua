@@ -1137,8 +1137,8 @@ local RENDER_LINK_CHAT_TYPES = {
 --
 -- Every other way of showing a mention needs Chatify to rewrite the line Blizzard
 -- built, which means either a message-event filter or owning frame.AddMessage. Both
--- put Chatify on Blizzard's chat dispatch, and that is the entire subject of
--- docs/own_handler_scope.md.
+-- put Chatify on Blizzard's chat dispatch; this is the taint-sensitive path the
+-- protected-chat diagnostics are designed to isolate.
 --
 -- This one does not rewrite anything. It builds a second line of Chatify's own and
 -- calls AddMessage on the frame. Calling is not writing: no field on any Blizzard
