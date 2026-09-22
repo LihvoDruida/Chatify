@@ -3337,7 +3337,23 @@ function Chatify:SetupDefaultTabs()
         end
 
         if frame and ConfigureTabFrame(frame, tabInfo.groups) then
-            if type(FCF_SelectDockFrame) == "function" then pcall(FCF_SelectDockFrame, frame) end
+            -- Use Blizzard's complete tab-click path when available. Besides
+            -- selecting the docked frame it keeps SELECTED_CHAT_FRAME, the active
+            -- edit box, and fade/repaint state aligned with a real user tab click.
+            local tab = type(frame.GetName) == "function" and _G[(frame:GetName() or "") .. "Tab"] or nil
+            if tab and type(_G.FCF_Tab_OnClick) == "function" then
+                pcall(_G.FCF_Tab_OnClick, tab, "LeftButton")
+            elseif tab and type(tab.Click) == "function" then
+                pcall(tab.Click, tab, "LeftButton")
+            elseif type(_G.FCF_SelectDockFrame) == "function" then
+                pcall(_G.FCF_SelectDockFrame, frame)
+                if type(frame.ResetAllFadeTimes) == "function" then
+                    pcall(frame.ResetAllFadeTimes, frame)
+                end
+                if type(_G.FCF_FadeInChatFrame) == "function" then
+                    pcall(_G.FCF_FadeInChatFrame, frame)
+                end
+            end
             if existed then updated = updated + 1 else created = created + 1 end
         else
             failed = failed + 1

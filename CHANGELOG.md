@@ -1,5 +1,20 @@
 # Chatify Changelog
 
+## 2.16.4 - 2026-09-22
+
+### Fixed
+
+- Fix Forever live-tab rendering by routing automatic channel selection through Blizzard's complete `FCF_Tab_OnClick` path when available, including selected-frame, edit-box, fade, and repaint bookkeeping.
+- Pass `frame.editBox` rather than the `ChatFrame` itself to `ChatFrameUtil.SetLastActiveWindow` / `ChatEdit_SetLastActiveWindow`.
+- Listen to `ChatFrame.OnEditBoxPreSendText` on modern clients so `/p`, `/raid`, `/g`, and related chat types reveal the receiving docked tab after Blizzard resolves the final chat type but before the outgoing line is sent.
+- Prefer the dock manager's actual selected window over potentially stale `SELECTED_CHAT_FRAME` / `SELECTED_DOCK_FRAME` globals on hybrid clients.
+- Refresh fade/display state after fallback dock selection so a newly selected Forever tab consumes already queued lines immediately.
+
+### Changed
+
+- Default Chatify tab setup now selects configured tabs through the same Blizzard tab-click path used by a real user click, with guarded legacy fallbacks.
+- Keep `UpdateHeader` routing as an immediate UI response while using the pre-send callback as the authoritative final routing check on modern/Forever clients.
+
 ## 2.16.3 - 2026-09-22
 
 ### Fixed

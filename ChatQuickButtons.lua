@@ -1310,31 +1310,52 @@ local function NormalizeChatFrame(candidate)
         return nil
     end
 
-    if type(candidate) == "table" and candidate.chatFrame then
-        candidate = candidate.chatFrame
+    local candidateType = type(candidate)
+    if candidateType == "table" or candidateType == "userdata" then
+        local okLinked, linkedFrame = pcall(function() return candidate.chatFrame end)
+        if okLinked and linkedFrame then
+            candidate = linkedFrame
+            candidateType = type(candidate)
+        end
     end
 
-    if type(candidate) ~= "table" then
+    -- WoW UI objects are tables on current clients, but some hybrid/legacy
+    -- runtimes expose frame handles as userdata. Do not discard a valid frame
+    -- purely because its Lua representation differs.
+    if candidateType ~= "table" and candidateType ~= "userdata" then
         return nil
     end
 
-    if type(candidate.GetObjectType) == "function" then
-        local ok, objectType = pcall(candidate.GetObjectType, candidate)
+    local okObjectGetter, objectGetter = pcall(function() return candidate.GetObjectType end)
+    if okObjectGetter and type(objectGetter) == "function" then
+        local ok, objectType = pcall(objectGetter, candidate)
         if ok and (objectType == "ScrollingMessageFrame" or objectType == "Frame") then
             return candidate
         end
     end
 
-    if candidate.editBox and type(candidate.editBox) == "table" and candidate.editBox.chatFrame then
-        return candidate.editBox.chatFrame
+    local okEditBox, editBox = pcall(function() return candidate.editBox end)
+    if okEditBox and editBox then
+        local okOwner, owner = pcall(function() return editBox.chatFrame end)
+        if okOwner and owner then
+            return NormalizeChatFrame(owner)
+        end
     end
 
     return nil
 end
 
+local function GetGeneralChatDock()
+    -- GENERAL_CHAT_DOCK is the canonical object assigned by Blizzard's
+    -- GeneralDockManager OnLoad. Keep GeneralDockManager as a compatibility
+    -- fallback for older/hybrid clients that only expose the named frame.
+    return _G.GENERAL_CHAT_DOCK or _G.GeneralDockManager
+end
+
 local function GetSelectedDockFrame()
-    if type(_G.FCFDock_GetSelectedWindow) == "function" and _G.GeneralDockManager then
-        local ok, selected = pcall(_G.FCFDock_GetSelectedWindow, _G.GeneralDockManager)
+    local dock = GetGeneralChatDock()
+    if type(_G.FCFDock_GetSelectedWindow) == "function" and dock then
+        local ok, selected = pcall(_G.FCFDock_GetSelectedWindow, dock)
         if ok then
             selected = NormalizeChatFrame(selected)
             if selected then
@@ -1343,13 +1364,27 @@ local function GetSelectedDockFrame()
         end
     end
 
-    if _G.GeneralDockManager then
-        local selected = NormalizeChatFrame(_G.GeneralDockManager.selected)
+    -- The dock object is authoritative when the helper is absent. Blizzard's
+    -- FCFDock_SelectWindow updates dock.selected directly; SELECTED_CHAT_FRAME
+    -- and SELECTED_DOCK_FRAME can lag behind on hybrid/transition paths.
+    local selected
+    if dock then
+        selected = NormalizeChatFrame(dock.selected)
         if selected then
             return selected
         end
+    end
 
-        local primary = NormalizeChatFrame(_G.GeneralDockManager.primary)
+    -- Global fallbacks are still useful on older clients that expose no dock
+    -- selection field at all.
+    selected = NormalizeChatFrame(_G.SELECTED_DOCK_FRAME)
+        or NormalizeChatFrame(_G.SELECTED_CHAT_FRAME)
+    if selected then
+        return selected
+    end
+
+    if dock then
+        local primary = NormalizeChatFrame(dock.primary)
         if primary then
             return primary
         end
@@ -1722,11 +1757,44 @@ local AUTO_TAB_CHAT_TYPES = {
 
 local autoSelectingChatTab = false
 
+local function MatchesMessageGroup(value, chatType)
+    return type(value) == "string" and value == chatType
+end
+
 local function FrameContainsMessageGroup(frame, chatType)
     if not frame or type(chatType) ~= "string" then return false end
+
+    -- Prefer the live frame registration when the client exposes it.
     if type(frame.ContainsMessageGroup) == "function" then
         local ok, contains = pcall(frame.ContainsMessageGroup, frame, chatType)
-        if ok then return contains == true end
+        if ok and contains == true then
+            return true
+        end
+    end
+
+    -- Blizzard rebuilds modern chat-frame registrations from
+    -- GetChatWindowMessages(frame:GetID()). Reading the saved window routing is
+    -- more reliable than frame.isDocked/messageTypeList on Forever's hybrid UI.
+    if type(_G.GetChatWindowMessages) == "function" and type(frame.GetID) == "function" then
+        local okID, frameID = pcall(frame.GetID, frame)
+        if okID and type(frameID) == "number" then
+            local results = { pcall(_G.GetChatWindowMessages, frameID) }
+            if results[1] then
+                if type(results[2]) == "table" then
+                    for key, value in pairs(results[2]) do
+                        if MatchesMessageGroup(key, chatType) or MatchesMessageGroup(value, chatType) then
+                            return true
+                        end
+                    end
+                else
+                    for i = 2, #results do
+                        if MatchesMessageGroup(results[i], chatType) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
     end
 
     -- Compatibility fallback for older clients that expose the list directly.
@@ -1734,9 +1802,157 @@ local function FrameContainsMessageGroup(frame, chatType)
     if type(list) == "table" then
         if list[chatType] then return true end
         for key, value in pairs(list) do
-            if key == chatType or value == chatType then return true end
+            if MatchesMessageGroup(key, chatType) or MatchesMessageGroup(value, chatType) then
+                return true
+            end
         end
     end
+    return false
+end
+
+local function GetDockedChatFrames()
+    local frames = {}
+    local seen = {}
+    local dock = GetGeneralChatDock()
+
+    local function add(frame)
+        frame = NormalizeChatFrame(frame)
+        if frame and frame ~= _G.ChatFrame2 and not seen[frame] then
+            seen[frame] = true
+            frames[#frames + 1] = frame
+        end
+    end
+
+    -- Current Blizzard UI exposes the actual dock membership through this
+    -- helper. Using it avoids Forever's inconsistent frame.isDocked state.
+    if dock and type(_G.FCFDock_GetChatFrames) == "function" then
+        local ok, dockFrames = pcall(_G.FCFDock_GetChatFrames, dock)
+        if ok and type(dockFrames) == "table" then
+            for _, frame in pairs(dockFrames) do
+                add(frame)
+            end
+        end
+    end
+
+    if #frames == 0 then
+        local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
+        local selected = GetSelectedDockFrame()
+        for i = 1, maxFrames do
+            local frame = NormalizeChatFrame(_G["ChatFrame" .. i])
+            if frame and frame ~= _G.ChatFrame2 then
+                local isDocked = frame.isDocked == true or frame == selected
+                if not isDocked and type(_G.FCF_GetChatWindowInfo) == "function" and type(frame.GetID) == "function" then
+                    local okID, frameID = pcall(frame.GetID, frame)
+                    if okID and type(frameID) == "number" then
+                        local okInfo, _, _, _, _, _, _, _, _, docked = pcall(_G.FCF_GetChatWindowInfo, frameID)
+                        if okInfo then
+                            isDocked = docked == true
+                        end
+                    end
+                end
+                if isDocked then
+                    add(frame)
+                end
+            end
+        end
+    end
+
+    return frames
+end
+
+local function GetChatFrameTab(frame)
+    if not frame or type(frame.GetName) ~= "function" then
+        return nil
+    end
+    local ok, name = pcall(frame.GetName, frame)
+    if not ok or type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return _G[name .. "Tab"]
+end
+
+local function RefreshSelectedChatFrameDisplay(frame)
+    if not frame then return end
+
+    -- This mirrors the display part of Blizzard's FCF_Tab_OnClick. Resetting the
+    -- line fade timestamps is significant on Forever: selecting only at the dock
+    -- level can leave the newly active frame with fully faded lines until a real
+    -- tab click occurs.
+    if type(frame.ResetAllFadeTimes) == "function" then
+        pcall(frame.ResetAllFadeTimes, frame)
+    end
+
+    if type(_G.FCF_FadeInChatFrame) == "function" then
+        pcall(_G.FCF_FadeInChatFrame, frame)
+    elseif type(frame.SetAlpha) == "function" then
+        -- Last-resort hybrid-client fallback. Do not change the configured fade
+        -- policy; only restore the selected frame's current visibility.
+        pcall(frame.SetAlpha, frame, 1)
+    end
+
+    -- Some Forever builds defer ScrollingMessageFrame layout while a docked
+    -- frame is hidden. These are harmless no-ops when the display is already
+    -- current, but force the new active tab to consume queued lines immediately.
+    if type(frame.RefreshIfNecessary) == "function" then
+        pcall(frame.RefreshIfNecessary, frame)
+    elseif type(frame.RefreshDisplay) == "function" then
+        pcall(frame.RefreshDisplay, frame)
+    end
+end
+
+local function TrySelectChatFrame(frame)
+    frame = NormalizeChatFrame(frame)
+    if not frame then return false end
+
+    if GetSelectedDockFrame() == frame then
+        RefreshSelectedChatFrameDisplay(frame)
+        return true
+    end
+
+    local tab = GetChatFrameTab(frame)
+
+    -- FCF_Tab_OnClick is the complete Blizzard selection path: it updates both
+    -- SELECTED_CHAT_FRAME and the dock selection, points LAST_ACTIVE_CHAT_EDIT_BOX
+    -- at frame.editBox, resets line fade timers and fades the frame in. Prefer it
+    -- over manipulating the dock alone. Calling the handler directly also avoids
+    -- generating an artificial UI click sound.
+    if tab and type(_G.FCF_Tab_OnClick) == "function" then
+        local ok = pcall(_G.FCF_Tab_OnClick, tab, "LeftButton")
+        if ok and GetSelectedDockFrame() == frame then
+            RefreshSelectedChatFrameDisplay(frame)
+            return true
+        end
+    end
+
+    -- XML-script fallback for clients where the tab handler is not global.
+    if tab and type(tab.Click) == "function" then
+        local ok = pcall(tab.Click, tab, "LeftButton")
+        if ok and GetSelectedDockFrame() == frame then
+            RefreshSelectedChatFrameDisplay(frame)
+            return true
+        end
+    end
+
+    -- Legacy/hybrid fallbacks. These select the dock window but do not always
+    -- perform the full tab-click fade/last-active bookkeeping, so explicitly
+    -- refresh the selected frame after verifying that the switch really happened.
+    if type(_G.FCF_SelectDockFrame) == "function" then
+        pcall(_G.FCF_SelectDockFrame, frame)
+        if GetSelectedDockFrame() == frame then
+            RefreshSelectedChatFrameDisplay(frame)
+            return true
+        end
+    end
+
+    local dock = GetGeneralChatDock()
+    if dock and type(_G.FCFDock_SelectWindow) == "function" then
+        pcall(_G.FCFDock_SelectWindow, dock, frame)
+        if GetSelectedDockFrame() == frame then
+            RefreshSelectedChatFrameDisplay(frame)
+            return true
+        end
+    end
+
     return false
 end
 
@@ -1745,34 +1961,22 @@ local function SelectDockedChatFrameForType(chatType)
 
     local selected = GetSelectedDockFrame()
     if selected and FrameContainsMessageGroup(selected, chatType) then
+        RefreshSelectedChatFrameDisplay(selected)
         return selected
     end
 
-    local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
-    for i = 1, maxFrames do
-        local frame = NormalizeChatFrame(_G["ChatFrame" .. i])
-        if frame and frame ~= _G.ChatFrame2 and frame.isDocked and FrameContainsMessageGroup(frame, chatType) then
+    local frames = GetDockedChatFrames()
+    for _, frame in ipairs(frames) do
+        if FrameContainsMessageGroup(frame, chatType) then
             autoSelectingChatTab = true
-            local switched = false
-            if type(_G.FCF_SelectDockFrame) == "function" then
-                local ok = pcall(_G.FCF_SelectDockFrame, frame)
-                switched = ok
-            elseif _G.GeneralDockManager and type(_G.FCFDock_SelectWindow) == "function" then
-                local ok = pcall(_G.FCFDock_SelectWindow, _G.GeneralDockManager, frame)
-                switched = ok
-            else
-                local tab = type(frame.GetName) == "function" and _G[(frame:GetName() or "") .. "Tab"] or nil
-                if tab and type(tab.Click) == "function" then
-                    local ok = pcall(tab.Click, tab, "LeftButton")
-                    switched = ok
-                end
-            end
+            local switched = TrySelectChatFrame(frame)
             autoSelectingChatTab = false
             if switched then
                 return frame
             end
         end
     end
+
     return selected
 end
 
@@ -1993,15 +2197,17 @@ local function ActivateChatType(def, useAlt)
         return
     end
 
-    -- Both of these used to build their own ChatFrameUtil fallback and pass the
-    -- namespace table through as the first argument. Blizzard's util namespaces
-    -- take no implicit self, so `text` became the table and the fallback would
-    -- have broken the moment the flat globals are removed. ns.CallChatAPI picks
-    -- the right spelling and calling convention for the running client.
-    if type(ns.CallChatAPI) == "function" then
-        ns.CallChatAPI("ChatEdit_SetLastActiveWindow", "SetLastActiveWindow", frame)
-    elseif type(_G.ChatEdit_SetLastActiveWindow) == "function" then
-        pcall(_G.ChatEdit_SetLastActiveWindow, frame)
+    -- LAST_ACTIVE_CHAT_EDIT_BOX stores an EditBox, not a ChatFrame. Passing the
+    -- frame here corrupts ChatFrameUtil.ChooseBoxForSend() on modern/Forever
+    -- because Blizzard immediately expects lastActiveWindow.chatFrame/parent.
+    -- This argument contract is the same on legacy ChatEdit_SetLastActiveWindow.
+    local frameEditBox = frame.editBox
+    if frameEditBox then
+        if type(ns.CallChatAPI) == "function" then
+            ns.CallChatAPI("ChatEdit_SetLastActiveWindow", "SetLastActiveWindow", frameEditBox)
+        elseif type(_G.ChatEdit_SetLastActiveWindow) == "function" then
+            pcall(_G.ChatEdit_SetLastActiveWindow, frameEditBox)
+        end
     end
 
     -- Resolved through the shim: ChatFrame_OpenChat is ChatFrameUtil.OpenChat on
@@ -3366,6 +3572,29 @@ local function EnsureContainer()
 end
 
 
+local function GetEditBoxChatType(editBox)
+    if not editBox then return nil end
+
+    if type(editBox.GetChatType) == "function" then
+        local ok, value = pcall(editBox.GetChatType, editBox)
+        if ok and type(value) == "string" and value ~= "" then
+            return value
+        end
+    end
+
+    if type(editBox.GetAttribute) == "function" then
+        local ok, value = pcall(editBox.GetAttribute, editBox, "chatType")
+        if ok and type(value) == "string" and value ~= "" then
+            return value
+        end
+    end
+
+    if type(editBox.chatType) == "string" and editBox.chatType ~= "" then
+        return editBox.chatType
+    end
+    return nil
+end
+
 local function HookGeneralRefreshSignals()
     if generalHooksInstalled or type(hooksecurefunc) ~= "function" then
         return
@@ -3374,6 +3603,13 @@ local function HookGeneralRefreshSignals()
     if type(_G.FCF_DockUpdate) == "function" then
         pcall(hooksecurefunc, "FCF_DockUpdate", function()
             ScheduleRefresh(0)
+        end)
+    end
+
+    if type(_G.FCF_Tab_OnClick) == "function" then
+        pcall(hooksecurefunc, "FCF_Tab_OnClick", function()
+            ScheduleRefresh(0)
+            ScheduleButtonStateUpdate()
         end)
     end
 
@@ -3401,18 +3637,7 @@ local function HookGeneralRefreshSignals()
         -- Native slash commands (/p, /g, /raid, ...) can change the active chat
         -- type without touching Chatify's quick buttons. Mirror the quick-button
         -- behavior so the receiving Blizzard tab becomes visible immediately.
-        local chatType
-        if editBox and type(editBox.GetChatType) == "function" then
-            local okType, value = pcall(editBox.GetChatType, editBox)
-            if okType and type(value) == "string" then chatType = value end
-        end
-        if not chatType and editBox and type(editBox.GetAttribute) == "function" then
-            local okType, value = pcall(editBox.GetAttribute, editBox, "chatType")
-            if okType and type(value) == "string" then chatType = value end
-        end
-        if not chatType and editBox and type(editBox.chatType) == "string" then
-            chatType = editBox.chatType
-        end
+        local chatType = GetEditBoxChatType(editBox)
         if chatType then SelectDockedChatFrameForType(chatType) end
         ScheduleButtonStateUpdate()
     end
@@ -3427,6 +3652,21 @@ local function HookGeneralRefreshSignals()
         pcall(hooksecurefunc, _G.ChatFrameEditBoxMixin, "UpdateHeader", HandleChatHeaderUpdate)
     elseif type(_G.ChatFrameEditBoxMixinBase) == "table" and type(_G.ChatFrameEditBoxMixinBase.UpdateHeader) == "function" then
         pcall(hooksecurefunc, _G.ChatFrameEditBoxMixinBase, "UpdateHeader", HandleChatHeaderUpdate)
+    end
+
+    -- Mainline/Forever fires this callback after ParseText(1) has resolved the
+    -- final chat type but before C_ChatInfo.SendChatMessage. It is the most
+    -- reliable point to reveal the receiving docked tab: `/p` may have become
+    -- INSTANCE_CHAT here, and the outgoing line is then added while that frame is
+    -- already visible instead of waiting for a manual tab click to repaint it.
+    local eventRegistry = _G.EventRegistry
+    if eventRegistry and type(eventRegistry.RegisterCallback) == "function" then
+        pcall(eventRegistry.RegisterCallback, eventRegistry, "ChatFrame.OnEditBoxPreSendText", function(_, editBox)
+            local chatType = GetEditBoxChatType(editBox)
+            if chatType then
+                SelectDockedChatFrameForType(chatType)
+            end
+        end, QuickButtonsModule)
     end
 
     if _G.ChatFrameUtil then

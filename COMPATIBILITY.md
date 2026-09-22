@@ -69,6 +69,8 @@ Chatify prefers current namespace APIs and keeps guarded compatibility fallbacks
 
 Forever is treated as a hybrid UI client. Runtime logs show Camelot, Mainline, Shared, and VanillaStyle Blizzard components coexisting in one session, so Chatify probes the API required by each feature instead of assuming that every subsystem follows one family.
 
+For live chat-tab routing, modern/Forever clients use Blizzard's complete tab-selection path (`FCF_Tab_OnClick`) when it is available instead of changing only the dock selection. Chatify also consumes `ChatFrame.OnEditBoxPreSendText`, which fires after Blizzard resolves slash-command chat types and before the outgoing send call. `ChatFrameUtil.SetLastActiveWindow` is always given the frame's edit box, matching Blizzard's current contract. Guarded dock/global fallbacks remain for older clients.
+
 Secret-value restrictions are treated as active when the runtime reports them. Chatify checks secret/accessibility inspectors before converting, comparing, matching, storing, copying, or highlighting chat payloads.
 
 Modern Blizzard Settings calls use only the numeric category ID returned by AceConfigDialog. Category names and frame objects are never passed to `Settings.OpenToCategory` or `C_SettingsUtil.OpenSettingsPanel`; legacy frame-based opening is kept as a separate fallback.
