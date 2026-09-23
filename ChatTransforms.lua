@@ -3,7 +3,8 @@ local Chatify = ns.Chatify or LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Module = Chatify:NewModule("ChatTransforms", "AceEvent-3.0")
 
 local hookedFrames = setmetatable({}, { __mode = "k" })
-local stats = { observed = 0, transformed = 0, skipped = 0, errors = 0 }
+local spamDecisionByArgs = setmetatable({}, { __mode = "k" })
+local stats = { observed = 0, transformed = 0, removedSpam = 0, skipped = 0, errors = 0 }
 
 local function DB()
     if Chatify and Chatify.db and Chatify.db.profile then return Chatify.db.profile end
@@ -28,6 +29,14 @@ local function FrameSupportsTransform(frame)
     return type(frame) == "table" and type(frame.TransformMessages) == "function" and type(hooksecurefunc) == "function"
 end
 
+local function FrameSupportsRemoval(frame)
+    return type(frame) == "table" and type(frame.RemoveMessagesByPredicate) == "function" and type(hooksecurefunc) == "function"
+end
+
+local function FrameSupportsObservation(frame)
+    return (FrameSupportsTransform(frame) or FrameSupportsRemoval(frame)) and type(frame.AddMessage) == "function"
+end
+
 function ns.HasSecurePostRenderAPI()
     local candidates = { SELECTED_CHAT_FRAME, DEFAULT_CHAT_FRAME, _G.ChatFrame1 }
     for i = 1, #candidates do
@@ -36,6 +45,18 @@ function ns.HasSecurePostRenderAPI()
     local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
     for i = 1, maxFrames do
         if FrameSupportsTransform(_G["ChatFrame" .. i]) then return true end
+    end
+    return false
+end
+
+function ns.HasSecureSpamRemovalAPI()
+    local candidates = { SELECTED_CHAT_FRAME, DEFAULT_CHAT_FRAME, _G.ChatFrame1 }
+    for i = 1, #candidates do
+        if FrameSupportsRemoval(candidates[i]) then return true end
+    end
+    local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
+    for i = 1, maxFrames do
+        if FrameSupportsRemoval(_G["ChatFrame" .. i]) then return true end
     end
     return false
 end
@@ -169,6 +190,85 @@ end
 
 ns.TransformRenderedChatLine = TransformText
 
+local function CanReadEventArgs(eventArgs)
+    -- A SafePack table can contain a mixture of readable and secret fields.
+    -- Requiring canaccesstable(eventArgs) would reject the whole message merely
+    -- because an unrelated field is protected. Index only the three fields the
+    -- spam engine needs inside pcall and validate each value separately instead.
+    return type(eventArgs) == "table" and Safe(eventArgs)
+end
+
+local function ReadSpamPayload(eventArgs)
+    if not CanReadEventArgs(eventArgs) then return nil end
+
+    local ok, rawMessage, rawAuthor, rawChannel = pcall(function()
+        return eventArgs[1], eventArgs[2], eventArgs[4]
+    end)
+    if not ok then return nil end
+
+    local message = SafeText(rawMessage)
+    if not message or message == "" then return nil end
+
+    local author = SafeText(rawAuthor)
+    local channel = SafeText(rawChannel)
+    local db = DB()
+    -- If sender identity is protected, do not accidentally bypass the user's
+    -- friend whitelist just to gain a few extra filtered lines.
+    if not author and db and db.spamWhitelist and db.spamWhitelist.friends then
+        return nil
+    end
+
+    return message, author, channel
+end
+
+local function ShouldRemoveSpam(event, eventArgs)
+    if type(ns.AreMessageFiltersInstalled) == "function" and ns.AreMessageFiltersInstalled() then
+        return false
+    end
+    if type(ns.ProcessSpamMessage) ~= "function" or type(event) ~= "string" then
+        return false
+    end
+    if not CanReadEventArgs(eventArgs) then return false end
+
+    local cached = spamDecisionByArgs[eventArgs]
+    if cached ~= nil then return cached == 1 end
+
+    if type(ns.ShouldHideSystemChatEvent) == "function" and ns.ShouldHideSystemChatEvent(event) then
+        spamDecisionByArgs[eventArgs] = 1
+        return true
+    end
+
+    local message, author, channel = ReadSpamPayload(eventArgs)
+    if not message then
+        spamDecisionByArgs[eventArgs] = 0
+        return false
+    end
+
+    local ok, blocked = pcall(ns.ProcessSpamMessage, event, message, author, channel)
+    if not ok then
+        stats.errors = stats.errors + 1
+        spamDecisionByArgs[eventArgs] = 0
+        return false
+    end
+
+    spamDecisionByArgs[eventArgs] = blocked and 1 or 0
+    return blocked and true or false
+end
+
+local function RemoveExactEntry(frame, text, event, eventArgs)
+    if not FrameSupportsRemoval(frame) or type(text) ~= "string" or type(event) ~= "string" then return false end
+    if not Safe(text) or not Safe(event) or not CanReadEventArgs(eventArgs) then return false end
+
+    local ok = pcall(frame.RemoveMessagesByPredicate, frame,
+        function(message, r, g, b, ...)
+            local storedEvent, storedArgs = select(4, ...), select(5, ...)
+            if not Safe(message) or not Safe(storedEvent) or not Safe(storedArgs) then return false end
+            return message == text and storedEvent == event and storedArgs == eventArgs
+        end)
+    if ok then stats.removedSpam = stats.removedSpam + 1 end
+    return ok
+end
+
 local function TransformExactEntry(frame, text, event, eventArgs)
     if not FrameSupportsTransform(frame) or type(text) ~= "string" or type(event) ~= "string" then return end
     if not Safe(text) or not Safe(event) or not Safe(eventArgs) then return end
@@ -192,11 +292,20 @@ local function ObserveAddMessage(self, text, ...)
     if not Safe(text) or type(text) ~= "string" then stats.skipped = stats.skipped + 1; return end
     local event, eventArgs = select(7, ...), select(8, ...)
     if not Safe(event) or type(event) ~= "string" or not Safe(eventArgs) then stats.skipped = stats.skipped + 1; return end
+
+    -- Filter Engine 3.0 fallback: when protected clients deliberately keep
+    -- ChatFrame_AddMessageEventFilter detached, inspect Blizzard's original
+    -- readable eventArgs after render and remove only this exact stored line.
+    if FrameSupportsRemoval(self) and ShouldRemoveSpam(event, eventArgs) then
+        RemoveExactEntry(self, text, event, eventArgs)
+        return
+    end
+
     TransformExactEntry(self, text, event, eventArgs)
 end
 
 local function Attach(frame)
-    if not FrameSupportsTransform(frame) or hookedFrames[frame] or type(frame.AddMessage) ~= "function" then return end
+    if not FrameSupportsObservation(frame) or hookedFrames[frame] then return end
     local ok = pcall(hooksecurefunc, frame, "AddMessage", ObserveAddMessage)
     if ok then hookedFrames[frame] = true end
 end
@@ -212,7 +321,7 @@ function ns.RefreshSecureChatTransforms()
 end
 
 function ns.GetChatTransformStats()
-    return { observed = stats.observed, transformed = stats.transformed, skipped = stats.skipped, errors = stats.errors }
+    return { observed = stats.observed, transformed = stats.transformed, removedSpam = stats.removedSpam, skipped = stats.skipped, errors = stats.errors }
 end
 
 function Module:OnEnable()

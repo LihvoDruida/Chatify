@@ -178,6 +178,7 @@ local function EnsureProfileTables(db)
     if not db then return end
     local defaults = ns.defaults and ns.defaults.profile or {}
 
+    db.spamKeywords = type(db.spamKeywords) == "table" and db.spamKeywords or {}
     db.spamWhitelist = type(db.spamWhitelist) == "table" and db.spamWhitelist or {}
     db.spamChannelRules = type(db.spamChannelRules) == "table" and db.spamChannelRules or {}
     db.mentionRules = type(db.mentionRules) == "table" and db.mentionRules or {}
@@ -498,14 +499,14 @@ function Chatify:GetOptions()
                             retailChatFilterMode = {
                                 order = 4,
                                 name = T("Chat filters on protected clients"),
-                                desc = T("Choose how cautious Chatify should be with protected chat. Safest disables message filters. Balanced pauses them in instances. Maximum keeps them on everywhere. Requires /reload."),
+                                desc = T("Controls the legacy message-event filter path on protected clients. Changes apply immediately. Filter Engine 3.0 can still remove readable matched lines through Blizzard chat-frame APIs when this path is disabled."),
                                 type = "select",
                                 width = "full",
                                 values = function()
                                     return {
-                                        full = T("Maximum - keep filters on"),
-                                        lockdown = T("Balanced - pause filters in instances"),
-                                        off = T("Safest - disable filters (recommended)"),
+                                        full = T("Maximum - message filters everywhere"),
+                                        lockdown = T("Balanced - pause message filters in instances"),
+                                        off = T("Safest - post-render filtering only (recommended)"),
                                     }
                                 end,
                                 sorting = function() return { "full", "lockdown", "off" } end,
@@ -1888,6 +1889,11 @@ function Chatify:GetOptions()
                                     inline = true,
                                     order = 1,
                                     args = {
+                                        filterEngine = {
+                                            order = 0.5,
+                                            type = "description",
+                                            name = function() return "|cff66ccffFilter Engine " .. tostring(ns.FILTER_ENGINE_VERSION or "3.0") .. "|r — " .. T("WoW markup, Unicode obfuscation and protected-client post-render filtering.") end,
+                                        },
                                         enableSpamFilter = {
                                             order = 1,
                                             name = T("Enable Keyword Blocking"),
@@ -2895,9 +2901,10 @@ function Chatify:PrintSavedVariablesReport()
         end
     end
 
-    -- ChatifyDB exists as a global only if the client read a file back in. On a
-    -- first-ever login it is absent, which is expected; on a character that has
-    -- used the addon before, absent means the file did not survive.
+    -- ChatifyDB exists as a global only if the client restored data into this
+    -- addon load. On a first-ever login it is absent, which is expected; later an
+    -- absent table means persistence was not restored, which can be either a write
+    -- problem or (on the Forever beta) the client's SavedVariables loader bug.
     say("  loaded from disk: " .. tostring(sessionLoadedFromDisk))
     say("  previous sessions recorded: " .. tostring(sessionPreviousCount))
     if sessionPreviousStamp then
@@ -2905,14 +2912,20 @@ function Chatify:PrintSavedVariablesReport()
     end
 
     if sessionPreviousCount == 0 then
-        say("|cffff6060  Nothing came back from disk this session.|r")
-        say("  If you have used Chatify before, the file is not being written at")
-        say("  logout. That is outside the addon: check that WoW is not installed")
-        say("  under Program Files, that the WTF folder is not synced by OneDrive")
-        say("  or Dropbox, and that the game is exited normally rather than being")
-        say("  force-closed or crashing, since the file is only written on a clean exit.")
+        say("|cffff6060  No previous Chatify session was restored into memory.|r")
+        local isForever = ns.Client and ns.Client.isForever
+        if isForever then
+            say("  WoW: Forever beta currently has a client-side SavedVariables")
+            say("  restore bug: files may be written correctly but not loaded again")
+            say("  after /reload, relog, or restart. Deleting Chatify SavedVariables")
+            say("  cannot repair that loader bug; it only removes the saved data.")
+            say("  Filter Engine 3.0 still works immediately for this session.")
+        else
+            say("  If you have used Chatify before, check whether the WTF folder is")
+            say("  writable/synced and exit the game normally so WoW can save it.")
+        end
     else
-        say("  Persistence is working: your settings did survive earlier logouts.")
+        say("  Persistence is working: your settings survived an earlier session.")
     end
 
     if type(ChatifyHistoryDB) == "table" then
@@ -2950,8 +2963,8 @@ function Chatify:OnInitialize()
 
     -- Recorded before AceDB runs, because AceDB creates the table when it is
     -- missing and afterwards there is no way to tell a restored file from a
-    -- fresh one. This is the single fact that separates "settings were reset"
-    -- from "the file never came back".
+    -- fresh one. This records whether the client restored the previous database
+    -- into this addon load before AceDB attached its profile proxy.
     sessionLoadedFromDisk = type(ChatifyDB) == "table" and next(ChatifyDB) ~= nil
 
     self.db = LibStub("AceDB-3.0"):New("ChatifyDB", ns.defaults, true)

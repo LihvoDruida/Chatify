@@ -1688,6 +1688,7 @@ end
 local BuildTextFromEntries
 local IsBlankCopyEntries
 local BuildBlankCopyEntries
+local HasAnyCopyEntries
 
 local function SetCopyEditText(text)
     copyTextValue = text or ""
@@ -2183,7 +2184,7 @@ local function HasReadableEntries(entries)
     return false
 end
 
-local function HasAnyCopyEntries(entries)
+HasAnyCopyEntries = function(entries)
     return type(entries) == "table" and #entries > 0
 end
 

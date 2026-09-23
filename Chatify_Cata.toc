@@ -1,14 +1,17 @@
+# GENERATED FILE - do not edit.
+# Produced from Chatify.toc by tools/generate_tocs.py.
+# Edit Chatify.toc and re-run the script instead.
+
 ## Interface: 40402
-## X-Flavor: classic-legacy
+## X-Flavor: classic
 ## X-Expansion: Cata
-## X-Chatify-Client: Cataclysm Classic 4.4.2
-## X-Chatify-Support-Tier: legacy
-# Legacy compatibility target retained separately from current live Classic branches.
+## X-Chatify-Client: Retail / Midnight
+## X-Chatify-Support-Tier: current
 
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.16.4
+## Version: 2.17.0
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled

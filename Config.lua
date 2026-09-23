@@ -887,7 +887,7 @@ ns.defaults = {
         -- === SPAM FILTERS (Updated) ===
         enableSpamFilter = true,
         
-        -- Anti-Flood / Spam Filter 2.0
+        -- Anti-Flood / Filter Engine 3.0
         enableThrottle = true,      -- Блокувати повтор повідомлень
         throttleTime = 60,          -- Час блокування (сек)
         throttleMinLength = 20,     -- Мінімальна довжина нормалізованого повідомлення для anti-flood
@@ -1997,6 +1997,24 @@ local function HasMessageFilterAPI()
     return type(fn) == "function"
 end
 
+local function HasPostRenderSpamRemovalAPI()
+    if type(ns.HasSecureSpamRemovalAPI) == "function" then
+        local ok, available = pcall(ns.HasSecureSpamRemovalAPI)
+        if ok and available then return true end
+    end
+
+    local candidates = { SELECTED_CHAT_FRAME, DEFAULT_CHAT_FRAME, _G and _G.ChatFrame1 }
+    for i = 1, #candidates do
+        local frame = candidates[i]
+        if type(frame) == "table"
+            and type(frame.RemoveMessagesByPredicate) == "function"
+            and type(hooksecurefunc) == "function" then
+            return true
+        end
+    end
+    return false
+end
+
 local function HasNativeChatSelectionAPI()
     local candidates = { SELECTED_CHAT_FRAME, DEFAULT_CHAT_FRAME, _G and _G.ChatFrame1 }
     for i = 1, #candidates do
@@ -2032,9 +2050,11 @@ function ns.GetFeatureSupport(feature)
     elseif feature == "virtualChat" then
         return secretRestricted and FEATURE_UNAVAILABLE or FEATURE_SUPPORTED
     elseif feature == "spamFilters" then
-        if not HasMessageFilterAPI() then
+        if not HasMessageFilterAPI() and not HasPostRenderSpamRemovalAPI() then
             return FEATURE_UNAVAILABLE
         end
+        -- Protected clients prefer Filter Engine 3.0's post-render removal path
+        -- when message-event filters are intentionally detached for taint safety.
         return secretRestricted and FEATURE_WARNING or FEATURE_SUPPORTED
     elseif feature == "mentions" then
         if secretRestricted then
@@ -2134,7 +2154,7 @@ end
 
 local FEATURE_WARNING_TEXT = {
     channels = "Some protected chat lines cannot be renamed. Chatify skips them safely.",
-    spamFilters = "Some protected messages cannot be filtered. Chatify uses the safer filter path automatically.",
+    spamFilters = "Filter Engine 3.0 removes readable matched lines through the safest available path. Blizzard-protected/secret payloads are skipped rather than forced open.",
     mentions = "Protected messages may not be highlighted. Chatify skips them instead of forcing access.",
     history = "Protected messages cannot be saved. Readable messages are stored normally.",
     copy = "Protected messages cannot be copied. Readable messages remain available.",

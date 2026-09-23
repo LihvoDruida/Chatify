@@ -1,5 +1,25 @@
 # Chatify Changelog
 
+## 2.17.0 - 2026-09-23
+
+### Filter Engine 3.0
+
+- Add a protected-client post-render blocking path using the chat frame's stored event metadata and `RemoveMessagesByPredicate`, so readable keyword matches can be removed on WoW: Forever even when message-event filters are intentionally disabled for taint safety.
+- Keep legacy `ChatFrame_AddMessageEventFilter` filtering on clients where it is safe; never run both paths for the same message.
+- Normalize WoW hyperlink/color/texture/atlas/Kstring markup while preserving readable hyperlink labels.
+- Fold zero-width, bidi, combining, full-width, accented Latin, and common Cyrillic/Greek lookalike characters before keyword matching.
+- Add conservative leetspeak matching for alphabetic blocklist terms of four or more characters, catching variants such as `b00st` without applying aggressive substitutions to short keywords.
+- Cache one spam decision per Blizzard `eventArgs` table so the same message shown in several chat windows is evaluated and logged only once.
+- Apply keyword additions/removals immediately without `/reload` and keep the protected-chat mode selector runtime-live.
+- Normalize missing/corrupt `spamKeywords` profile data to an empty table during profile setup.
+- Let Hide Join/Leave Messages use the same post-render removal path when protected-client event filters are detached.
+
+### WoW: Forever
+
+- Correct `/chatifydb` diagnostics for the current Forever beta SavedVariables restore bug: the client may write SavedVariables successfully but fail to restore them after `/reload`, relog, or restart.
+- Stop telling Forever users that an unrestored database necessarily means the file was never written.
+- Keep Chatify's AceDB lifecycle unchanged and compatible with external SavedVariables restore workarounds instead of replacing the global database table after AceDB has attached it.
+
 ## 2.16.4 - 2026-09-22
 
 ### Fixed

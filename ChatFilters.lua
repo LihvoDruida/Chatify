@@ -23,6 +23,12 @@ local FriendCache = {}
 local friendCacheLastClear = 0
 local repeatCacheLastPrune = 0
 
+-- Filter Engine 3.0
+-- Normalizes rendered WoW markup and common Unicode obfuscation before matching.
+-- The actual render/removal fallback for protected clients lives in ChatTransforms.lua.
+ns.FILTER_ENGINE_VERSION = "3.0"
+
+
 local function IsSecretValue(value)
     return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
 end
@@ -174,6 +180,11 @@ local function DB()
     return ns.db
 end
 
+function ns.ShouldHideSystemChatEvent(eventName)
+    local db = DB()
+    return db and db.hideSystemSpam and SystemEvents[eventName] and true or false
+end
+
 local function IsVirtualMode()
     local db = DB()
     if not db or not db.useVirtualChat then
@@ -203,54 +214,633 @@ local function EscapePattern(value)
     return (value:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
 end
 
+local UnicodeSpamFold = {
+    [" "] = " ",
+    ["ª"] = "a",
+    ["­"] = "",
+    ["º"] = "o",
+    ["À"] = "A",
+    ["Á"] = "A",
+    ["Â"] = "A",
+    ["Ã"] = "A",
+    ["Ä"] = "A",
+    ["Å"] = "A",
+    ["Ç"] = "C",
+    ["È"] = "E",
+    ["É"] = "E",
+    ["Ê"] = "E",
+    ["Ë"] = "E",
+    ["Ì"] = "I",
+    ["Í"] = "I",
+    ["Î"] = "I",
+    ["Ï"] = "I",
+    ["Ñ"] = "N",
+    ["Ò"] = "O",
+    ["Ó"] = "O",
+    ["Ô"] = "O",
+    ["Õ"] = "O",
+    ["Ö"] = "O",
+    ["Ù"] = "U",
+    ["Ú"] = "U",
+    ["Û"] = "U",
+    ["Ü"] = "U",
+    ["Ý"] = "Y",
+    ["à"] = "a",
+    ["á"] = "a",
+    ["â"] = "a",
+    ["ã"] = "a",
+    ["ä"] = "a",
+    ["å"] = "a",
+    ["ç"] = "c",
+    ["è"] = "e",
+    ["é"] = "e",
+    ["ê"] = "e",
+    ["ë"] = "e",
+    ["ì"] = "i",
+    ["í"] = "i",
+    ["î"] = "i",
+    ["ï"] = "i",
+    ["ñ"] = "n",
+    ["ò"] = "o",
+    ["ó"] = "o",
+    ["ô"] = "o",
+    ["õ"] = "o",
+    ["ö"] = "o",
+    ["ù"] = "u",
+    ["ú"] = "u",
+    ["û"] = "u",
+    ["ü"] = "u",
+    ["ý"] = "y",
+    ["ÿ"] = "y",
+    ["Ā"] = "A",
+    ["ā"] = "a",
+    ["Ă"] = "A",
+    ["ă"] = "a",
+    ["Ą"] = "A",
+    ["ą"] = "a",
+    ["Ć"] = "C",
+    ["ć"] = "c",
+    ["Ĉ"] = "C",
+    ["ĉ"] = "c",
+    ["Ċ"] = "C",
+    ["ċ"] = "c",
+    ["Č"] = "C",
+    ["č"] = "c",
+    ["Ď"] = "D",
+    ["ď"] = "d",
+    ["Ē"] = "E",
+    ["ē"] = "e",
+    ["Ĕ"] = "E",
+    ["ĕ"] = "e",
+    ["Ė"] = "E",
+    ["ė"] = "e",
+    ["Ę"] = "E",
+    ["ę"] = "e",
+    ["Ě"] = "E",
+    ["ě"] = "e",
+    ["Ĝ"] = "G",
+    ["ĝ"] = "g",
+    ["Ğ"] = "G",
+    ["ğ"] = "g",
+    ["Ġ"] = "G",
+    ["ġ"] = "g",
+    ["Ģ"] = "G",
+    ["ģ"] = "g",
+    ["Ĥ"] = "H",
+    ["ĥ"] = "h",
+    ["Ĩ"] = "I",
+    ["ĩ"] = "i",
+    ["Ī"] = "I",
+    ["ī"] = "i",
+    ["Ĭ"] = "I",
+    ["ĭ"] = "i",
+    ["Į"] = "I",
+    ["į"] = "i",
+    ["İ"] = "I",
+    ["Ĵ"] = "J",
+    ["ĵ"] = "j",
+    ["Ķ"] = "K",
+    ["ķ"] = "k",
+    ["Ĺ"] = "L",
+    ["ĺ"] = "l",
+    ["Ļ"] = "L",
+    ["ļ"] = "l",
+    ["Ľ"] = "L",
+    ["ľ"] = "l",
+    ["Ŀ"] = "L",
+    ["ŀ"] = "l",
+    ["Ń"] = "N",
+    ["ń"] = "n",
+    ["Ņ"] = "N",
+    ["ņ"] = "n",
+    ["Ň"] = "N",
+    ["ň"] = "n",
+    ["ŉ"] = "n",
+    ["Ō"] = "O",
+    ["ō"] = "o",
+    ["Ŏ"] = "O",
+    ["ŏ"] = "o",
+    ["Ő"] = "O",
+    ["ő"] = "o",
+    ["Ŕ"] = "R",
+    ["ŕ"] = "r",
+    ["Ŗ"] = "R",
+    ["ŗ"] = "r",
+    ["Ř"] = "R",
+    ["ř"] = "r",
+    ["Ś"] = "S",
+    ["ś"] = "s",
+    ["Ŝ"] = "S",
+    ["ŝ"] = "s",
+    ["Ş"] = "S",
+    ["ş"] = "s",
+    ["Š"] = "S",
+    ["š"] = "s",
+    ["Ţ"] = "T",
+    ["ţ"] = "t",
+    ["Ť"] = "T",
+    ["ť"] = "t",
+    ["Ũ"] = "U",
+    ["ũ"] = "u",
+    ["Ū"] = "U",
+    ["ū"] = "u",
+    ["Ŭ"] = "U",
+    ["ŭ"] = "u",
+    ["Ů"] = "U",
+    ["ů"] = "u",
+    ["Ű"] = "U",
+    ["ű"] = "u",
+    ["Ų"] = "U",
+    ["ų"] = "u",
+    ["Ŵ"] = "W",
+    ["ŵ"] = "w",
+    ["Ŷ"] = "Y",
+    ["ŷ"] = "y",
+    ["Ÿ"] = "Y",
+    ["Ź"] = "Z",
+    ["ź"] = "z",
+    ["Ż"] = "Z",
+    ["ż"] = "z",
+    ["Ž"] = "Z",
+    ["ž"] = "z",
+    ["ſ"] = "s",
+    ["Ơ"] = "O",
+    ["ơ"] = "o",
+    ["Ư"] = "U",
+    ["ư"] = "u",
+    ["Ǎ"] = "A",
+    ["ǎ"] = "a",
+    ["Ǐ"] = "I",
+    ["ǐ"] = "i",
+    ["Ǒ"] = "O",
+    ["ǒ"] = "o",
+    ["Ǔ"] = "U",
+    ["ǔ"] = "u",
+    ["Ǖ"] = "U",
+    ["ǖ"] = "u",
+    ["Ǘ"] = "U",
+    ["ǘ"] = "u",
+    ["Ǚ"] = "U",
+    ["ǚ"] = "u",
+    ["Ǜ"] = "U",
+    ["ǜ"] = "u",
+    ["Ǟ"] = "A",
+    ["ǟ"] = "a",
+    ["Ǡ"] = "A",
+    ["ǡ"] = "a",
+    ["Ǧ"] = "G",
+    ["ǧ"] = "g",
+    ["Ǩ"] = "K",
+    ["ǩ"] = "k",
+    ["Ǫ"] = "O",
+    ["ǫ"] = "o",
+    ["Ǭ"] = "O",
+    ["ǭ"] = "o",
+    ["ǰ"] = "j",
+    ["Ǵ"] = "G",
+    ["ǵ"] = "g",
+    ["Ǹ"] = "N",
+    ["ǹ"] = "n",
+    ["Ǻ"] = "A",
+    ["ǻ"] = "a",
+    ["Ȁ"] = "A",
+    ["ȁ"] = "a",
+    ["Ȃ"] = "A",
+    ["ȃ"] = "a",
+    ["Ȅ"] = "E",
+    ["ȅ"] = "e",
+    ["Ȇ"] = "E",
+    ["ȇ"] = "e",
+    ["Ȉ"] = "I",
+    ["ȉ"] = "i",
+    ["Ȋ"] = "I",
+    ["ȋ"] = "i",
+    ["Ȍ"] = "O",
+    ["ȍ"] = "o",
+    ["Ȏ"] = "O",
+    ["ȏ"] = "o",
+    ["Ȑ"] = "R",
+    ["ȑ"] = "r",
+    ["Ȓ"] = "R",
+    ["ȓ"] = "r",
+    ["Ȕ"] = "U",
+    ["ȕ"] = "u",
+    ["Ȗ"] = "U",
+    ["ȗ"] = "u",
+    ["Ș"] = "S",
+    ["ș"] = "s",
+    ["Ț"] = "T",
+    ["ț"] = "t",
+    ["Ȟ"] = "H",
+    ["ȟ"] = "h",
+    ["Ȧ"] = "A",
+    ["ȧ"] = "a",
+    ["Ȩ"] = "E",
+    ["ȩ"] = "e",
+    ["Ȫ"] = "O",
+    ["ȫ"] = "o",
+    ["Ȭ"] = "O",
+    ["ȭ"] = "o",
+    ["Ȯ"] = "O",
+    ["ȯ"] = "o",
+    ["Ȱ"] = "O",
+    ["ȱ"] = "o",
+    ["Ȳ"] = "Y",
+    ["ȳ"] = "y",
+    ["̀"] = "",
+    ["́"] = "",
+    ["̂"] = "",
+    ["̃"] = "",
+    ["̄"] = "",
+    ["̅"] = "",
+    ["̆"] = "",
+    ["̇"] = "",
+    ["̈"] = "",
+    ["̉"] = "",
+    ["̊"] = "",
+    ["̋"] = "",
+    ["̌"] = "",
+    ["̍"] = "",
+    ["̎"] = "",
+    ["̏"] = "",
+    ["̐"] = "",
+    ["̑"] = "",
+    ["̒"] = "",
+    ["̓"] = "",
+    ["̔"] = "",
+    ["̕"] = "",
+    ["̖"] = "",
+    ["̗"] = "",
+    ["̘"] = "",
+    ["̙"] = "",
+    ["̚"] = "",
+    ["̛"] = "",
+    ["̜"] = "",
+    ["̝"] = "",
+    ["̞"] = "",
+    ["̟"] = "",
+    ["̠"] = "",
+    ["̡"] = "",
+    ["̢"] = "",
+    ["̣"] = "",
+    ["̤"] = "",
+    ["̥"] = "",
+    ["̦"] = "",
+    ["̧"] = "",
+    ["̨"] = "",
+    ["̩"] = "",
+    ["̪"] = "",
+    ["̫"] = "",
+    ["̬"] = "",
+    ["̭"] = "",
+    ["̮"] = "",
+    ["̯"] = "",
+    ["̰"] = "",
+    ["̱"] = "",
+    ["̲"] = "",
+    ["̳"] = "",
+    ["̴"] = "",
+    ["̵"] = "",
+    ["̶"] = "",
+    ["̷"] = "",
+    ["̸"] = "",
+    ["̹"] = "",
+    ["̺"] = "",
+    ["̻"] = "",
+    ["̼"] = "",
+    ["̽"] = "",
+    ["̾"] = "",
+    ["̿"] = "",
+    ["̀"] = "",
+    ["́"] = "",
+    ["͂"] = "",
+    ["̓"] = "",
+    ["̈́"] = "",
+    ["ͅ"] = "",
+    ["͆"] = "",
+    ["͇"] = "",
+    ["͈"] = "",
+    ["͉"] = "",
+    ["͊"] = "",
+    ["͋"] = "",
+    ["͌"] = "",
+    ["͍"] = "",
+    ["͎"] = "",
+    ["͏"] = "",
+    ["͐"] = "",
+    ["͑"] = "",
+    ["͒"] = "",
+    ["͓"] = "",
+    ["͔"] = "",
+    ["͕"] = "",
+    ["͖"] = "",
+    ["͗"] = "",
+    ["͘"] = "",
+    ["͙"] = "",
+    ["͚"] = "",
+    ["͛"] = "",
+    ["͜"] = "",
+    ["͝"] = "",
+    ["͞"] = "",
+    ["͟"] = "",
+    ["͠"] = "",
+    ["͡"] = "",
+    ["͢"] = "",
+    ["ͣ"] = "",
+    ["ͤ"] = "",
+    ["ͥ"] = "",
+    ["ͦ"] = "",
+    ["ͧ"] = "",
+    ["ͨ"] = "",
+    ["ͩ"] = "",
+    ["ͪ"] = "",
+    ["ͫ"] = "",
+    ["ͬ"] = "",
+    ["ͭ"] = "",
+    ["ͮ"] = "",
+    ["ͯ"] = "",
+    ["Α"] = "A",
+    ["Β"] = "B",
+    ["Ε"] = "E",
+    ["Ζ"] = "Z",
+    ["Η"] = "H",
+    ["Ι"] = "I",
+    ["Κ"] = "K",
+    ["Μ"] = "M",
+    ["Ν"] = "N",
+    ["Ο"] = "O",
+    ["Ρ"] = "P",
+    ["Τ"] = "T",
+    ["Υ"] = "Y",
+    ["Χ"] = "X",
+    ["α"] = "a",
+    ["β"] = "b",
+    ["ε"] = "e",
+    ["ι"] = "i",
+    ["κ"] = "k",
+    ["ν"] = "v",
+    ["ο"] = "o",
+    ["ρ"] = "p",
+    ["τ"] = "t",
+    ["υ"] = "y",
+    ["χ"] = "x",
+    ["І"] = "I",
+    ["Ј"] = "J",
+    ["А"] = "A",
+    ["В"] = "B",
+    ["Е"] = "E",
+    ["К"] = "K",
+    ["М"] = "M",
+    ["Н"] = "H",
+    ["О"] = "O",
+    ["Р"] = "P",
+    ["С"] = "C",
+    ["Т"] = "T",
+    ["У"] = "Y",
+    ["Х"] = "X",
+    ["а"] = "a",
+    ["в"] = "b",
+    ["е"] = "e",
+    ["к"] = "k",
+    ["м"] = "m",
+    ["н"] = "h",
+    ["о"] = "o",
+    ["р"] = "p",
+    ["с"] = "c",
+    ["т"] = "t",
+    ["у"] = "y",
+    ["х"] = "x",
+    ["і"] = "i",
+    ["ј"] = "j",
+    ["؜"] = "",
+    [" "] = " ",
+    ["᠎"] = "",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    [" "] = " ",
+    ["​"] = "",
+    ["‌"] = "",
+    ["‍"] = "",
+    ["‎"] = "",
+    ["‏"] = "",
+    ["‪"] = "",
+    ["‫"] = "",
+    ["‬"] = "",
+    ["‭"] = "",
+    ["‮"] = "",
+    [" "] = " ",
+    [" "] = " ",
+    ["⁠"] = "",
+    ["⁡"] = "",
+    ["⁢"] = "",
+    ["⁣"] = "",
+    ["⁤"] = "",
+    ["⁦"] = "",
+    ["⁧"] = "",
+    ["⁨"] = "",
+    ["⁩"] = "",
+    ["　"] = " ",
+    ["︀"] = "",
+    ["︁"] = "",
+    ["︂"] = "",
+    ["︃"] = "",
+    ["︄"] = "",
+    ["︅"] = "",
+    ["︆"] = "",
+    ["︇"] = "",
+    ["︈"] = "",
+    ["︉"] = "",
+    ["︊"] = "",
+    ["︋"] = "",
+    ["︌"] = "",
+    ["︍"] = "",
+    ["︎"] = "",
+    ["️"] = "",
+    ["﻿"] = "",
+    ["０"] = "0",
+    ["１"] = "1",
+    ["２"] = "2",
+    ["３"] = "3",
+    ["４"] = "4",
+    ["５"] = "5",
+    ["６"] = "6",
+    ["７"] = "7",
+    ["８"] = "8",
+    ["９"] = "9",
+    ["Ａ"] = "A",
+    ["Ｂ"] = "B",
+    ["Ｃ"] = "C",
+    ["Ｄ"] = "D",
+    ["Ｅ"] = "E",
+    ["Ｆ"] = "F",
+    ["Ｇ"] = "G",
+    ["Ｈ"] = "H",
+    ["Ｉ"] = "I",
+    ["Ｊ"] = "J",
+    ["Ｋ"] = "K",
+    ["Ｌ"] = "L",
+    ["Ｍ"] = "M",
+    ["Ｎ"] = "N",
+    ["Ｏ"] = "O",
+    ["Ｐ"] = "P",
+    ["Ｑ"] = "Q",
+    ["Ｒ"] = "R",
+    ["Ｓ"] = "S",
+    ["Ｔ"] = "T",
+    ["Ｕ"] = "U",
+    ["Ｖ"] = "V",
+    ["Ｗ"] = "W",
+    ["Ｘ"] = "X",
+    ["Ｙ"] = "Y",
+    ["Ｚ"] = "Z",
+    ["ａ"] = "a",
+    ["ｂ"] = "b",
+    ["ｃ"] = "c",
+    ["ｄ"] = "d",
+    ["ｅ"] = "e",
+    ["ｆ"] = "f",
+    ["ｇ"] = "g",
+    ["ｈ"] = "h",
+    ["ｉ"] = "i",
+    ["ｊ"] = "j",
+    ["ｋ"] = "k",
+    ["ｌ"] = "l",
+    ["ｍ"] = "m",
+    ["ｎ"] = "n",
+    ["ｏ"] = "o",
+    ["ｐ"] = "p",
+    ["ｑ"] = "q",
+    ["ｒ"] = "r",
+    ["ｓ"] = "s",
+    ["ｔ"] = "t",
+    ["ｕ"] = "u",
+    ["ｖ"] = "v",
+    ["ｗ"] = "w",
+    ["ｘ"] = "x",
+    ["ｙ"] = "y",
+    ["ｚ"] = "z",
+}
+
+local function FoldSpamUnicode(value)
+    if type(value) ~= "string" or value == "" then
+        return value or ""
+    end
+
+    -- Match one UTF-8 sequence at a time. ASCII is left untouched, while known
+    -- lookalikes/formatting characters are folded through the lookup table.
+    return (string_gsub(value, "[\194-\244][\128-\191]+", function(character)
+        local replacement = UnicodeSpamFold[character]
+        if replacement ~= nil then
+            return replacement
+        end
+        return character
+    end))
+end
+
 local function StripWoWMarkup(text)
     local value = text
 
-    -- Keep the visible text of hyperlinks. The previous spam normalizer removed the
-    -- whole |H...|hvisible|h block, so ads that linked words like VIP/CARRY could
-    -- slip through even when the keyword existed in the blocklist.
-    local guard = 0
-    while guard < 8 do
-        local changed
-        value, changed = string_gsub(value, "|H.-|h(.-)|h", "%1")
-        if changed == 0 then
-            break
+    -- Kstrings may represent protected names. Their internal payload is not a
+    -- readable substitute for the rendered name, and C_StringUtil.StripHyperlinks
+    -- deliberately refuses strings containing them. Remove the opaque block while
+    -- continuing to inspect the rest of the message.
+    value = string_gsub(value, "|[Kk].-|[Kk]", " ")
+
+    -- Current Retail/Forever exposes Blizzard's own quoted-code parser. Prefer it
+    -- because it understands hyperlinks, atlases, textures and newlines without
+    -- teaching Chatify every link type. It preserves the visible hyperlink label.
+    local strippedByClient = false
+    if type(C_StringUtil) == "table" and type(C_StringUtil.StripHyperlinks) == "function" then
+        local ok, stripped = pcall(C_StringUtil.StripHyperlinks, value, false, false, true, false, false)
+        if ok and type(stripped) == "string" then
+            value = stripped
+            strippedByClient = true
         end
-        guard = guard + 1
     end
 
-    -- Both colour syntaxes: a named code left in place would become part of the
-    -- normalized text, so an advert coloured with |cn... would not match its own
-    -- keyword and would evade the duplicate throttle.
+    if not strippedByClient then
+        -- Legacy fallback: keep only the visible label of hyperlinks.
+        local guard = 0
+        while guard < 8 do
+            local changed
+            value, changed = string_gsub(value, "|[Hh].-|[Hh](.-)|[Hh]", "%1")
+            if changed == 0 then break end
+            guard = guard + 1
+        end
+    end
+
+    -- Strip any quoted codes left by a legacy client or malformed spam message.
     value = ns.StripColorCodes(value)
-    value = string_gsub(value, "|T.-|t", " ")
-    value = string_gsub(value, "|A.-|a", " ")
+    value = string_gsub(value, "|[Tt].-|[Tt]", " ")
+    value = string_gsub(value, "|[Aa].-|[Aa]", " ")
+    value = string_gsub(value, "|[Hh].-|[Hh](.-)|[Hh]", "%1")
+    value = string_gsub(value, "|[Nn]", " ")
     value = string_gsub(value, "{.-}", " ")
 
-    return value
+    return FoldSpamUnicode(value)
+end
+
+local function BuildSpamSkeleton(clean)
+    if type(clean) ~= "string" or clean == "" then return "" end
+    local value = clean
+    -- Conservative leetspeak folding is used only for alphabetic blocklist words
+    -- of four or more characters, limiting false positives for short chat tokens.
+    value = string_gsub(value, "0", "O")
+    value = string_gsub(value, "1", "I")
+    value = string_gsub(value, "3", "E")
+    value = string_gsub(value, "4", "A")
+    value = string_gsub(value, "5", "S")
+    value = string_gsub(value, "7", "T")
+    value = string_gsub(value, "8", "B")
+    value = string_gsub(value, "9", "G")
+    value = string_gsub(value, "@", "A")
+    value = string_gsub(value, "%$", "S")
+    value = string_gsub(value, "!", "I")
+    return (string_gsub(value, "[^%w]+", ""))
 end
 
 function ns.NormalizeSpamText(text)
     if IsSecretValue(text) then
-        return { compact = "", tokens = " ", clean = "" }
+        return { compact = "", tokens = " ", clean = "", skeleton = "" }
     end
 
     local safe = type(ns.TryMakeSafeText) == "function" and ns.TryMakeSafeText(text) or text
-    if type(safe) == "number" then
-        safe = tostring(safe)
-    end
+    if type(safe) == "number" then safe = tostring(safe) end
     if type(safe) ~= "string" then
-        return { compact = "", tokens = " ", clean = "" }
+        return { compact = "", tokens = " ", clean = "", skeleton = "" }
     end
 
-    -- Chattynator/Prat-style hot path: repeat spam checks should not rebuild the
-    -- same normalized forms over and over. Keep the cache small and only for
-    -- reasonably short normal strings; protected values are never stored.
     if #safe <= 512 then
         local cached = NormalizeCache[safe]
-        if cached then
-            return cached
-        end
+        if cached then return cached end
     end
 
     local ok, forms = pcall(function()
@@ -263,28 +853,23 @@ function ns.NormalizeSpamText(text)
             compact = compact,
             tokens = tokens,
             clean = clean,
+            skeleton = BuildSpamSkeleton(clean),
         }
     end)
 
     if ok and type(forms) == "table" then
         if #safe <= 512 then
-            -- Ring buffer rather than table.remove(t, 1): once the cache is full
-            -- the old form shifted all 256 entries down on every single message.
             NormalizeCache[safe] = forms
             NormalizeCacheCursor = NormalizeCacheCursor + 1
-            if NormalizeCacheCursor > NORMALIZE_CACHE_LIMIT then
-                NormalizeCacheCursor = 1
-            end
+            if NormalizeCacheCursor > NORMALIZE_CACHE_LIMIT then NormalizeCacheCursor = 1 end
             local evicted = NormalizeCacheOrder[NormalizeCacheCursor]
-            if evicted ~= nil and evicted ~= safe then
-                NormalizeCache[evicted] = nil
-            end
+            if evicted ~= nil and evicted ~= safe then NormalizeCache[evicted] = nil end
             NormalizeCacheOrder[NormalizeCacheCursor] = safe
         end
         return forms
     end
 
-    return { compact = "", tokens = " ", clean = "" }
+    return { compact = "", tokens = " ", clean = "", skeleton = "" }
 end
 
 local function NormalizeText(text)
@@ -337,6 +922,7 @@ function ns.UpdateSpamCache()
                     token = " " .. compact .. " ",
                     fuzzyPattern = BuildFuzzyWordPattern(compact),
                     allowCompactSubstring = #compact >= 4,
+                    skeleton = compact:match("^[%a]+$") and #compact >= 4 and forms.skeleton or nil,
                 })
             end
         end
@@ -354,6 +940,7 @@ function ns.GetSpamMatch(messageText)
     local compactMessage = forms.compact or ""
     local tokenMessage = forms.tokens or " "
     local cleanMessage = forms.clean or ""
+    local skeletonMessage = forms.skeleton or ""
 
     if compactMessage == "" then
         return nil
@@ -371,6 +958,10 @@ function ns.GetSpamMatch(messageText)
             end
 
             if keyword.allowCompactSubstring and string_find(compactMessage, keyword.compact, 1, true) then
+                return keyword.raw or keyword.compact
+            end
+
+            if keyword.skeleton and skeletonMessage ~= "" and string_find(skeletonMessage, keyword.skeleton, 1, true) then
                 return keyword.raw or keyword.compact
             end
         end
@@ -654,6 +1245,14 @@ end
 function ns.GetSpamDebugText()
     local stats = ns.GetSpamFilterStats and ns.GetSpamFilterStats() or SpamRuntime
     local lines = {}
+    local path = "unavailable"
+    if type(ns.AreMessageFiltersInstalled) == "function" and ns.AreMessageFiltersInstalled() then
+        path = "message-event"
+    elseif type(ns.HasSecureSpamRemovalAPI) == "function" then
+        local ok, available = pcall(ns.HasSecureSpamRemovalAPI)
+        if ok and available then path = "post-render" end
+    end
+    lines[#lines + 1] = "Filter Engine " .. tostring(ns.FILTER_ENGINE_VERSION or "3.0") .. "   Path: " .. path
     lines[#lines + 1] = string.format("Blocked: %d   Logged: %d", tonumber(stats.blocked) or 0, tonumber(stats.logged) or 0)
     if not stats.log or #stats.log == 0 then
         lines[#lines + 1] = "|cff888888No spam events logged this session.|r"
