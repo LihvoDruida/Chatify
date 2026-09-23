@@ -589,9 +589,21 @@ local function BuildChannelLabelMap(db)
                 if entry.templateFallback and entry.template then
                     local prefix, suffix = ns.SplitChatTemplate(entry.template, entry.token)
                     if prefix then
+                        -- Raid Warning is the important modern-client case here:
+                        -- Blizzard renders it from CHAT_RAID_WARNING_GET rather
+                        -- than a |Hchannel:...|h link. By the time AddMessage sees
+                        -- the line, Blizzard may already have prepended its own
+                        -- timestamp, so an anchor directly on "[Raid Warning]"
+                        -- can never match. Keep the old anchored pattern as the
+                        -- safe fallback when no event metadata is available, and
+                        -- add an event-scoped pattern that preserves any leading
+                        -- timestamp/markup before the localized template prefix.
                         map.templates[#map.templates + 1] = {
                             label = replacement,
+                            event = "CHAT_MSG_" .. entry.token,
                             pattern = "^" .. EscapeChatPattern(prefix)
+                                .. "(.-)" .. EscapeChatPattern(suffix) .. "()",
+                            eventPattern = "^(.-)" .. EscapeChatPattern(prefix)
                                 .. "(.-)" .. EscapeChatPattern(suffix) .. "()",
                         }
                     end
@@ -763,7 +775,7 @@ local function IsChannelNoticeLine(text)
     return false
 end
 
-function ns.ApplyChannelLabels(text)
+function ns.ApplyChannelLabels(text, eventName)
     if type(text) ~= "string" then
         return text
     end
@@ -845,7 +857,18 @@ function ns.ApplyChannelLabels(text)
         -- letting a second rule run would re-match the text just produced.
         for i = 1, #map.templates do
             local rule = map.templates[i]
-            local name, tail = value:match(rule.pattern)
+            local leading, name, tail
+
+            -- When Blizzard gives us the originating event, use it to scope the
+            -- template fallback to the exact chat type. This lets Raid Warning
+            -- tolerate timestamps (and their color markup) before the prefix
+            -- without ever rewriting a look-alike string in another message body.
+            if rule.eventPattern and type(eventName) == "string" and eventName == rule.event then
+                leading, name, tail = value:match(rule.eventPattern)
+            elseif not rule.event or eventName == nil or eventName == rule.event then
+                name, tail = value:match(rule.pattern)
+            end
+
             if name and name ~= "" and tail then
                 local head
                 if rule.label == false or rule.label == "" then
@@ -853,7 +876,7 @@ function ns.ApplyChannelLabels(text)
                 else
                     head = "[" .. rule.label .. "] " .. name .. ": "
                 end
-                value = head .. value:sub(tail)
+                value = (leading or "") .. head .. value:sub(tail)
                 break
             end
         end

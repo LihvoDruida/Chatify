@@ -1,5 +1,14 @@
 # Chatify Changelog
 
+## 2.17.1 - 2026-09-23
+
+### Fixed
+
+- Fix **Raid Warning** short/custom/hidden channel labels on Retail/Midnight when the rendered line is prefixed by a Blizzard/Chatify timestamp.
+- Pass the originating `CHAT_MSG_*` event into the render-time channel label transformer so the non-hyperlink `CHAT_RAID_WARNING_GET` fallback can be scoped to `CHAT_MSG_RAID_WARNING` instead of matching unrelated text.
+- Preserve any leading timestamp and inline markup while replacing `[Raid Warning]` with the configured value such as `[RW]`.
+- Keep the existing hyperlink rewrite for Raid Leader/Raid/Party and the anchored no-event fallback for legacy clients.
+
 ## 2.17.0 - 2026-09-23
 
 ### Filter Engine 3.0

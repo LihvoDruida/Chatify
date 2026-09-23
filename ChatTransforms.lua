@@ -172,7 +172,11 @@ local function TransformText(text, event, eventArgs, frame)
     if type(text) ~= "string" or not Safe(text) then return text end
     local output = text
     if type(ns.ApplyChannelLabels) == "function" then
-        local ok, value = pcall(ns.ApplyChannelLabels, output)
+        -- Pass Blizzard's source event through to the label transformer. Raid
+        -- Warning has no channel hyperlink on modern clients, and its rendered
+        -- prefix can sit after a timestamp; the event lets the fallback rewrite
+        -- that prefix safely without scanning unrelated chat lines.
+        local ok, value = pcall(ns.ApplyChannelLabels, output, event)
         if ok and type(value) == "string" then output = value end
     end
     output = ShortenVisiblePlayerNames(output)
