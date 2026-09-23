@@ -276,6 +276,10 @@ local function AddMentionRule(db, text)
     EnsureProfileTables(db)
     text = TrimInput(text)
     if text == "" then return end
+
+    local matchPlayerIdentity = type(ns.IsPlayerMentionIdentityText) == "function"
+        and ns.IsPlayerMentionIdentityText(text) or false
+
     table.insert(db.mentionRules, {
         enabled = true,
         text = text,
@@ -285,8 +289,47 @@ local function AddMentionRule(db, text)
         ignoreCase = true,
         wholeWord = true,
         cooldown = 2,
+        matchPlayerIdentity = matchPlayerIdentity and true or nil,
     })
     selectedMentionRuleIndex = #db.mentionRules
+end
+
+local function GetForeverMentionIdentityDescription()
+    if not (type(ns.IsForeverClient) == "function" and ns.IsForeverClient()) then
+        return ""
+    end
+    if type(ns.GetPlayerMentionIdentity) ~= "function" then
+        return "|cff888888" .. T("Forever identity API is unavailable on this build.") .. "|r"
+    end
+
+    local identity = ns.GetPlayerMentionIdentity()
+    if not identity or not identity.first then
+        return "|cffffa500" .. T("Forever identity is not readable yet. Chatify will retry after the UI finishes loading.") .. "|r"
+    end
+
+    local parts = {
+        "|cff66ccff" .. T("WoW: Forever identity") .. "|r",
+        T("First name") .. ": |cffffffff" .. tostring(identity.first) .. "|r",
+    }
+    if identity.surname then
+        parts[#parts + 1] = T("Surname") .. ": |cffffffff" .. tostring(identity.surname) .. "|r"
+        parts[#parts + 1] = T("The player-name mention rule matches the first name, surname, and both full-name forms automatically.")
+    else
+        parts[#parts + 1] = "|cffffa500" .. T("Surname was not exposed separately; Chatify is using the safest available full-name value.") .. "|r"
+    end
+
+    parts[#parts + 1] = T("Name source") .. ": |cffaaaaaa" .. tostring(identity.source or "unknown") .. "|r"
+    if identity.hasSurnameDisplayAPI then
+        local displayValue = identity.shouldDisplaySurname
+        if displayValue == nil then
+            displayValue = "?"
+        else
+            displayValue = displayValue and "true" or "false"
+        end
+        parts[#parts + 1] = "C_PlayerInfo.ShouldDisplaySurname: |cffaaaaaa" .. tostring(displayValue) .. "|r"
+    end
+
+    return table.concat(parts, "\n")
 end
 
 local function GetMentionRuleValues(db)
@@ -2340,6 +2383,14 @@ function Chatify:GetOptions()
                                 name = function() return GetFeatureWarningDescription("mentions") end,
                                 hidden = function() return not IsFeatureRisky("mentions") end,
                             },
+                            foreverIdentity = {
+                                order = 1.6,
+                                type = "description",
+                                name = GetForeverMentionIdentityDescription,
+                                hidden = function()
+                                    return not (type(ns.IsForeverClient) == "function" and ns.IsForeverClient())
+                                end,
+                            },
                             enableMentionManager = {
                                 order = 2,
                                 name = T("Enable Mention Manager"),
@@ -2407,7 +2458,16 @@ function Chatify:GetOptions()
                                 name = T("Word / Phrase"),
                                 type = "input",
                                 width = "full",
-                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.text = TrimInput(val) end; RefreshMentionRuntime() end,
+                                set = function(info, val)
+                                    local rule = GetSelectedMentionRule(self.db.profile)
+                                    if rule then
+                                        rule.text = TrimInput(val)
+                                        local isIdentity = type(ns.IsPlayerMentionIdentityText) == "function"
+                                            and ns.IsPlayerMentionIdentityText(rule.text) or false
+                                        rule.matchPlayerIdentity = isIdentity and true or nil
+                                    end
+                                    RefreshMentionRuntime()
+                                end,
                                 get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.text or "" end,
                             },
                             mentionColor = {

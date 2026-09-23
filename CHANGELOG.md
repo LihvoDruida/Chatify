@@ -1,5 +1,23 @@
 # Chatify Changelog
 
+## 2.17.2 - 2026-09-23
+
+### WoW: Forever
+
+- Add native-aware first-name/surname mention matching for Forever's required two-part character names.
+- Prefer `UnitNameUnmodified("player")` for the local identity, then fall back to `C_PlayerInfo.GetName({ unit = "player" })`, `UnitFullName`, and `UnitName`.
+- Probe Forever-only `C_PlayerInfo.ShouldDisplaySurname` for diagnostics without depending on it for matching; the public API exposes a display predicate, not separate first-name/surname getters.
+- Split only on the Forever flavor and accept both visible `First Surname` and canonical `First-Surname` forms.
+- Upgrade existing player-name mention rules in-place so one rule reacts to the first name, surname, and both full-name forms.
+- Keep manually edited non-player mention rules independent; editing a player rule away from the current identity disables automatic identity alias expansion.
+- Show the resolved Forever first name, surname, API source, and surname-display probe directly in Mention Manager.
+- Keep Retail and Classic mention behavior unchanged.
+
+### Mention Manager
+
+- Rework mention matching to choose the earliest/longest alias match, preventing nested highlights when a full name and its first-name/surname aliases overlap.
+- Apply whole-word boundaries to ASCII full-name phrases as well as single-word mention rules.
+
 ## 2.17.1 - 2026-09-23
 
 ### Fixed

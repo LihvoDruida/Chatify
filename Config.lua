@@ -935,6 +935,9 @@ ns.defaults = {
                 ignoreCase = true,
                 wholeWord = true,
                 cooldown = 2,
+                -- On WoW: Forever this one rule expands to the player's
+                -- First, Surname, "First Surname", and "First-Surname" aliases.
+                matchPlayerIdentity = true,
             },
             {
                 enabled = false,
@@ -2419,6 +2422,278 @@ function ns.GetRetailSafeModeStatus(db)
 end
 
 
+-- =========================================================
+-- 6b. PLAYER NAME / SURNAME IDENTITY (WoW: Forever)
+-- =========================================================
+--
+-- Forever uses a required two-part character name in a realmless namespace.
+-- The public addon API currently exposes a surname-display predicate but no
+-- documented GetFirstName()/GetSurname() pair. Read the least-modified identity
+-- string the client provides, then split only on the Forever flavor.
+--
+-- UnitNameUnmodified is preferred because Blizzard's unit/name code uses it for
+-- the canonical player identity. C_PlayerInfo.GetName is kept as a modern API
+-- fallback, followed by UnitFullName and UnitName for beta/client drift.
+
+local playerMentionIdentityCache
+local playerMentionIdentityCachedAt = 0
+
+local function TrimIdentityPart(value)
+    if type(value) ~= "string" or value == "" then
+        return nil
+    end
+    if type(ns.IsProtectedChatValue) == "function" and ns.IsProtectedChatValue(value) then
+        return nil
+    end
+
+    value = value:gsub("^%s+", ""):gsub("%s+$", "")
+    value = value:gsub("%s+", " ")
+    if value == "" then
+        return nil
+    end
+    return value
+end
+
+local function CanonicalIdentityText(value)
+    value = TrimIdentityPart(value)
+    if not value then
+        return nil
+    end
+    -- Forever's canonical/unit representation can use First-Surname while the
+    -- visible UI uses First Surname. Treat those two separators as equivalent.
+    value = value:gsub("%s*%-%s*", " ")
+    value = value:gsub("%s+", " ")
+    return string.lower(value)
+end
+
+local function AddIdentityCandidate(candidates, source, primary, secondary)
+    primary = TrimIdentityPart(primary)
+    secondary = TrimIdentityPart(secondary)
+    if not primary then
+        return
+    end
+    candidates[#candidates + 1] = {
+        source = source,
+        primary = primary,
+        secondary = secondary,
+    }
+end
+
+local function SplitForeverIdentity(primary, secondary)
+    primary = TrimIdentityPart(primary)
+    secondary = TrimIdentityPart(secondary)
+    if not primary then
+        return nil, nil, nil
+    end
+
+    local first, surname
+
+    -- Visible form: "Sebas Moonbloom".
+    first, surname = primary:match("^([^%s]+)%s+(.+)$")
+    if not first then
+        -- Canonical/unit form seen by current Forever tooling:
+        -- "Sebas-Moonbloom". Forever is realmless, so the second component is
+        -- not a realm suffix on this client.
+        first, surname = primary:match("^([^%-]+)%-(.+)$")
+    end
+
+    if not first and secondary then
+        -- Some unit APIs traditionally return (name, realm). On Forever there is
+        -- no realm identity, so a second non-empty name component is a useful
+        -- compatibility fallback if a beta build chooses to expose the surname
+        -- there instead of joining it into the first return.
+        first = primary
+        surname = secondary
+    end
+
+    first = TrimIdentityPart(first or primary)
+    surname = TrimIdentityPart(surname)
+
+    if surname then
+        return first, surname, first .. " " .. surname
+    end
+    return first, nil, primary
+end
+
+function ns.RefreshPlayerMentionIdentity()
+    playerMentionIdentityCache = nil
+    playerMentionIdentityCachedAt = 0
+end
+
+function ns.GetPlayerMentionIdentity(forceRefresh)
+    if forceRefresh then
+        playerMentionIdentityCache = nil
+        playerMentionIdentityCachedAt = 0
+    end
+    if playerMentionIdentityCache then
+        local complete = not playerMentionIdentityCache.isForever or playerMentionIdentityCache.surname ~= nil
+        if complete then
+            return playerMentionIdentityCache
+        end
+
+        -- Character identity can be incomplete for a moment during login. Retry
+        -- an incomplete Forever result periodically instead of pinning the first
+        -- name forever, but avoid re-running four API probes for every chat line.
+        local now = type(GetTime) == "function" and GetTime() or 0
+        if now <= 0 or (now - playerMentionIdentityCachedAt) < 2 then
+            return playerMentionIdentityCache
+        end
+        playerMentionIdentityCache = nil
+    end
+
+    local identity = {
+        isForever = type(ns.IsForeverClient) == "function" and ns.IsForeverClient() or false,
+        first = nil,
+        surname = nil,
+        full = nil,
+        canonical = nil,
+        aliases = {},
+        source = "unavailable",
+        hasSurnameDisplayAPI = type(C_PlayerInfo) == "table"
+            and type(C_PlayerInfo.ShouldDisplaySurname) == "function",
+        shouldDisplaySurname = nil,
+    }
+
+    if identity.hasSurnameDisplayAPI then
+        local ok, value = pcall(C_PlayerInfo.ShouldDisplaySurname)
+        if not ok then
+            -- Keep this as a compatibility probe only. If the beta changes the
+            -- signature, trying the local player token is harmless and lets the
+            -- diagnostics reveal the result without making matching depend on it.
+            ok, value = pcall(C_PlayerInfo.ShouldDisplaySurname, "player")
+        end
+        if ok and type(value) == "boolean" then
+            identity.shouldDisplaySurname = value
+        end
+    end
+
+    local candidates = {}
+
+    if type(UnitNameUnmodified) == "function" then
+        local ok, a, b = pcall(UnitNameUnmodified, "player")
+        if ok then
+            AddIdentityCandidate(candidates, "UnitNameUnmodified", a, b)
+        end
+    end
+
+    if type(C_PlayerInfo) == "table" and type(C_PlayerInfo.GetName) == "function" then
+        local ok, value = pcall(C_PlayerInfo.GetName, { unit = "player" })
+        if ok then
+            AddIdentityCandidate(candidates, "C_PlayerInfo.GetName", value, nil)
+        end
+    end
+
+    if type(UnitFullName) == "function" then
+        local ok, a, b = pcall(UnitFullName, "player")
+        if ok then
+            AddIdentityCandidate(candidates, "UnitFullName", a, b)
+        end
+    end
+
+    if type(UnitName) == "function" then
+        local ok, a, b = pcall(UnitName, "player")
+        if ok then
+            AddIdentityCandidate(candidates, "UnitName", a, b)
+        end
+    end
+
+    local best
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        local first, surname, full
+        if identity.isForever then
+            first, surname, full = SplitForeverIdentity(candidate.primary, candidate.secondary)
+        else
+            first = candidate.primary
+            full = candidate.primary
+        end
+
+        if first then
+            local parsed = {
+                first = first,
+                surname = surname,
+                full = full,
+                source = candidate.source,
+            }
+            if not best or (surname and not best.surname) then
+                best = parsed
+            end
+            if surname then
+                break
+            end
+        end
+    end
+
+    if best then
+        identity.first = best.first
+        identity.surname = best.surname
+        identity.full = best.full
+        identity.source = best.source
+        identity.canonical = CanonicalIdentityText(best.full or best.first)
+
+        local seen = {}
+        local function addAlias(value)
+            value = TrimIdentityPart(value)
+            if not value then
+                return
+            end
+            -- Keep the visible-space and canonical-hyphen full-name forms as
+            -- separate aliases; they compare as the same identity but can both
+            -- appear literally in chat payloads.
+            local key = string.lower(value:gsub("%s+", " "))
+            if seen[key] then
+                return
+            end
+            seen[key] = true
+            identity.aliases[#identity.aliases + 1] = value
+        end
+
+        if identity.isForever and best.surname then
+            -- Longest forms first so "Sebas Moonbloom" is highlighted as one
+            -- mention instead of two nested/adjacent matches.
+            addAlias(best.first .. " " .. best.surname)
+            addAlias(best.first .. "-" .. best.surname)
+            addAlias(best.first)
+            addAlias(best.surname)
+        else
+            addAlias(best.full or best.first)
+        end
+
+        playerMentionIdentityCache = identity
+        playerMentionIdentityCachedAt = type(GetTime) == "function" and GetTime() or 0
+    end
+
+    return identity
+end
+
+function ns.GetPlayerMentionAliases()
+    local identity = ns.GetPlayerMentionIdentity()
+    return identity and identity.aliases or {}, identity
+end
+
+function ns.IsPlayerMentionIdentityText(value)
+    local canonical = CanonicalIdentityText(value)
+    if not canonical then
+        return false
+    end
+
+    local identity = ns.GetPlayerMentionIdentity()
+    if not identity then
+        return false
+    end
+
+    if identity.canonical == canonical then
+        return true
+    end
+
+    for i = 1, #(identity.aliases or {}) do
+        if CanonicalIdentityText(identity.aliases[i]) == canonical then
+            return true
+        end
+    end
+    return false
+end
+
 
 local eventSupportCache = {}
 local eventProbeFrame
@@ -2895,12 +3170,33 @@ function ns.NormalizeMentionSettings(db)
         end
     end
 
+    -- Keep the built-in "my name" rule attached to the actual player identity.
+    -- On Forever this matters because one character has both a first name and a
+    -- surname. Existing profiles from before 2.17.2 are upgraded in-place even
+    -- when the old mention migration already ran.
+    local identity = type(ns.GetPlayerMentionIdentity) == "function" and ns.GetPlayerMentionIdentity() or nil
+    local playerName = identity and (identity.full or identity.first)
+        or (type(UnitName) == "function" and UnitName("player") or nil)
+
+    if identity and identity.isForever then
+        for _, rule in ipairs(db.mentionRules) do
+            if type(rule) == "table" then
+                local text = rule.text or rule.word or rule.keyword
+                local isIdentity = rule.matchPlayerIdentity == true
+                    or (type(ns.IsPlayerMentionIdentityText) == "function" and ns.IsPlayerMentionIdentityText(text))
+                if isIdentity and rule.matchPlayerIdentity ~= true then
+                    rule.matchPlayerIdentity = true
+                    changed = true
+                end
+            end
+        end
+    end
+
     local hasLegacyMentionSound = db.sounds.events["MENTION"] ~= nil
     if db._chatifyMentionSettingsMigrated and not hasLegacyHighlights and not hasLegacyMentionSound then
         return changed
     end
 
-    local playerName = type(UnitName) == "function" and UnitName("player") or nil
     local legacyColor = type(db.myHighlightColor) == "string" and db.myHighlightColor:gsub("#", "") or nil
     if type(legacyColor) ~= "string" or not legacyColor:match("^%x%x%x%x%x%x$") then
         legacyColor = "ffd700"
@@ -2918,7 +3214,7 @@ function ns.NormalizeMentionSettings(db)
         return string.lower(a) == string.lower(b)
     end
 
-    local function ensureRule(text, color, sound, channels)
+    local function ensureRule(text, color, sound, channels, matchPlayerIdentity)
         if type(text) ~= "string" or text == "" then
             return
         end
@@ -2944,6 +3240,10 @@ function ns.NormalizeMentionSettings(db)
                 if rule.ignoreCase == nil then rule.ignoreCase = true; changed = true end
                 if rule.wholeWord == nil then rule.wholeWord = true; changed = true end
                 if rule.cooldown == nil then rule.cooldown = 2; changed = true end
+                if matchPlayerIdentity and rule.matchPlayerIdentity ~= true then
+                    rule.matchPlayerIdentity = true
+                    changed = true
+                end
                 return
             end
         end
@@ -2957,12 +3257,13 @@ function ns.NormalizeMentionSettings(db)
             ignoreCase = true,
             wholeWord = true,
             cooldown = 2,
+            matchPlayerIdentity = matchPlayerIdentity and true or nil,
         })
         changed = true
     end
 
     if not db._chatifyMentionSettingsMigrated and type(playerName) == "string" and playerName ~= "" then
-        ensureRule(playerName, legacyColor, legacyMentionSound, "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL")
+        ensureRule(playerName, legacyColor, legacyMentionSound, "GUILD,PARTY,RAID,INSTANCE,WHISPER,CHANNEL,COMMUNITY,SAY,YELL", true)
     end
 
     if type(db.highlightKeywords) == "table" then

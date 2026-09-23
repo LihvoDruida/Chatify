@@ -73,6 +73,8 @@ For live chat-tab routing, modern/Forever clients use Blizzard's complete tab-se
 
 Secret-value restrictions are treated as active when the runtime reports them. Chatify checks secret/accessibility inspectors before converting, comparing, matching, storing, copying, or highlighting chat payloads.
 
+Forever character identity uses the least-modified readable name exposed by the client (`UnitNameUnmodified` first, then guarded fallbacks). Forever currently has a required two-part name and exposes `C_PlayerInfo.ShouldDisplaySurname`, but no documented first-name/surname getter pair. Chatify therefore splits the readable local full name only on the Forever flavor and treats `First Surname` / `First-Surname` as equivalent identity forms. The built-in player mention rule expands to first name, surname, and both full-name spellings; other clients retain single-name behavior.
+
 Modern Blizzard Settings calls use only the numeric category ID returned by AceConfigDialog. Category names and frame objects are never passed to `Settings.OpenToCategory` or `C_SettingsUtil.OpenSettingsPanel`; legacy frame-based opening is kept as a separate fallback.
 
 

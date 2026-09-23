@@ -1531,71 +1531,138 @@ local function RuleText(rule)
     return text
 end
 
-local function SegmentContainsRule(segment, rule)
+local function GetMentionRuleTerms(rule)
     local text = RuleText(rule)
-    if not text or type(segment) ~= "string" or segment == "" then
-        return false
+    if not text then
+        return nil
     end
 
-    local haystack = segment
-    local needle = text
+    local terms = { text }
+    local isForever = type(ns.IsForeverClient) == "function" and ns.IsForeverClient()
+    if not isForever then
+        return terms
+    end
+
+    local isPlayerIdentity = rule.matchPlayerIdentity == true
+    if not isPlayerIdentity and type(ns.IsPlayerMentionIdentityText) == "function" then
+        local ok, matchesIdentity = pcall(ns.IsPlayerMentionIdentityText, text)
+        isPlayerIdentity = ok and matchesIdentity and true or false
+    end
+    if not isPlayerIdentity or type(ns.GetPlayerMentionAliases) ~= "function" then
+        return terms
+    end
+
+    local ok, aliases = pcall(ns.GetPlayerMentionAliases)
+    if not ok or type(aliases) ~= "table" then
+        return terms
+    end
+
+    local seen = {}
+    local function keyFor(value)
+        if type(value) ~= "string" then
+            return nil
+        end
+        local key = value:gsub("^%s+", ""):gsub("%s+$", "")
+        key = key:gsub("%s+", " ")
+        if rule.ignoreCase ~= false then
+            key = strlower(key)
+        end
+        return key ~= "" and key or nil
+    end
+
+    local baseKey = keyFor(text)
+    if baseKey then
+        seen[baseKey] = true
+    end
+
+    for i = 1, #aliases do
+        local alias = aliases[i]
+        local key = keyFor(alias)
+        if key and not seen[key] then
+            seen[key] = true
+            terms[#terms + 1] = alias
+        end
+    end
+
+    -- Prefer the full name over its individual components when both begin at
+    -- the same byte offset. This keeps "Sebas Moonbloom" as one highlighted
+    -- span instead of highlighting only "Sebas".
+    table.sort(terms, function(a, b)
+        return #a > #b
+    end)
+
+    return terms
+end
+
+local function CanUseAsciiWordBoundaries(text)
+    return type(text) == "string"
+        and text:match("^[%w_]")
+        and text:match("[%w_]$")
+end
+
+local function FindMentionTerm(haystack, term, rule, startIndex)
+    local needle = term
     if rule.ignoreCase ~= false then
-        haystack = strlower(haystack)
         needle = strlower(needle)
     end
 
     local escaped = EscapePattern(needle)
-    if rule.wholeWord and needle:match("^[%w_]+$") then
-        return string_find(haystack, "%f[%w]" .. escaped .. "%f[%W]") ~= nil
+    local pattern = escaped
+    if rule.wholeWord and CanUseAsciiWordBoundaries(needle) then
+        pattern = "%f[%w]" .. escaped .. "%f[%W]"
     end
 
-    return string_find(haystack, escaped) ~= nil
+    return string_find(haystack, pattern, startIndex or 1)
+end
+
+local function FindRuleMatch(segment, rule, startIndex)
+    local terms = GetMentionRuleTerms(rule)
+    if not terms or type(segment) ~= "string" or segment == "" then
+        return nil
+    end
+
+    local haystack = rule.ignoreCase ~= false and strlower(segment) or segment
+    local bestStart, bestEnd
+
+    for i = 1, #terms do
+        local s, e = FindMentionTerm(haystack, terms[i], rule, startIndex or 1)
+        if s and (not bestStart or s < bestStart or (s == bestStart and e > bestEnd)) then
+            bestStart, bestEnd = s, e
+        end
+    end
+
+    return bestStart, bestEnd
+end
+
+local function SegmentContainsRule(segment, rule)
+    return FindRuleMatch(segment, rule, 1) ~= nil
 end
 
 local function HighlightMentionRuleInSegment(segment, rule)
-    local text = RuleText(rule)
-    if not text or type(segment) ~= "string" or segment == "" then
+    if not RuleText(rule) or type(segment) ~= "string" or segment == "" then
         return segment
     end
 
     local color = NormalizeColor(rule.color, "ffd700")
-    local escaped = EscapePattern(text)
-    local pattern = "(" .. escaped .. ")"
-
-    -- Lua patterns in WoW are not Unicode-aware. Whole-word matching is kept for
-    -- ASCII identifiers such as RL/Sebas; Cyrillic phrases fall back to safe phrase matching.
-    if rule.wholeWord and text:match("^[%w_]+$") then
-        pattern = "(%f[%w]" .. escaped .. "%f[%W])"
-    end
-
     local ok, output = pcall(function()
-        if rule.ignoreCase ~= false then
-            local lowerSegment = strlower(segment)
-            local lowerNeedle = strlower(text)
-            local lowerEscaped = EscapePattern(lowerNeedle)
-            local lowerPattern = "(" .. lowerEscaped .. ")"
-            if rule.wholeWord and lowerNeedle:match("^[%w_]+$") then
-                lowerPattern = "(%f[%w]" .. lowerEscaped .. "%f[%W])"
+        local result = {}
+        local index = 1
+
+        while index <= #segment do
+            local s, e = FindRuleMatch(segment, rule, index)
+            if not s then
+                result[#result + 1] = segment:sub(index)
+                break
             end
 
-            local result = {}
-            local index = 1
-            while index <= #segment do
-                local s, e = string_find(lowerSegment, lowerPattern, index)
-                if not s then
-                    result[#result + 1] = segment:sub(index)
-                    break
-                end
-                if s > index then
-                    result[#result + 1] = segment:sub(index, s - 1)
-                end
-                result[#result + 1] = "|cff" .. color .. segment:sub(s, e) .. "|r"
-                index = e + 1
+            if s > index then
+                result[#result + 1] = segment:sub(index, s - 1)
             end
-            return table_concat(result)
+            result[#result + 1] = "|cff" .. color .. segment:sub(s, e) .. "|r"
+            index = e + 1
         end
 
-        return segment:gsub(pattern, "|cff" .. color .. "%1|r")
+        return table_concat(result)
     end)
 
     if ok and type(output) == "string" then
