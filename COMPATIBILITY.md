@@ -166,3 +166,9 @@ Chatify history secure-hooks each concrete Blizzard `ChatFrame:AddMessage` exact
 History Search always refreshes from the currently selected frame bucket and may fall back only to that same frame's `GetMessageInfo` buffer. Empty tabs replace the search source with an empty list rather than retaining a previous tab snapshot.
 
 When a user changes to Guild/Party/Raid/Raid Warning/Instance/Say/Yell and the currently selected dock tab does not receive that message group, Chatify selects the first docked Blizzard chat frame whose `ContainsMessageGroup` reports that it does. This applies to both Chatify quick-channel buttons and native slash chat-type changes where `ChatEdit_UpdateHeader` is available. Older clients without `ContainsMessageGroup` use a conservative `messageTypeList` fallback; if neither is readable Chatify leaves Blizzard's selected tab unchanged.
+
+## 2.17.3 - Third-party chat taint and secret whisper senders
+
+Retail/Midnight 12.x can deliver `WHISPER` / `BN_WHISPER` senders as secret strings while chat messaging restrictions are active. Blizzard's current `ChatFrameUtil.SetLastTellTarget()` performs `strupper(target)` after the rendered line is added. If any addon has already tainted the upstream chat dispatch (for example by replacing a chat-frame method), that conversion can fail even when Chatify itself did not touch the payload.
+
+Chatify now scans the relevant Blizzard chat variables with `issecurevariable`. It does **not** install a tell-target wrapper on a clean chat stack. If an upstream surface is already tainted, Chatify installs a containment guard. Where available, `securecallfunction` is used to invoke Blizzard's original `SetLastTellTarget` in its native security context; otherwise only inaccessible secret targets are skipped. The same capability-gated path applies to WoW: Forever when its client exposes Midnight-style secret values.

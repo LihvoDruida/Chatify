@@ -2907,18 +2907,80 @@ function ns.CanGuardLastTellTarget()
 end
 
 local lastTellTargetGuarded = false
+local lastTellTargetGuardMode = "none"
+local foreignChatTaintOwner
+local foreignChatTaintSurface
 
--- Installed only when Chatify has actually taken over a chat frame's AddMessage, and
--- never removed afterwards.
+local function GetTaintOwner(tbl, key)
+    if type(issecurevariable) ~= "function" or tbl == nil or type(key) ~= "string" then
+        return nil, false
+    end
+
+    local ok, secure, owner = pcall(issecurevariable, tbl, key)
+    if not ok then
+        return nil, false
+    end
+    if secure then
+        return nil, true
+    end
+
+    if owner == nil or owner == "" then
+        return "unknown", true
+    end
+    return tostring(owner), true
+end
+
+-- Detect a third-party write on the part of Blizzard's chat dispatch that executes
+-- before SetLastTellTarget. A secure post-hook does not taint these variables, so a
+-- positive result means the dispatch is already unsafe before Chatify does anything.
 --
--- The asymmetry is deliberate. Restoring Blizzard's SetLastTellTarget would leave the
--- field tainted but unguarded, which is the 0.11.49 crash again. Once this is in
--- place, keeping it is strictly better than putting the original back.
+-- This matters on Midnight/Forever because the whisper sender may be a secret string.
+-- Blizzard's SetLastTellTarget calls strupper(target); that is legal on a clean
+-- Blizzard stack and throws immediately when an earlier addon has tainted the stack.
+function ns.GetForeignChatTaintInfo()
+    if not ns.IsRetailSecretValueBuild() then
+        return nil, nil
+    end
+
+    local checks = {
+        { _G.ChatFrameMixin, "MessageEventHandler", "ChatFrameMixin.MessageEventHandler" },
+        { _G.ChatFrameMixin, "OnEvent", "ChatFrameMixin.OnEvent" },
+        { _G.ChatFrameUtil, "ProcessMessageEventFilters", "ChatFrameUtil.ProcessMessageEventFilters" },
+        { _G.ChatFrameUtil, "GetDecoratedSenderName", "ChatFrameUtil.GetDecoratedSenderName" },
+        { _G.ChatFrameUtil, "SetLastTellTarget", "ChatFrameUtil.SetLastTellTarget" },
+    }
+
+    for i = 1, #checks do
+        local owner, inspected = GetTaintOwner(checks[i][1], checks[i][2])
+        if inspected and owner and owner ~= addonName and owner ~= "Chatify" then
+            return owner, checks[i][3]
+        end
+    end
+
+    local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows())
+        or NUM_CHAT_WINDOWS or 10
+    for i = 1, maxFrames do
+        local frame = _G["ChatFrame" .. i]
+        if frame then
+            local owner, inspected = GetTaintOwner(frame, "AddMessage")
+            if inspected and owner and owner ~= addonName and owner ~= "Chatify" then
+                return owner, "ChatFrame" .. i .. ".AddMessage"
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+-- Installed when Chatify itself has already placed a wrapper on the chat render path,
+-- or when another addon has already tainted that path. It is never installed on an
+-- otherwise clean modern chat stack: doing so would create the very taint we are
+-- trying to contain.
 --
--- Installing it unconditionally would be worse than not installing it at all: on a
--- session where no wrapper exists the dispatch reaches line 672 clean, Blizzard
--- records the secret target itself and /r works. Taking that away to prevent an error
--- that cannot occur is a straight loss.
+-- On 12.x clients securecallfunction can re-enter Blizzard's original helper in its
+-- native security context. That preserves the /r target even when the caller is
+-- tainted. If the client lacks that bridge (or rejects the call), the fallback only
+-- drops a secret target; normal whispers still use Blizzard's original function.
 function ns.EnsureLastTellTargetGuard()
     if lastTellTargetGuarded or not ns.IsRetailSecretValueBuild() then
         return lastTellTargetGuarded
@@ -2930,16 +2992,22 @@ function ns.EnsureLastTellTargetGuard()
 
     local util = _G.ChatFrameUtil
     local original = util.SetLastTellTarget
+    local secureCall = _G.securecallfunction
 
     util.SetLastTellTarget = function(target, chatType)
-        -- Asking whether a value is secret is permitted from tainted code; only
-        -- converting it is not. Blizzard's loop compares strupper(target) against
-        -- each remembered tell, so a secret target cannot survive the first
-        -- iteration once we are on the stack.
-        --
-        -- Skipping costs the reply target for this whisper. It is not a regression:
-        -- the unguarded version raises inside that same loop, before ever reaching
-        -- the assignment that would have stored it.
+        if type(secureCall) == "function" then
+            -- Do not inspect/convert target before the secure barrier. Passing a
+            -- secret value through is permitted; the Blizzard function then runs in
+            -- its own security context and can perform its strupper comparisons.
+            local ok, a, b, c, d = pcall(secureCall, original, target, chatType)
+            if ok then
+                return a, b, c, d
+            end
+        end
+
+        -- Older/partial clients: issecretvalue itself is permitted from tainted code.
+        -- Skipping is preferable to exploding in Blizzard's strupper() loop. The
+        -- only lost behavior is updating /r for that protected whisper.
         if ns.IsSecretValue(target) then
             return
         end
@@ -2947,12 +3015,40 @@ function ns.EnsureLastTellTargetGuard()
         return original(target, chatType)
     end
 
+    lastTellTargetGuardMode = type(secureCall) == "function" and "secure-bridge" or "secret-skip"
     lastTellTargetGuarded = true
     return true
 end
 
+-- If somebody else has already tainted Blizzard's chat path, installing the guard no
+-- longer creates a new risk: the dispatch is tainted before it reaches us anyway. Do
+-- this early (ADDON_LOADED / world-entry / restriction transitions) so the first
+-- protected BNet whisper cannot hit SetLastTellTarget unguarded.
+function ns.RefreshForeignChatTaintGuard()
+    if lastTellTargetGuarded or not ns.IsRetailSecretValueBuild() then
+        return lastTellTargetGuarded
+    end
+
+    local owner, surface = ns.GetForeignChatTaintInfo()
+    if not owner then
+        return false
+    end
+
+    foreignChatTaintOwner = owner
+    foreignChatTaintSurface = surface
+    return ns.EnsureLastTellTargetGuard()
+end
+
 function ns.IsLastTellTargetGuarded()
     return lastTellTargetGuarded
+end
+
+function ns.GetLastTellTargetGuardMode()
+    return lastTellTargetGuardMode
+end
+
+function ns.GetDetectedForeignChatTaint()
+    return foreignChatTaintOwner, foreignChatTaintSurface
 end
 
 -- What the client can actually tell us about chat taint, gathered in one place.
@@ -3004,6 +3100,16 @@ function ns.GetChatTaintReport()
     add("Render hook disabled for test",
         (type(ns.db) == "table" and ns.db.disableRenderHook) and "yes" or "no")
     add("SetLastTellTarget guarded", ns.IsLastTellTargetGuarded() and "yes" or "no")
+    add("SetLastTellTarget guard mode",
+        type(ns.GetLastTellTargetGuardMode) == "function" and ns.GetLastTellTargetGuardMode() or "none")
+    if type(ns.GetDetectedForeignChatTaint) == "function" then
+        local taintOwner, taintSurface = ns.GetDetectedForeignChatTaint()
+        if not taintOwner and type(ns.GetForeignChatTaintInfo) == "function" then
+            taintOwner, taintSurface = ns.GetForeignChatTaintInfo()
+        end
+        add("External chat taint",
+            taintOwner and ((taintSurface or "unknown surface") .. " <- " .. taintOwner) or "none detected")
+    end
 
     if type(ns.GetFeatureSupport) == "function" then
         local features = { "channels", "sounds", "quickButtons", "composer", "composerAutomation", "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet", "autoReplyGuild", "chatTabs", "communities" }
@@ -3017,6 +3123,23 @@ function ns.GetChatTaintReport()
         local ok, secure, owner = pcall(issecurevariable, util, "SetLastTellTarget")
         if ok then
             add("SetLastTellTarget owner",
+                secure and "secure" or (owner ~= nil and owner ~= "" and tostring(owner) or "tainted"))
+        end
+    end
+
+    if type(issecurevariable) == "function" and type(_G.ChatFrameMixin) == "table" then
+        local ok, secure, owner = pcall(issecurevariable, _G.ChatFrameMixin, "MessageEventHandler")
+        if ok then
+            add("MessageEventHandler owner",
+                secure and "secure" or (owner ~= nil and owner ~= "" and tostring(owner) or "tainted"))
+        end
+    end
+
+    local primary = _G.ChatFrame1 or _G.DEFAULT_CHAT_FRAME
+    if type(issecurevariable) == "function" and primary then
+        local ok, secure, owner = pcall(issecurevariable, primary, "AddMessage")
+        if ok then
+            add("ChatFrame1.AddMessage owner",
                 secure and "secure" or (owner ~= nil and owner ~= "" and tostring(owner) or "tainted"))
         end
     end
@@ -3058,6 +3181,7 @@ do
         "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET",
         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
         "PLAYER_ENTERING_WORLD",
+        "ADDON_LOADED",
         -- Instance transitions matter as much as the encounter itself now that the
         -- gate is the taint risk window rather than the lockdown flag alone.
         "ZONE_CHANGED_NEW_AREA",
@@ -3069,6 +3193,9 @@ do
         -- gate is recomputed, or RefreshMessageFilters would re-read a stale value.
         if type(ns.InvalidateLockdownCache) == "function" then
             ns.InvalidateLockdownCache()
+        end
+        if type(ns.RefreshForeignChatTaintGuard) == "function" then
+            ns.RefreshForeignChatTaintGuard()
         end
         if type(ns.RefreshMessageFilters) == "function" then
             ns.RefreshMessageFilters()

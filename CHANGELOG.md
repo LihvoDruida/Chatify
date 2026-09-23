@@ -1,3 +1,18 @@
+## 2.17.3 - 2026-09-23
+
+### Fixed
+
+- Hardened Retail/Midnight and WoW: Forever whisper handling against third-party chat taint that can make Blizzard `ChatFrameUtil.SetLastTellTarget()` receive a secret sender on an insecure execution path.
+- `SetLastTellTarget` guard now prefers `securecallfunction` to re-enter Blizzard's original helper in its native security context, preserving the reply target when the client supports the secure bridge.
+- On clients without the secure bridge, the fallback drops only inaccessible secret tell targets instead of allowing Blizzard's `strupper()` conversion to raise.
+- The guard is no longer limited to Chatify-owned `AddMessage` wrappers: Chatify can detect an already-tainted upstream chat surface and install the compatibility guard before the first protected whisper.
+- Added `ADDON_LOADED`/world/restriction-state rechecks so late-loading addons are covered without installing the guard on an otherwise clean chat stack.
+
+### Diagnostics
+
+- Runtime chat diagnostics now report the detected external taint owner/surface, the active tell-target guard mode, `MessageEventHandler` ownership, and `ChatFrame1.AddMessage` ownership.
+- This makes reports such as `execution tainted by 'CDPulse'` distinguishable from Chatify-originated taint instead of attributing every secret-string failure to the chat addon.
+
 # Chatify Changelog
 
 ## 2.17.2 - 2026-09-23
