@@ -236,7 +236,21 @@ local function CanReadEventArgs(eventArgs)
     return type(eventArgs) == "table" and Safe(eventArgs)
 end
 
-local function ReadSpamPayload(eventArgs)
+local function ExtractRenderedAuthor(renderedText)
+    local text = SafeText(renderedText)
+    if not text or text == "" then return nil end
+
+    -- Forever can protect eventArgs[2] even though Blizzard already rendered a
+    -- readable player hyperlink into the stored chat line. Recover only the
+    -- visible sender token; never stringify the protected raw sender value.
+    local ok, author = pcall(function()
+        return text:match("|Hplayer:([^:|]+)")
+            or text:match("|HBNplayer:[^:|]*:([^:|]+)")
+    end)
+    return ok and type(author) == "string" and author ~= "" and author or nil
+end
+
+local function ReadSpamPayload(eventArgs, renderedText)
     if not CanReadEventArgs(eventArgs) then return nil end
 
     local ok, rawMessage, rawAuthor, rawChannel = pcall(function()
@@ -245,13 +259,20 @@ local function ReadSpamPayload(eventArgs)
     if not ok then return nil end
 
     local message = SafeText(rawMessage)
+    if not message or message == "" then
+        -- Some hybrid Forever paths expose the stored formatted line but keep the
+        -- original event message protected. In that case keyword matching can use
+        -- the readable rendered line without touching the secret payload.
+        message = SafeText(renderedText)
+    end
     if not message or message == "" then return nil end
 
-    local author = SafeText(rawAuthor)
-    local channel = SafeText(rawChannel)
+    local author = SafeText(rawAuthor) or ExtractRenderedAuthor(renderedText)
+    local channel = SafeText(rawChannel) or SafeText(renderedText)
     local db = DB()
-    -- If sender identity is protected, do not accidentally bypass the user's
-    -- friend whitelist just to gain a few extra filtered lines.
+    -- Preserve friend whitelist semantics. If both Blizzard's raw sender and the
+    -- rendered hyperlink are unavailable, fail closed rather than risk filtering
+    -- a friend. Normal public channel lines have a readable |Hplayer:...|h link.
     if not author and db and db.spamWhitelist and db.spamWhitelist.friends then
         return nil
     end
@@ -259,7 +280,7 @@ local function ReadSpamPayload(eventArgs)
     return message, author, channel
 end
 
-local function ShouldRemoveSpam(event, eventArgs)
+local function ShouldRemoveSpam(event, eventArgs, renderedText)
     if type(ns.AreMessageFiltersInstalled) == "function" and ns.AreMessageFiltersInstalled() then
         return false
     end
@@ -276,9 +297,10 @@ local function ShouldRemoveSpam(event, eventArgs)
         return true
     end
 
-    local message, author, channel = ReadSpamPayload(eventArgs)
+    local message, author, channel = ReadSpamPayload(eventArgs, renderedText)
     if not message then
-        spamDecisionByArgs[eventArgs] = 0
+        -- Do not cache an incomplete negative decision: another chat frame may
+        -- provide the readable rendered hyperlink needed to recover the sender.
         return false
     end
 
@@ -325,8 +347,8 @@ local function TransformExactEntry(frame, text, event, eventArgs)
     if not ok then stats.errors = stats.errors + 1 end
 end
 
-function ns.ShouldSuppressRenderedChatLine(event, eventArgs)
-    return ShouldRemoveSpam(event, eventArgs)
+function ns.ShouldSuppressRenderedChatLine(event, eventArgs, renderedText)
+    return ShouldRemoveSpam(event, eventArgs, renderedText)
 end
 
 function ns.NoteRenderedSpamSuppressed()
@@ -342,7 +364,7 @@ local function ObserveAddMessage(self, text, ...)
     -- Filter Engine 3.0 fallback: when protected clients deliberately keep
     -- ChatFrame_AddMessageEventFilter detached, inspect Blizzard's original
     -- readable eventArgs after render and remove only this exact stored line.
-    if FrameSupportsRemoval(self) and ShouldRemoveSpam(event, eventArgs) then
+    if FrameSupportsRemoval(self) and ShouldRemoveSpam(event, eventArgs, text) then
         RemoveExactEntry(self, text, event, eventArgs)
         return
     end

@@ -1,3 +1,14 @@
+## 2.17.5 - 2026-10-07
+
+### Filter Engine 3.0 / WoW: Forever
+
+- Fix secure post-render keyword blocking when Forever protects `eventArgs[2]` (sender) but still renders a readable player hyperlink in the chat line.
+- Recover the sender only from the already-readable rendered `|Hplayer:...|h` hyperlink instead of touching the protected raw sender value, preserving the friend whitelist without disabling all spam filtering.
+- Fall back to the readable rendered line for keyword matching if the original message field itself is protected.
+- Do not cache incomplete negative spam decisions, allowing another chat frame/render pass to provide the readable metadata needed for a safe decision.
+- Pass the rendered line into both `RemoveMessagesByPredicate` and the guarded Forever pre-render fallback so both paths use the same protected-value-safe logic.
+- Extend `/chatifytaint` with post-render transform counters (`observed`, `removedSpam`, `skipped`, `errors`) so a live Forever report shows whether the secure removal path is actually seeing and deleting lines.
+
 ## 2.17.4 - 2026-10-07
 
 ### Filter Engine 3.0 / WoW: Forever

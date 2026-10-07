@@ -3150,6 +3150,15 @@ function ns.GetChatTaintReport()
         local okFallback, needsFallback = pcall(ns.NeedsForeverRenderSpamFallback)
         add("Forever spam render fallback", okFallback and (needsFallback and "needed" or "not needed") or "query failed")
     end
+    if type(ns.GetChatTransformStats) == "function" then
+        local okStats, transformStats = pcall(ns.GetChatTransformStats)
+        if okStats and type(transformStats) == "table" then
+            add("Chat transform stats", string.format("observed=%d transformed=%d removedSpam=%d skipped=%d errors=%d",
+                tonumber(transformStats.observed) or 0, tonumber(transformStats.transformed) or 0,
+                tonumber(transformStats.removedSpam) or 0, tonumber(transformStats.skipped) or 0,
+                tonumber(transformStats.errors) or 0))
+        end
+    end
     add("AddMessage wrapper allowed", ns.CanReplaceChatFrameAddMessage() and "yes" or "no")
     add("Render hook disabled for test",
         (type(ns.db) == "table" and ns.db.disableRenderHook) and "yes" or "no")

@@ -1080,7 +1080,7 @@ local function InstallChannelLabelHook(frame)
                 -- blocking point is this guarded pre-render wrapper. Secret payloads
                 -- never reach this branch because `safe` was checked above.
                 if renderSpamFallbackActive and event and type(ns.ShouldSuppressRenderedChatLine) == "function" then
-                    local okSpam, blocked = pcall(ns.ShouldSuppressRenderedChatLine, event, eventArgs)
+                    local okSpam, blocked = pcall(ns.ShouldSuppressRenderedChatLine, event, eventArgs, output)
                     if okSpam and blocked then
                         if type(ns.NoteRenderedSpamSuppressed) == "function" then
                             pcall(ns.NoteRenderedSpamSuppressed)
