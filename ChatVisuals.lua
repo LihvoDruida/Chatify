@@ -963,12 +963,22 @@ local function RenderHookAllowed()
     return (not ok) or (allowed and true or false)
 end
 
+local renderSpamFallbackActive = false
+
+local function SpamRenderFallbackWanted()
+    if type(ns.NeedsForeverRenderSpamFallback) ~= "function" then
+        return false
+    end
+    local ok, wanted = pcall(ns.NeedsForeverRenderSpamFallback)
+    return ok and wanted and true or false
+end
+
 local function RenderHookWanted()
     if not RenderHookAllowed() then
         return false
     end
 
-    return ChannelLabelsWanted() or MentionHighlightWanted()
+    return renderSpamFallbackActive or ChannelLabelsWanted() or MentionHighlightWanted()
 end
 
 -- The combat log window carries no player chat, so neither channel labels nor mention
@@ -1054,7 +1064,31 @@ local function InstallChannelLabelHook(frame)
                     ns.NoteChatEntryCleared("AddMessage wrapper")
                 end
 
-                local event, eventArgs = select(7, ...), select(8, ...)
+                local event, eventArgs
+                if type(ns.ResolveRenderedChatMetadata) == "function" then
+                    local okMeta, resolvedEvent, resolvedArgs = pcall(ns.ResolveRenderedChatMetadata, ...)
+                    if okMeta then
+                        event, eventArgs = resolvedEvent, resolvedArgs
+                    end
+                else
+                    event, eventArgs = select(7, ...), select(8, ...)
+                end
+
+                -- Forever beta builds can expose TransformMessages but omit
+                -- RemoveMessagesByPredicate. In that API mix the normal protected
+                -- chat filter is intentionally detached and the only safe readable
+                -- blocking point is this guarded pre-render wrapper. Secret payloads
+                -- never reach this branch because `safe` was checked above.
+                if renderSpamFallbackActive and event and type(ns.ShouldSuppressRenderedChatLine) == "function" then
+                    local okSpam, blocked = pcall(ns.ShouldSuppressRenderedChatLine, event, eventArgs)
+                    if okSpam and blocked then
+                        if type(ns.NoteRenderedSpamSuppressed) == "function" then
+                            pcall(ns.NoteRenderedSpamSuppressed)
+                        end
+                        return
+                    end
+                end
+
                 if type(ns.TransformRenderedChatLine) == "function" then
                     local okTransform, transformed = pcall(ns.TransformRenderedChatLine, output, event, eventArgs, self)
                     if okTransform and type(transformed) == "string" then
@@ -1103,6 +1137,7 @@ local function ForEachChatFrame(callback)
 end
 
 function ns.RefreshChannelLabelHook()
+    renderSpamFallbackActive = SpamRenderFallbackWanted()
     if RenderHookWanted() then
         ForEachChatFrame(InstallChannelLabelHook)
     else

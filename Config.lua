@@ -2829,6 +2829,48 @@ function ns.CanUseMessageEventFilters()
     return not ns.InChatTaintRiskWindow()
 end
 
+-- Forever can expose the secure post-render transform API without exposing
+-- RemoveMessagesByPredicate. In that capability mix the 12.x-safe message-event
+-- filters are detached by default, transforms can restyle a line but cannot remove
+-- it, and spam filtering otherwise has no execution path at all. Use the guarded
+-- AddMessage fallback only for that exact Forever gap. Retail keeps its existing
+-- post-render/message-filter policy unchanged.
+function ns.NeedsForeverRenderSpamFallback()
+    if type(ns.IsForeverClient) ~= "function" or not ns.IsForeverClient() then
+        return false
+    end
+
+    local db = ns.db
+    local addon = ns.Chatify
+    if addon and addon.db and addon.db.profile then
+        db = addon.db.profile
+    end
+    if type(db) ~= "table" then
+        return false
+    end
+
+    if not db.enableSpamFilter and not db.enableThrottle and not db.hideSystemSpam then
+        return false
+    end
+
+    -- If Blizzard's normal filter path is explicitly enabled, it remains the owner.
+    if type(ns.CanUseMessageEventFilters) == "function" and ns.CanUseMessageEventFilters() then
+        return false
+    end
+
+    -- Prefer the taint-free stored-message removal API whenever this Forever build
+    -- provides it. Some beta builds expose TransformMessages without the matching
+    -- removal primitive, which is the regression this fallback covers.
+    if type(ns.HasSecureSpamRemovalAPI) == "function" then
+        local ok, available = pcall(ns.HasSecureSpamRemovalAPI)
+        if ok and available then
+            return false
+        end
+    end
+
+    return true
+end
+
 -- Whether Chatify may replace frame.AddMessage on Blizzard's chat frames.
 --
 -- This is a harder question than the filter one, and it has to be answered
@@ -2866,7 +2908,9 @@ function ns.CanReplaceChatFrameAddMessage()
     -- vector and is no longer necessary for labels/mentions/URLs on Forever/Midnight.
     if type(ns.HasSecurePostRenderAPI) == "function" then
         local ok, available = pcall(ns.HasSecurePostRenderAPI)
-        if ok and available then
+        local needsForeverSpamFallback = type(ns.NeedsForeverRenderSpamFallback) == "function"
+            and ns.NeedsForeverRenderSpamFallback()
+        if ok and available and not needsForeverSpamFallback then
             return false
         end
     end
@@ -3096,6 +3140,16 @@ function ns.GetChatTaintReport()
 
     add("Chatify filter mode", tostring(ns.GetRetailChatFilterMode()))
     add("Filters currently allowed", ns.CanUseMessageEventFilters() and "yes" or "no")
+    if type(ns.HasSecureSpamRemovalAPI) == "function" then
+        local okRemoval, hasRemoval = pcall(ns.HasSecureSpamRemovalAPI)
+        add("Secure spam removal API", okRemoval and (hasRemoval and "present" or "absent") or "query failed")
+    else
+        add("Secure spam removal API", "absent")
+    end
+    if type(ns.NeedsForeverRenderSpamFallback) == "function" then
+        local okFallback, needsFallback = pcall(ns.NeedsForeverRenderSpamFallback)
+        add("Forever spam render fallback", okFallback and (needsFallback and "needed" or "not needed") or "query failed")
+    end
     add("AddMessage wrapper allowed", ns.CanReplaceChatFrameAddMessage() and "yes" or "no")
     add("Render hook disabled for test",
         (type(ns.db) == "table" and ns.db.disableRenderHook) and "yes" or "no")

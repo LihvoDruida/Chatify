@@ -194,6 +194,40 @@ end
 
 ns.TransformRenderedChatLine = TransformText
 
+local function IsChatMessageEvent(value)
+    local safe = SafeText(value)
+    return type(safe) == "string" and safe:find("CHAT_MSG_", 1, true) == 1 and safe or nil
+end
+
+-- Blizzard has changed the ScrollingMessageFrame metadata layout between Retail
+-- generations, and Forever is a hybrid branch. Do not hard-code event/eventArgs to
+-- one pair of vararg slots. Prefer the known modern slot first, then scan the small
+-- metadata tail for a CHAT_MSG_* token followed by its eventArgs table.
+function ns.ResolveRenderedChatMetadata(...)
+    local count = select("#", ...)
+
+    if count >= 8 then
+        local event = IsChatMessageEvent(select(7, ...))
+        local eventArgs = select(8, ...)
+        if event and type(eventArgs) == "table" then
+            return event, eventArgs
+        end
+    end
+
+    local limit = math.min(count - 1, 16)
+    for i = 1, limit do
+        local event = IsChatMessageEvent(select(i, ...))
+        if event then
+            local eventArgs = select(i + 1, ...)
+            if type(eventArgs) == "table" then
+                return event, eventArgs
+            end
+        end
+    end
+
+    return nil, nil
+end
+
 local function CanReadEventArgs(eventArgs)
     -- A SafePack table can contain a mixture of readable and secret fields.
     -- Requiring canaccesstable(eventArgs) would reject the whole message merely
@@ -265,8 +299,8 @@ local function RemoveExactEntry(frame, text, event, eventArgs)
 
     local ok = pcall(frame.RemoveMessagesByPredicate, frame,
         function(message, r, g, b, ...)
-            local storedEvent, storedArgs = select(4, ...), select(5, ...)
-            if not Safe(message) or not Safe(storedEvent) or not Safe(storedArgs) then return false end
+            local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
+            if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
             return message == text and storedEvent == event and storedArgs == eventArgs
         end)
     if ok then stats.removedSpam = stats.removedSpam + 1 end
@@ -275,12 +309,12 @@ end
 
 local function TransformExactEntry(frame, text, event, eventArgs)
     if not FrameSupportsTransform(frame) or type(text) ~= "string" or type(event) ~= "string" then return end
-    if not Safe(text) or not Safe(event) or not Safe(eventArgs) then return end
+    if not Safe(text) or not Safe(event) or not CanReadEventArgs(eventArgs) then return end
 
     local ok = pcall(frame.TransformMessages, frame,
         function(message, r, g, b, ...)
-            local storedEvent, storedArgs = select(4, ...), select(5, ...)
-            if not Safe(message) or not Safe(storedEvent) or not Safe(storedArgs) then return false end
+            local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
+            if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
             return message == text and storedEvent == event and storedArgs == eventArgs
         end,
         function(message, r, g, b, ...)
@@ -291,11 +325,19 @@ local function TransformExactEntry(frame, text, event, eventArgs)
     if not ok then stats.errors = stats.errors + 1 end
 end
 
+function ns.ShouldSuppressRenderedChatLine(event, eventArgs)
+    return ShouldRemoveSpam(event, eventArgs)
+end
+
+function ns.NoteRenderedSpamSuppressed()
+    stats.removedSpam = stats.removedSpam + 1
+end
+
 local function ObserveAddMessage(self, text, ...)
     stats.observed = stats.observed + 1
     if not Safe(text) or type(text) ~= "string" then stats.skipped = stats.skipped + 1; return end
-    local event, eventArgs = select(7, ...), select(8, ...)
-    if not Safe(event) or type(event) ~= "string" or not Safe(eventArgs) then stats.skipped = stats.skipped + 1; return end
+    local event, eventArgs = ns.ResolveRenderedChatMetadata(...)
+    if not event or not CanReadEventArgs(eventArgs) then stats.skipped = stats.skipped + 1; return end
 
     -- Filter Engine 3.0 fallback: when protected clients deliberately keep
     -- ChatFrame_AddMessageEventFilter detached, inspect Blizzard's original
