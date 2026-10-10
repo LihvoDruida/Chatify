@@ -1,11 +1,12 @@
 -- Exercise the native settings renderer, preserved handlers and client gates.
--- CHATIFY_SETTINGS_CLIENT=classic|retail|forever
+-- CHATIFY_SETTINGS_CLIENT: see tools/stub/client_fixtures.lua
 -- CHATIFY_SETTINGS_API=modern|legacy|late
 package.path = "tools/stub/?.lua;" .. package.path
 local env = require("wow_env")
 local client = os.getenv("CHATIFY_SETTINGS_CLIENT") or "retail"
 local api = os.getenv("CHATIFY_SETTINGS_API") or "modern"
-env.install(client == "classic" and "classic" or "retail")
+local fixtures = require("client_fixtures")
+local fixture = fixtures.install(env, client)
 -- Removed libraries must not be requested, even if another addon installed
 -- them globally. Failing on optional lookups catches hidden legacy fallbacks.
 local originalLibStub = LibStub
@@ -21,12 +22,6 @@ end
 _G.AceGUIWidgetLSMlists = setmetatable({}, {
     __index = function() error("removed SharedMediaWidgets lists accessed") end,
 })
-if client == "classic" then
-    GetBuildInfo = function() return "1.15.8", "12345", "fixture", 11508 end
-end
-if client == "forever" then
-    GetBuildInfo = function() return "1.60.1", "70124", "Sep 29 2026", 16001 end
-end
 UISpecialFrames = {}
 local registrations = 0
 local function installAPI()
@@ -44,7 +39,7 @@ local function installAPI()
 end
 if api ~= "late" then installAPI() end
 local ns = {}
-local toc = client == "forever" and "Chatify_Camelot.toc" or "Chatify.toc"
+local toc = fixture[4]
 for line in io.lines(toc) do
     if line:match("%.lua$") then assert(loadfile((line:gsub("\\", "/"))))("Chatify", ns) end
 end
@@ -59,7 +54,7 @@ local function check(name, condition)
     checks = checks + 1
     assert(condition, "settings probe: " .. name)
 end
-check("correct client", ns.GetProjectKey() == (client == "classic" and "vanilla" or client))
+check("correct client", ns.GetProjectKey() == fixture[3])
 check("exactly one category", registrations == 1)
 ns.SettingsIntegration:Register()
 check("registration is idempotent", registrations == 1)
@@ -251,9 +246,11 @@ check("embedded escape released", #UISpecialFrames == 0)
 panel:GetScript("OnHide")(panel)
 check("embedded closes with category", not ui.window:IsShown())
 addon:OpenConfig("composer")
-check("composer shortcut selects correct page", ui.pageKey == "composer" and ui.embeddedHost == nil)
+check("composer shortcut respects capability", ui.pageKey ==
+    (ns.IsFeatureAvailable("composer") and "composer" or "overview") and ui.embeddedHost == nil)
 addon:OpenConfig("autoReply")
-check("auto-reply shortcut selects correct page", ui.pageKey == "autoReply")
+check("auto-reply shortcut respects capability", ui.pageKey ==
+    (ns.IsFeatureAvailable("autoReply") and "autoReply" or "overview"))
 Chatify_ToggleOptionsWindow()
 check("compartment toggles closed", not ui.window:IsShown())
 Chatify_ToggleOptionsWindow()

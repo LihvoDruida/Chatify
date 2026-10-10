@@ -1463,11 +1463,15 @@ local function GetMainSidebarButtonFrame()
         return nil, nil
     end
 
-    if frame.ButtonFrame then
+    local function IsSidebarFrame(value)
+        return type(value) == "table" and type(value.SetPoint) == "function"
+            and type(value.GetWidth) == "function"
+    end
+    if IsSidebarFrame(frame.ButtonFrame) then
         return frame.ButtonFrame, frame
     end
 
-    if frame.buttonFrame then
+    if IsSidebarFrame(frame.buttonFrame) then
         return frame.buttonFrame, frame
     end
 
@@ -1475,7 +1479,7 @@ local function GetMainSidebarButtonFrame()
         local ok, name = pcall(frame.GetName, frame)
         if ok and type(name) == "string" and name ~= "" then
             local buttonFrame = _G[name .. "ButtonFrame"]
-            if buttonFrame then
+            if IsSidebarFrame(buttonFrame) then
                 return buttonFrame, frame
             end
         end
@@ -1539,7 +1543,7 @@ local function IsDetachedClassicSidebarLayout()
 end
 
 local function SafeFrameCenterX(frame)
-    if not frame then
+    if type(frame) ~= "table" then
         return nil
     end
 
@@ -2624,7 +2628,7 @@ local function LayoutSidebarButtonRow(layoutHost, items, buttonWidth, buttonHeig
 end
 
 local function GetFrameRect(frame)
-    if not frame then
+    if type(frame) ~= "table" then
         return nil
     end
 

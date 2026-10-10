@@ -135,6 +135,9 @@ The setup panel can create or update PM, Guild, and Raid/Guild/PM tab templates.
 
 ## Compatibility
 - Includes `LibChatAnims` for Floating Chat Frame alert flash functions, following the Prat 3.0 approach to use animation groups instead of legacy `UIFrameFlash`.
+- See `COMPATIBILITY.md` for Retail/PTR, Forever, Era/Hardcore/SoD, TBC Anniversary,
+  Titan/Wrath, Cata and Mists targets. `/chatifycompat` prints the client and
+  available feature/API paths for live troubleshooting.
 
 
 ## Quick Button Skin Behavior

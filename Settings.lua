@@ -2787,6 +2787,15 @@ end
 --
 -- Lua cannot observe taint and the stub cannot model it, so this prints the facts and
 -- leaves the conclusion to whoever reads it in game.
+function Chatify:PrintClientCompatibilityReport()
+    local frame = DEFAULT_CHAT_FRAME
+    if not frame or type(frame.AddMessage) ~= "function" then return end
+    pcall(frame.AddMessage, frame, "|cffffd200Chatify:|r " .. T("Client compatibility report:"))
+    for _, entry in ipairs(ns.GetClientCompatibilityReport()) do
+        pcall(frame.AddMessage, frame, "|cffffd200Chatify:|r   " .. entry.label .. ": " .. tostring(entry.value))
+    end
+end
+
 function Chatify:PrintChatTaintReport(input)
     local function say(line)
         local frame = DEFAULT_CHAT_FRAME
@@ -3022,6 +3031,7 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatifydb", "PrintSavedVariablesReport")
     self:RegisterChatCommand("chatifytrace", "PrintChatEntryTrace")
     self:RegisterChatCommand("chatifytaint", "PrintChatTaintReport")
+    self:RegisterChatCommand("chatifycompat", "PrintClientCompatibilityReport")
     self:RegisterChatCommand("chatifyexport", function() if type(ns.OpenProfileExport) == "function" then ns.OpenProfileExport() end end)
     self:RegisterChatCommand("chatifyimport", function() if type(ns.OpenProfileImport) == "function" then ns.OpenProfileImport() end end)
     

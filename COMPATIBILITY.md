@@ -1,23 +1,33 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-09-22**
+Audit date: **2026-10-10** — Chatify **2.18.2**
 
-Chatify 2.16.3 does not treat WoW as a simple Retail-vs-Classic split. Client identity and feature capability are evaluated separately. This matters because current Classic-family clients increasingly share modern chat APIs and protected/secret-value behavior, while WoW: Forever can identify as Mainline at runtime despite requiring its own addon flavor.
+Client identity and feature capability are evaluated separately. Forever is detected
+by its TOC marker, guarded Camelot project constant or 1.60.x interface range.
+Plunderstorm is a separate game type and is never classified as Classic. Classic
+progression ranges take precedence over reused project IDs. Missing or failed build
+and security probes are retried rather than freezing an early negative result.
 
 ## Packaging targets
 
-| Target | TOC | Interface | Support tier |
-| --- | --- | ---: | --- |
-| Retail / Midnight | `Chatify.toc` | 120100 (plus 120105 test compatibility) | current |
-| WoW: Forever / Camelot | `Chatify_Camelot.toc` | 16001 | beta |
-| Mists of Pandaria Classic | `Chatify_Mists.toc` | 50504 | current |
-| Titan Reforged / Wrath progression | `Chatify_Wrath.toc` | 38002 | current |
-| Burning Crusade Classic Anniversary | `Chatify_TBC.toc` | 20506 | current |
-| Classic Era | `Chatify_Vanilla.toc` | 11509 | current |
-| Cataclysm Classic 4.4.2 | `Chatify_Cata.toc` | 40402 | legacy compatibility |
-| Wrath Classic 3.4.5 | `Chatify_WrathLegacy.toc` | 30405 | legacy compatibility |
+| Target | TOC | Interfaces | Validation scope |
+| --- | --- | --- | --- |
+| Retail / Midnight, PTR | `Chatify.toc` | 120100, 120105, 120007 | offline runtime fixtures |
+| Forever / Camelot | `Chatify_Camelot.toc` | 16001 | offline beta fixtures, generic TOC fallback |
+| Classic Era / Hardcore / Season of Discovery | `Chatify_Vanilla.toc` | 11509, 11508 | shared Era API fixtures |
+| Burning Crusade Classic Anniversary | `Chatify_TBC.toc` | 20506 | offline runtime fixture |
+| Titan Reforged / Wrath Classic | `Chatify_Wrath.toc` | 38002, 30405 | offline current/legacy fixtures |
+| Wrath Classic legacy | `Chatify_WrathLegacy.toc` | 30405 | legacy compatibility target |
+| Cataclysm Classic legacy | `Chatify_Cata.toc` | 40402 | legacy compatibility target |
+| Mists of Pandaria Classic | `Chatify_Mists.toc` | 50504 | offline runtime fixture |
+| Plunderstorm | generic `Chatify.toc` | runtime project/API detection | experimental; missing features hidden |
 
-The legacy targets are retained for users who still run those client builds, but they are not treated as current Blizzard live branches.
+Every flavor TOC is generated from the same file list and version. Flavor metadata
+is replaced together with the interface list; Forever.lua remains exclusive to the
+Camelot TOC. The generic TOC includes the packaged interfaces as a fallback. Test
+fixtures also cover older Retail API shapes, future Classic ranges, unavailable
+APIs and unknown projects. Those fixtures do not certify installation on every
+historical WoW binary, private-server fork or future release.
 
 ## Runtime feature states
 
@@ -54,10 +64,10 @@ This double check is intentional: old SavedVariables can still contain `enabled 
 
 Chatify prefers current namespace APIs and keeps guarded compatibility fallbacks only where older branches need them:
 
-- outgoing chat: shared guarded wrapper using `C_ChatInfo.SendChatMessage` -> legacy `SendChatMessage` fallback;
-- Battle.net whisper: `C_BattleNet.SendWhisper` -> legacy `BNSendWhisper` fallback;
+- outgoing chat: guarded `C_ChatInfo.SendChatMessage`, or legacy `SendChatMessage` when the namespace API is absent; channel targets use the modern cstring contract;
+- Battle.net whisper: shared guarded `C_BattleNet.SendWhisper`, or legacy `BNSendWhisper` when the namespace API is absent;
 - addon metadata/loading: `C_AddOns` first, legacy addon globals only as fallback;
-- friends: `C_FriendList` first, with indexed legacy friend lookup fallback;
+- friends: name-based `C_FriendList.GetFriendInfo`, indexed `C_FriendList.GetFriendInfoByIndex`, then legacy tuple lookup; explicit realm mismatches are rejected;
 - chat frame/edit helpers: frame-owned operations use `ChatFrameMixin` methods first; `ChatFrameUtil` is used only for helpers it actually owns, with guarded legacy globals where required;
 - mouse focus: modern `GetMouseFoci` compatibility path instead of assuming old `GetMouseFocus`;
 - protected chat: `C_Secrets.HasSecretRestrictions()` is the primary capability signal;
@@ -106,7 +116,7 @@ Every generated TOC now begins directly with `## Interface`. A plain single-`#` 
 
 ## Validation limits
 
-The package is statically validated for Lua syntax, TOC dependencies, version metadata, flavor isolation, feature gates and modern/legacy fallback ordering. Runtime guards are designed to fail closed.
+The package is validated for Lua syntax, TOC metadata, flavor isolation, feature gates and API contracts. Twenty-three client fixtures and 69 settings scenarios run with removed Ace settings libraries blocked. The WoW/Ace environment is simulated, and the local runner is Lua 5.3 (texlua), not the WoW runtime. Runtime guards are designed to fail closed.
 
 Static validation is not a substitute for launching every Blizzard client. Forever is beta, while Cataclysm 4.4.2 and Wrath 3.4.5 are legacy compatibility targets, so those paths should be considered runtime-probed rather than claimed as live-tested.
 
@@ -119,7 +129,7 @@ Chatify keeps its own capability model and uses modern API patterns where they a
 - Secret values are rejected before string operations.
 - Modern `ChatFrameUtil` helpers are preferred when Blizzard moved old `ChatFrame_*` globals.
 
-Chatify does not use `WOW_PROJECT_MAINLINE` as the identity check for Forever. Forever remains a dedicated `Chatify_Camelot.toc` target because game identity and UI/API capability are separate concerns.
+Chatify does not use `WOW_PROJECT_MAINLINE` as the identity check for Forever. The Camelot TOC marker is one of three independent identification signals. Game identity and UI/API capability remain separate.
 
 ## Long Message Composer
 
@@ -172,3 +182,27 @@ When a user changes to Guild/Party/Raid/Raid Warning/Instance/Say/Yell and the c
 Retail/Midnight 12.x can deliver `WHISPER` / `BN_WHISPER` senders as secret strings while chat messaging restrictions are active. Blizzard's current `ChatFrameUtil.SetLastTellTarget()` performs `strupper(target)` after the rendered line is added. If any addon has already tainted the upstream chat dispatch (for example by replacing a chat-frame method), that conversion can fail even when Chatify itself did not touch the payload.
 
 Chatify now scans the relevant Blizzard chat variables with `issecurevariable`. It does **not** install a tell-target wrapper on a clean chat stack. If an upstream surface is already tainted, Chatify installs a containment guard. Where available, `securecallfunction` is used to invoke Blizzard's original `SetLastTellTarget` in its native security context; otherwise only inaccessible secret targets are skipped. The same capability-gated path applies to WoW: Forever when its client exposes Midnight-style secret values.
+
+
+## Runtime compatibility diagnostics (2.18.2)
+
+`/chatifycompat` or **Compatibility & Diagnostics → Print Client Compatibility
+Report** prints the detected client, interface, project, selected API generations
+and per-feature states. This reports live availability, not proof that every
+feature has been exercised on the client.
+
+Modern outgoing API errors are returned without retrying the legacy API. Failed
+lockdown queries temporarily block sending and are retried on the next action.
+`LoadAddOn` failures preserve their reason. The native settings canvas can fall
+back to legacy registration when the modern canvas implementation fails. Basic
+settings backgrounds work without backdrop methods. Invalid sidebar fields are
+ignored instead of being used as frames.
+
+Without `C_Timer.After`, one frame processes deferred callbacks through OnUpdate.
+Zero-delay callbacks scheduled by another callback wait for the next update,
+preventing recursive send/refresh queues; unique scheduled work still cancels
+older generations.
+
+Blizzard API contract references:
+- [ChatInfoDocumentation](https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_APIDocumentationGenerated/ChatInfoDocumentation.lua)
+- [FriendListDocumentation](https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_APIDocumentationGenerated/FriendListDocumentation.lua)

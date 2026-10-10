@@ -1136,15 +1136,21 @@ ns.defaults = {
 local SECRET_VALUES_MIN_INTERFACE = 120000
 
 local function IsForeverLoadTarget()
-    return type(ns.Client) == "table" and ns.Client.isForever == true
+    if type(ns.Client) == "table" and ns.Client.isForever == true then return true end
+    if _G.WOW_PROJECT_CAMELOT ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_CAMELOT then
+        return true
+    end
+    -- Older beta builds reused MAINLINE. Also recognize Forever when the generic
+    -- TOC was selected, without depending on its optional load-time marker.
+    local interface = type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0
+    return interface >= 16000 and interface < 17000
 end
 
 local secretApiProbed, secretApiAvailable
 function ns.HasSecretValueAPI()
-    -- Forever is beta and can load hybrid UI pieces in a different order. A
-    -- negative probe there is not considered session-final; re-check until one
-    -- of the inspectors appears. Other clients keep the old cached hot path.
-    if secretApiProbed and (secretApiAvailable or not IsForeverLoadTarget()) then
+    -- Recheck negative probes: beta and progression clients can expose their
+    -- security APIs after initialization. Positive detection stays cached.
+    if secretApiProbed and secretApiAvailable then
         return secretApiAvailable
     end
 
@@ -1186,7 +1192,7 @@ function ns.IsModernSecretValueBuild()
         -- conservative load-target fallback if a beta build briefly reports
         -- false while its hybrid UI/security pieces are still initializing.
         if reported or not IsForeverLoadTarget() then
-            cachedModernSecretBuild = reported
+            if reported then cachedModernSecretBuild = true end
             return reported
         end
     end
@@ -1205,9 +1211,8 @@ function ns.IsModernSecretValueBuild()
         result = ns.GetBuildInterface() >= SECRET_VALUES_MIN_INTERFACE
     end
 
-    -- Do not freeze a false answer on a modern beta/current client merely
-    -- because security globals were not available at the first probe.
-    if result or (not IsForeverLoadTarget() and ns.GetBuildInterface() < SECRET_VALUES_MIN_INTERFACE) then
+    -- Do not freeze a false answer: restrictions may become available later.
+    if result then
         cachedModernSecretBuild = result
     end
     return result
@@ -1245,6 +1250,10 @@ function ns.InChatMessagingLockdown(forceFresh)
         local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
         if ok then
             result = locked and true or false
+        else
+            -- A failed restriction query is not permission to send. Retry the
+            -- query next time rather than caching a transient failure.
+            return true
         end
     end
 
@@ -1715,15 +1724,13 @@ function ns.IsAddOnLoadedCompat(name)
 end
 
 function ns.LoadAddOnCompat(name)
-    if C_AddOns and type(C_AddOns.LoadAddOn) == "function" then
-        local ok, loadedOrReason = pcall(C_AddOns.LoadAddOn, name)
-        return ok and loadedOrReason ~= false, loadedOrReason
-    end
-    if type(LoadAddOn) == "function" then
-        local ok, loadedOrReason = pcall(LoadAddOn, name)
-        return ok and loadedOrReason ~= false, loadedOrReason
-    end
-    return false, "missing LoadAddOn API"
+    local load = type(C_AddOns) == "table" and C_AddOns.LoadAddOn or nil
+    if type(load) ~= "function" then load = _G.LoadAddOn end
+    if type(load) ~= "function" then return false, "missing LoadAddOn API" end
+    local ok, loaded, reason = pcall(load, name)
+    if not ok then return false, loaded end
+    -- Both API generations return nil/false, reason on failure.
+    return not not loaded, reason
 end
 
 -- Friend-list compatibility. Current Retail, Era, TBC Anniversary and MoP
@@ -1731,32 +1738,54 @@ end
 -- have the indexed global GetFriendInfo. Keep that legacy path isolated here so
 -- feature modules never call a removed global with the modern name-based signature.
 function ns.GetFriendInfoByNameCompat(name)
-    if type(name) ~= "string" or name == "" then
+    if ns.IsProtectedChatValue(name) or type(name) ~= "string" or name == "" then
         return nil
     end
 
     if type(C_FriendList) == "table" and type(C_FriendList.GetFriendInfo) == "function" then
         local ok, info = pcall(C_FriendList.GetFriendInfo, name)
-        if ok and type(info) == "table" and type(info.name) == "string" then
+        if ok and type(info) == "table" and not ns.IsProtectedChatValue(info.name)
+            and type(info.name) == "string" then
             return info
         end
     end
 
+    local function Matches(friendName)
+        if ns.IsProtectedChatValue(friendName) or type(friendName) ~= "string" then return false end
+        if friendName == name then return true end
+        -- Never whitelist another realm merely because the short names match.
+        if name:find("-", 1, true) then
+            local realm = type(GetRealmName) == "function" and GetRealmName() or nil
+            if not ns.IsProtectedChatValue(realm) and type(realm) == "string"
+                and not friendName:find("-", 1, true) then
+                return friendName .. "-" .. realm:gsub("%s", "") == name
+            end
+            return false
+        end
+        return (friendName:match("^[^-]+") or friendName) == name
+    end
+
+    if type(C_FriendList) == "table" and type(C_FriendList.GetNumFriends) == "function"
+        and type(C_FriendList.GetFriendInfoByIndex) == "function" then
+        local okCount, count = pcall(C_FriendList.GetNumFriends)
+        if okCount and not ns.IsProtectedChatValue(count) and type(count) == "number" then
+            for index = 1, math.min(count, 1000) do
+                local okInfo, info = pcall(C_FriendList.GetFriendInfoByIndex, index)
+                if okInfo and type(info) == "table" and Matches(info.name) then return info end
+            end
+        end
+    end
 
     if type(GetNumFriends) == "function" and type(GetFriendInfo) == "function" then
         local okCount, count = pcall(GetNumFriends)
-        if okCount and type(count) == "number" then
-            local wanted = name:match("^[^-]+") or name
-            for index = 1, count do
+        if okCount and not ns.IsProtectedChatValue(count) and type(count) == "number" then
+            for index = 1, math.min(count, 1000) do
                 local okInfo, friendName, level, className, area, connected, status, notes, rafLinkType, guid = pcall(GetFriendInfo, index)
-                if okInfo and type(friendName) == "string" then
-                    local short = friendName:match("^[^-]+") or friendName
-                    if friendName == name or short == wanted then
+                if okInfo and Matches(friendName) then
                         return {
                             name = friendName, level = level, className = className, area = area,
                             connected = connected, status = status, notes = notes, rafLinkType = rafLinkType, guid = guid,
                         }
-                    end
                 end
             end
         end
@@ -1766,7 +1795,7 @@ function ns.GetFriendInfoByNameCompat(name)
 end
 
 function ns.IsFriendCompat(name)
-    if type(name) ~= "string" or name == "" then
+    if ns.IsProtectedChatValue(name) or type(name) ~= "string" or name == "" then
         return false
     end
 
@@ -1866,15 +1895,15 @@ function ns.GetBuildInterface()
         return cachedBuildInterface
     end
 
-    cachedBuildInterface = 0
     if type(GetBuildInfo) == "function" then
         local ok, _, _, _, interfaceVersion = pcall(GetBuildInfo)
-        if ok and type(interfaceVersion) == "number" then
+        if ok and type(interfaceVersion) == "number" and interfaceVersion > 0 then
             cachedBuildInterface = interfaceVersion
         end
     end
 
-    return cachedBuildInterface
+    -- A missing/failed API during early login is not a permanent build ID.
+    return cachedBuildInterface or 0
 end
 
 function ns.IsForeverClient()
@@ -1887,15 +1916,16 @@ function ns.GetProjectKey()
     -- reuse an older WOW_PROJECT_* identity. Interface ranges therefore beat the
     -- project constants for every packaging target, not only Forever/Titan.
     if ns.IsForeverClient() then return "forever" end
+    if WOW_PROJECT_WOWLABS ~= nil and WOW_PROJECT_ID == WOW_PROJECT_WOWLABS then return "plunderstorm" end
 
     local interfaceVersion = ns.GetBuildInterface()
     if interfaceVersion >= 120000 then return "retail" end
-    if interfaceVersion >= 50500 and interfaceVersion < 50600 then return "mists" end
-    if interfaceVersion >= 40400 and interfaceVersion < 40500 then return "cata" end
-    if interfaceVersion >= 38000 and interfaceVersion < 38100 then return "titan" end
-    if interfaceVersion >= 30400 and interfaceVersion < 30500 then return "wrath" end
-    if interfaceVersion >= 20500 and interfaceVersion < 20600 then return "tbc" end
-    if interfaceVersion >= 11500 and interfaceVersion < 11600 then return "vanilla" end
+    if interfaceVersion >= 50500 and interfaceVersion < 60000 then return "mists" end
+    if interfaceVersion >= 40400 and interfaceVersion < 50000 then return "cata" end
+    if interfaceVersion >= 38000 and interfaceVersion < 40000 then return "titan" end
+    if interfaceVersion >= 30400 and interfaceVersion < 38000 then return "wrath" end
+    if interfaceVersion >= 20500 and interfaceVersion < 30000 then return "tbc" end
+    if interfaceVersion >= 11500 and interfaceVersion < 16000 then return "vanilla" end
 
     -- Fallback for unusual/test clients where GetBuildInfo is unavailable or a
     -- future Interface range is not known yet.
@@ -1909,7 +1939,7 @@ function ns.GetProjectKey()
 
     -- Preserve pre-Midnight Retail compatibility when an older mainline build is
     -- used for testing and exposes neither a known current range nor project ID.
-    if interfaceVersion >= 100000 then return "retail" end
+    if interfaceVersion >= 60000 then return "retail" end
     return "unknown"
 end
 
@@ -1922,12 +1952,13 @@ end
 -- IsForeverClient/GetProjectKey when actual game identity matters.
 function ns.UsesMainlineUI()
     local key = ns.GetProjectKey()
-    return key == "retail" or key == "forever"
+    return key == "retail" or key == "forever" or key == "plunderstorm"
 end
 
 function ns.IsClassicClient()
     local key = ns.GetProjectKey()
-    return key ~= "retail" and key ~= "forever" and key ~= "unknown"
+    return key == "vanilla" or key == "tbc" or key == "wrath"
+        or key == "cata" or key == "mists" or key == "titan"
 end
 
 -- =========================================================
@@ -1949,6 +1980,7 @@ ns.FEATURE_UNAVAILABLE = FEATURE_UNAVAILABLE
 local CLIENT_DISPLAY_NAMES = {
     retail = "Retail / Midnight",
     forever = "World of Warcraft: Forever",
+    plunderstorm = "Plunderstorm",
     vanilla = "Classic Era",
     tbc = "Burning Crusade Classic Anniversary",
     mists = "Mists of Pandaria Classic",
@@ -1968,6 +2000,7 @@ function ns.GetClientSupportTier()
     if key == "forever" then
         return "beta"
     end
+    if key == "plunderstorm" then return "experimental" end
     if key == "wrath" or key == "cata" then
         return "legacy"
     end
@@ -2180,7 +2213,35 @@ function ns.GetClientCompatibilityNotice()
     if key == "wrath" or key == "cata" then
         return "This older WoW client uses compatibility mode. Unsupported options are hidden automatically."
     end
+    if key == "plunderstorm" or key == "unknown" then
+        return "This game type uses capability detection. Only features with available APIs are shown."
+    end
     return nil
+end
+
+function ns.GetClientCompatibilityReport()
+    local report = {
+        { label = "Client", value = ns.GetClientDisplayName() },
+        { label = "Flavor", value = ns.GetProjectKey() },
+        { label = "Support tier", value = ns.GetClientSupportTier() },
+        { label = "Interface", value = ns.GetBuildInterface() },
+        { label = "Project ID", value = WOW_PROJECT_ID or "unavailable" },
+        { label = "Mainline UI", value = ns.UsesMainlineUI() and "yes" or "no" },
+        { label = "Secret restrictions", value = ns.IsModernSecretValueBuild() and "yes" or "no" },
+        { label = "Chat send API", value = type(C_ChatInfo) == "table" and type(C_ChatInfo.SendChatMessage) == "function"
+            and "C_ChatInfo" or (type(SendChatMessage) == "function" and "global" or "unavailable") },
+        { label = "Battle.net send API", value = type(C_BattleNet) == "table" and type(C_BattleNet.SendWhisper) == "function"
+            and "C_BattleNet" or (type(BNSendWhisper) == "function" and "global" or "unavailable") },
+        { label = "Timer API", value = type(C_Timer) == "table" and type(C_Timer.After) == "function"
+            and "C_Timer" or "OnUpdate fallback" },
+        { label = "Game settings", value = ns.SettingsIntegration and ns.SettingsIntegration.api or "not registered" },
+    }
+    for _, feature in ipairs({ "channels", "sounds", "quickButtons", "composer", "composerAutomation",
+        "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet",
+        "autoReplyGuild", "chatTabs", "communities", "virtualChat" }) do
+        report[#report + 1] = { label = feature, value = ns.GetFeatureSupport(feature) }
+    end
+    return report
 end
 
 function ns.GetSelectedChatFrame()
@@ -2335,6 +2396,11 @@ end
 -- User-authored strings are validated before they reach Blizzard, and modern
 -- clients are checked for messaging lockdown immediately before the send.
 function ns.SendChatMessageCompat(message, chatType, languageID, target)
+    if ns.HasSecretChatValue(message, chatType, languageID, target)
+        or ns.IsProtectedChatValue(message) or ns.IsProtectedChatValue(chatType)
+        or ns.IsProtectedChatValue(languageID) or ns.IsProtectedChatValue(target) then
+        return false, "protected chat arguments"
+    end
     if type(chatType) ~= "string" or chatType == "" then
         return false, "invalid chat type"
     end
@@ -2369,11 +2435,12 @@ function ns.SendChatMessageCompat(message, chatType, languageID, target)
     end
 
     if type(C_ChatInfo) == "table" and type(C_ChatInfo.SendChatMessage) == "function" then
+        if chatType == "CHANNEL" and target ~= nil then target = tostring(target) end
         local ok, err = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
+        -- API presence chooses the generation. An error may follow a partial
+        -- send or a protected call: do not attempt it again through a global.
         if ok then return true end
-        if type(SendChatMessage) ~= "function" then
-            return false, err
-        end
+        return false, err
     end
 
     if type(SendChatMessage) == "function" then
@@ -2383,6 +2450,22 @@ function ns.SendChatMessageCompat(message, chatType, languageID, target)
     end
 
     return false, "chat send API unavailable"
+end
+
+function ns.SendBNetWhisperCompat(accountID, message)
+    if ns.HasSecretChatValue(accountID, message) or ns.IsProtectedChatValue(accountID)
+        or ns.IsProtectedChatValue(message) then return false, "protected chat arguments" end
+    if type(accountID) ~= "number" or accountID <= 0 or accountID % 1 ~= 0 then
+        return false, "invalid account ID"
+    end
+    if type(message) ~= "string" or message == "" then return false, "invalid message" end
+    if not ns.CanSendAddonChat() then return false, "chat messaging lockdown" end
+    local send = type(C_BattleNet) == "table" and C_BattleNet.SendWhisper or nil
+    if type(send) ~= "function" then send = _G.BNSendWhisper end
+    if type(send) ~= "function" then return false, "Battle.net send API unavailable" end
+    local ok, err = pcall(send, accountID, message)
+    if ok then return true end
+    return false, err
 end
 
 function ns.EnforceRetailSafeMode(db)
@@ -3116,7 +3199,7 @@ function ns.GetChatTaintReport()
     add("Client flavor", type(ns.GetProjectKey) == "function" and ns.GetProjectKey() or "unknown")
     add("Support tier", type(ns.GetClientSupportTier) == "function" and ns.GetClientSupportTier() or "unknown")
     add("Interface", tostring(type(ns.GetBuildInterface) == "function" and ns.GetBuildInterface() or 0))
-    add("Forever load marker", type(ns.IsForeverClient) == "function" and ns.IsForeverClient() and "yes" or "no")
+    add("Forever load marker", type(ns.Client) == "table" and ns.Client.isForever and "yes" or "no")
     add("Client has secret values", ns.IsRetailSecretValueBuild() and "yes" or "no")
     if type(C_Secrets) == "table" and type(C_Secrets.HasSecretRestrictions) == "function" then
         local okSecrets, hasRestrictions = pcall(C_Secrets.HasSecretRestrictions)
@@ -3587,6 +3670,8 @@ function ns.IsChatFrame(frame)
         and type(frame.GetID) == "function"
 end
 
+local fallbackTimerFrame
+local fallbackTimers = {}
 function ns.SafeAfter(delay, callback)
     if type(callback) ~= "function" then
         return false
@@ -3606,7 +3691,25 @@ function ns.SafeAfter(delay, callback)
         end
     end
 
-    pcall(callback)
+    -- Preserve delay and defer zero-delay work to the next update on clients
+    -- without C_Timer. Calling immediately can recurse through a send queue.
+    if type(CreateFrame) ~= "function" then return false end
+    if not fallbackTimerFrame then
+        fallbackTimerFrame = CreateFrame("Frame", "ChatifyFallbackTimerFrame")
+        fallbackTimerFrame:SetScript("OnUpdate", function(self, elapsed)
+            local pending = fallbackTimers
+            fallbackTimers = {}
+            for i = 1, #pending do
+                local timer = pending[i]
+                timer.remaining = timer.remaining - elapsed
+                if timer.remaining <= 0 then pcall(timer.callback)
+                else fallbackTimers[#fallbackTimers + 1] = timer end
+            end
+            if #fallbackTimers == 0 then self:Hide() end
+        end)
+    end
+    fallbackTimers[#fallbackTimers + 1] = { remaining = delay, callback = callback }
+    fallbackTimerFrame:Show()
     return true
 end
 

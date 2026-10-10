@@ -129,7 +129,8 @@ function Layout:Apply(options)
     -- Preserve the feature gate when moving this group outside the filters page.
     maintenance.spamDebug.hidden = root.filters.hidden
     local reports = group(maintenance, "reports", "Diagnostic Reports", 4)
-    for i, entry in ipairs({ { "PrintChatTaintReport", "Print Chat Compatibility Report" },
+    for i, entry in ipairs({ { "PrintClientCompatibilityReport", "Print Client Compatibility Report" },
+        { "PrintChatTaintReport", "Print Chat Compatibility Report" },
         { "PrintSavedVariablesReport", "Print Saved Settings Report" },
         { "PrintChatEntryTrace", "Print Chat Entry Trace" } }) do
         reports[entry[1]] = { type = "execute", order = i, name = T(entry[2]), func = entry[1] }

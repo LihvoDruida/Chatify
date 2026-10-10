@@ -129,10 +129,15 @@ local realFrameMethods = {
     GetMessageInfo = function() return nil end,
 }
 
+-- Named child fields are not methods. The permissive uppercase-method fallback
+-- must not invent callbacks where Blizzard may expose no child at all.
+local childFields = { Icon=true, Text=true, ButtonFrame=true, EditBox=true,
+    ScrollBar=true, Background=true, Border=true, FontString=true }
 frameMT = {
     __index = function(t, k)
         local real = realFrameMethods[k]
         if real then return real end
+        if childFields[k] then return nil end
         -- Unknown method: record it once and hand back a permissive stub.
         if type(k) == "string" and k:match("^%u") then
             M.unknown[t.__kind .. ":" .. k] = true

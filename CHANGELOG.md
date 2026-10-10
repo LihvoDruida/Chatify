@@ -1,3 +1,22 @@
+## 2.18.2 — 2026-10-10
+
+- Detect Forever through Camelot project constants or interface range as well as
+  its TOC marker; distinguish Plunderstorm from Classic and recognize future
+  Classic patch ranges without conflating game identity with API capabilities.
+- Generate every flavor TOC, including Camelot and legacy Wrath, with correct
+  identity metadata; restore Titan 38002 and Era 11509 packaging targets and keep
+  supported generic TOC fallback interfaces together.
+- Preserve LoadAddOn failure reasons and add indexed namespace friend lookup
+  without whitelisting explicit realm mismatches.
+- Share guarded Battle.net sends, validate protected outgoing arguments first,
+  normalize modern channel targets and avoid legacy retries after send errors.
+- Retry missing build/security probes and failed lockdown queries; keep delayed
+  scheduling through OnUpdate when C_Timer is unavailable.
+- Fall back to legacy settings registration on canvas errors, render settings
+  backgrounds without backdrop methods and ignore invalid chat sidebar fields.
+- Add /chatifycompat and its diagnostic settings action, plus 23 client fixtures
+  and 69 native settings scenarios in the release checks.
+
 ## 2.18.1 — 2026-10-10
 
 - Remove unused AceConfig (including Dialog and Registry), AceDBOptions,

@@ -8,7 +8,7 @@ local Compat = {
         return type(ns.HasSecretChatValue) == "function" and ns.HasSecretChatValue(value) or false
     end,
     GetAddonVersion = function()
-        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.1"
+        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.2"
     end,
 }
 local unpack = unpack or table.unpack
@@ -23,6 +23,17 @@ local function frame(kind, name, parent)
     return CreateFrame(kind or "Frame", name, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
 end
 local function backdrop(f, color)
+    if type(f.SetBackdrop) ~= "function" then
+        local texture = f:CreateTexture(nil, "BACKGROUND")
+        texture:SetAllPoints()
+        if type(texture.SetColorTexture) == "function" then
+            texture:SetColorTexture(unpack(color or { 0.07, 0.055, 0.045, 0.98 }))
+        else
+            texture:SetTexture("Interface\\Buttons\\WHITE8x8")
+            texture:SetVertexColor(unpack(color or { 0.07, 0.055, 0.045, 0.98 }))
+        end
+        return
+    end
     f:SetBackdrop({ bgFile = BG, edgeFile = EDGE, tile = true, tileSize = 16, edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 } })
     f:SetBackdropColor(unpack(color or { 0.07, 0.055, 0.045, 0.98 }))

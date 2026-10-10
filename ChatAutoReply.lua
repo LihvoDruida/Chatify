@@ -189,6 +189,9 @@ local function SendChatMessageCompat(message, chatType, languageID, target)
 end
 
 local function SendBNetMessage(accountID, message)
+    if type(ns.SendBNetWhisperCompat) == "function" then
+        return ns.SendBNetWhisperCompat(accountID, message)
+    end
     if not accountID or type(message) ~= "string" or message == "" then
         return false
     end
@@ -204,9 +207,7 @@ local function SendBNetMessage(accountID, message)
     -- Battle.net API surface, so prefer C_BattleNet.SendWhisper when available.
     if C_BattleNet and type(C_BattleNet.SendWhisper) == "function" then
         local ok = pcall(C_BattleNet.SendWhisper, accountID, message)
-        if ok then
-            return true
-        end
+        return ok
     end
 
     if type(BNSendWhisper) == "function" then

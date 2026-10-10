@@ -29,20 +29,27 @@ function Integration:Register()
         -- Edits apply immediately, just as in the standalone window.
         panel.refresh = function() ns.SettingsWindow:RequestRefresh() end
         panel.OnRefresh = panel.refresh
+        panel.OnCommit = function() end
+        panel.OnDefault = function() end
         self.panel = panel
     end
+    local registered = false
     if modern then
         if not self.category then
             local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, self.panel, self.panel.name)
-            if not ok or not category then return false end
-            self.category = category
+            if ok and category then self.category = category end
         end
-        if not pcall(Settings.RegisterAddOnCategory, self.category) then return false end
-        self.api = "settings"
-    else
+        if self.category and pcall(Settings.RegisterAddOnCategory, self.category) then
+            self.api = "settings"
+            registered = true
+        end
+    end
+    if not registered and legacy then
         if not pcall(InterfaceOptions_AddCategory, self.panel) then return false end
         self.api = "interface-options"
+        registered = true
     end
+    if not registered then return false end
     self.registered = true
     self.events:UnregisterEvent("ADDON_LOADED")
     self.events:UnregisterEvent("PLAYER_LOGIN")

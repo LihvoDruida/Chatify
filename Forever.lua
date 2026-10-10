@@ -1,8 +1,9 @@
 -- WoW: Forever (internal beta codename: Camelot) load-time marker.
 --
 -- Forever is a hybrid client: Camelot, Mainline, Shared and VanillaStyle UI
--- components can coexist in the same runtime. Runtime project constants are not
--- a reliable discriminator, so this file is listed ONLY by Chatify_Camelot.toc.
+-- components can coexist in the same runtime. This marker is listed only by
+-- Chatify_Camelot.toc; runtime detection also accepts Camelot constants and its
+-- interface range when a client falls back to the generic TOC.
 -- Keep game identity separate from capability and probe each API before use.
 local addonName, ns = ...
 
