@@ -62,8 +62,61 @@ local realFrameMethods = {
     CreateFontString = function(self) return newFrame("FontString") end,
     GetNumPoints = function() return 0 end,
     GetPoint = function() return "CENTER", nil, "CENTER", 0, 0 end,
-    GetWidth = function() return 400 end,
-    GetHeight = function() return 200 end,
+    GetWidth = function(self) return self.__width or 400 end,
+    GetHeight = function(self) return self.__height or 200 end,
+    SetWidth = function(self, value) self.__width = value end,
+    SetHeight = function(self, value) self.__height = value end,
+    SetSize = function(self, width, height) self.__width, self.__height = width, height end,
+    GetFrameLevel = function(self) return self.__level or 0 end,
+    SetFrameLevel = function(self, value) self.__level = value end,
+    GetFrameStrata = function(self) return self.__strata or "MEDIUM" end,
+    SetFrameStrata = function(self, value) self.__strata = value end,
+    SetScale = function(self, value) self.__scale = value end,
+    GetScale = function(self) return self.__scale or 1 end,
+    SetEnabled = function(self, value) self.__enabled = value end,
+    IsEnabled = function(self) return self.__enabled ~= false end,
+    EnableMouse = function(self, value) self.__mouse = value end,
+    SetChecked = function(self, value) self.__checked = value end,
+    GetChecked = function(self) return self.__checked == true end,
+    SetShown = function(self, value) self.__shown = value end,
+    GetStringHeight = function(self)
+        local text = (self.__text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        local lines = 0
+        for line in (text .. "\n"):gmatch("(.-)\n") do
+            lines = lines + math.max(1, math.ceil(#line * 7 / self:GetWidth()))
+        end
+        return lines * 14
+    end,
+    SetScrollChild = function(self, child) self.__scrollChild = child end,
+    GetVerticalScroll = function(self) return self.__scroll or 0 end,
+    GetVerticalScrollRange = function(self)
+        return math.max(0, (self.__scrollChild and self.__scrollChild:GetHeight() or 0) - self:GetHeight())
+    end,
+    SetVerticalScroll = function(self, value)
+        self.__scroll = value
+        local fn = self.__scripts.OnVerticalScroll
+        if fn then fn(self, value) end
+    end,
+    SetMinMaxValues = function(self, low, high) self.__min, self.__max = low, high end,
+    SetValue = function(self, value)
+        self.__value = value
+        local fn = self.__scripts.OnValueChanged
+        if fn then fn(self, value) end
+    end,
+    GetValue = function(self) return self.__value or 0 end,
+    ClearFocus = function(self)
+        if not self.__focus then return end
+        self.__focus = false
+        local fn = self.__scripts.OnEditFocusLost
+        if fn then fn(self) end
+    end,
+    SetFocus = function(self)
+        self.__focus = true
+        local fn = self.__scripts.OnEditFocusGained
+        if fn then fn(self) end
+    end,
+    HasFocus = function(self) return self.__focus == true end,
+
     GetText = function(self) return self.__text or "" end,
     SetText = function(self, t) self.__text = t end,
     GetFont = function() return "Fonts\\FRIZQT__.TTF", 12, "" end,

@@ -708,7 +708,7 @@ function AutoReply:HandleCommand(input)
     input = type(input) == "string" and input:lower():match("^%s*(.-)%s*$") or ""
 
     if input == "" or input == "config" or input == "settings" then
-        Chatify:OpenConfig()
+        Chatify:OpenConfig("autoReply")
         return
     end
 

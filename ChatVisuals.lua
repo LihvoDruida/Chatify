@@ -776,6 +776,9 @@ local function IsChannelNoticeLine(text)
 end
 
 function ns.ApplyChannelLabels(text, eventName)
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, eventName) then
+        return text
+    end
     if type(text) ~= "string" then
         return text
     end

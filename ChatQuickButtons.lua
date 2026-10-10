@@ -2,7 +2,6 @@ local addonName, ns = ...
 local Chatify = LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local QuickButtonsModule = Chatify:NewModule("QuickButtons", "AceEvent-3.0")
 local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
-local ACD = LibStub("AceConfigDialog-3.0", true)
 
 local C_Timer = C_Timer
 local hooksecurefunc = hooksecurefunc
@@ -3428,9 +3427,6 @@ local function EnsureContainer()
         if Chatify and type(Chatify.OpenConfig) == "function" then
             Chatify:OpenConfig()
             return
-        end
-        if ACD and type(ACD.Open) == "function" then
-            pcall(ACD.Open, ACD, "Chatify")
         end
     end)
 

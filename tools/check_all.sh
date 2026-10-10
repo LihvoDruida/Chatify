@@ -5,7 +5,7 @@
 #
 # Exits non-zero on the first failure so it can be wired into CI directly.
 
-set -u
+set -uo pipefail
 cd "$(dirname "$0")/.."
 
 fail=0
@@ -118,6 +118,14 @@ if command -v lua5.1 >/dev/null 2>&1; then
     printf '\n=== slash commands (classic) ===\n'
     CHATIFY_STUB_MODE=classic lua5.1 tools/command_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
     tail -2 /tmp/chatify_probe.log
+
+    # Native settings: layouts, handler retention, client gates and embedding.
+    for client in classic retail forever; do
+        for api in modern legacy late; do
+            printf '\n=== native settings (%s / %s) ===\n' "$client" "$api"
+            CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_probe.lua || fail=1
+        done
+    done
 
     # 6. SavedVariables round-trip. A value the client cannot write costs the
     #    user every setting, because ChatifyDB and ChatifyHistoryDB share one

@@ -576,11 +576,7 @@ end
 
 function Composer:OpenSettings()
     if Chatify and type(Chatify.OpenConfig) == "function" then
-        Chatify:OpenConfig()
-    end
-    local dialog = LibStub and LibStub("AceConfigDialog-3.0", true) or nil
-    if dialog and type(dialog.SelectGroup) == "function" then
-        pcall(dialog.SelectGroup, dialog, "Chatify", "tabComposer")
+        Chatify:OpenConfig("composer")
     end
 end
 

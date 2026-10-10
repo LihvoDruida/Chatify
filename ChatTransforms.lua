@@ -322,6 +322,7 @@ local function RemoveExactEntry(frame, text, event, eventArgs)
     local ok = pcall(frame.RemoveMessagesByPredicate, frame,
         function(message, r, g, b, ...)
             local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
+            if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, event, message, storedEvent) then return false end
             if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
             return message == text and storedEvent == event and storedArgs == eventArgs
         end)
@@ -336,6 +337,7 @@ local function TransformExactEntry(frame, text, event, eventArgs)
     local ok = pcall(frame.TransformMessages, frame,
         function(message, r, g, b, ...)
             local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
+            if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, event, message, storedEvent) then return false end
             if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
             return message == text and storedEvent == event and storedArgs == eventArgs
         end,

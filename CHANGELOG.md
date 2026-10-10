@@ -1,3 +1,19 @@
+## 2.18.0 — 2026-10-10
+
+- Replace the settings dialog with the native Max Camera-style window: sidebar,
+  global search, scrollable help and lazy pooled controls.
+- Embed the same window in modern game Settings and legacy InterfaceOptions.
+- Regroup all 157 existing controls by function without changing profile keys
+  or their get/set/action handlers; add three diagnostic report actions.
+- Keep client feature gates and dynamic channel/copy-tab lists; improve dependent
+  controls and combat availability for chat-tab layout actions.
+- Localize new navigation and help in English and Ukrainian and keep game font
+  objects for alphabet fallback support.
+- Route composer and auto-reply settings shortcuts to their correct sections.
+- Guard unreadable values before channel-label parsing and recheck captured
+  values inside rendered-message predicates.
+- Add a native settings regression probe and propagate pipeline failures in CI.
+
 ## 2.17.5 - 2026-10-07
 
 ### Filter Engine 3.0 / WoW: Forever

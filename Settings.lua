@@ -1,7 +1,6 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
 local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
-local ACD = LibStub("AceConfigDialog-3.0", true)
 
 local function TrimInput(value)
     if type(value) ~= "string" then
@@ -2794,6 +2793,7 @@ function Chatify:GetOptions()
             }
         }
     }
+    if ns.OptionsLayout then ns.OptionsLayout:Apply(options) end
     if ns.Locale and ns.Locale.LocalizeOptions then
         ns.Locale:LocalizeOptions(options)
     end
@@ -3077,27 +3077,7 @@ function Chatify:OnInitialize()
         end)
     end
 
-    if ACD and type(ACD.AddToBlizOptions) == "function" then
-        local ok, frame, categoryID = pcall(ACD.AddToBlizOptions, ACD, "Chatify", "Chatify")
-        if ok then
-            self.optionsFrame = frame
-            -- Current AceConfigDialog returns the numeric Blizzard Settings ID as
-            -- the second result. Forever's C_SettingsUtil rejects objects, names
-            -- and out-of-range values, so preserve only a valid signed 32-bit ID.
-            if type(categoryID) == "number"
-                and categoryID == math.floor(categoryID)
-                and categoryID >= -2147483648
-                and categoryID <= 2147483647 then
-                self.optionsCategoryID = categoryID
-            else
-                self.optionsCategoryID = nil
-            end
-        else
-            self.optionsFrame = nil
-            self.optionsCategoryID = nil
-            ns.configRegistrationError = frame
-        end
-    end
+    if ns.SettingsIntegration then ns.SettingsIntegration:Register() end
 
     -- Chat Commands. Keep the primary /chatify plus a short, addon-scoped alias.
     -- /mcm is intentionally NOT registered: it is a de-facto generic "Mod
@@ -3175,6 +3155,7 @@ function Chatify:RefreshConfig()
         ns.RunRetailCompatibilityMigration(ns.db)
     end
     RefreshRuntimeModules()
+    if ns.SettingsWindow then ns.SettingsWindow:RequestRefresh() end
 end
 
 function Chatify:OnEnable()
@@ -3222,71 +3203,18 @@ function Chatify:WarnIfSettingsWereLost()
         T("Type /chatifydb for details."))
 end
 
-local function GetValidSettingsCategoryID(addon, frame)
-    local categoryID = addon and addon.optionsCategoryID
-
-    -- Older AceConfigDialog revisions stored the category ID on frame.name.
-    -- Accept it only when it is already a real number; never coerce a category
-    -- name or frame object into the modern Settings API.
-    if type(categoryID) ~= "number" and type(frame) == "table" then
-        categoryID = frame.name
+function Chatify:OpenConfig(page)
+    local ui = ns.SettingsWindow
+    if not ui then return end
+    ui:Open()
+    if type(page) == "string" and ui.options.args[page] and ui.options.args[page].type == "group" then
+        ui:SelectPage(page)
     end
-
-    if type(categoryID) ~= "number"
-        or categoryID ~= math.floor(categoryID)
-        or categoryID < -2147483648
-        or categoryID > 2147483647 then
-        return nil
-    end
-
-    return categoryID
+    return true
 end
-
-function Chatify:OpenConfig()
-    if ACD and type(ACD.Open) == "function" then
-        local ok, err = pcall(ACD.Open, ACD, "Chatify")
-        if ok then
-            return
-        end
-        ns.configOpenError = err
-    end
-
-    local frame = self.optionsFrame
-    if not frame then
-        return
-    end
-
-    local categoryID = GetValidSettingsCategoryID(self, frame)
-
-    if categoryID and Settings and type(Settings.OpenToCategory) == "function" then
-        local ok = pcall(Settings.OpenToCategory, categoryID)
-        if ok then
-            return
-        end
-    end
-
-    if categoryID
-        and type(C_SettingsUtil) == "table"
-        and type(C_SettingsUtil.OpenSettingsPanel) == "function" then
-        local ok = pcall(C_SettingsUtil.OpenSettingsPanel, categoryID)
-        if ok then
-            return
-        end
-    end
-
-    -- Legacy clients accept the registered frame directly. Keep this fallback
-    -- isolated from the modern numeric-ID path.
-    if InterfaceOptionsFrame_OpenToCategory then
-        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
-        pcall(InterfaceOptionsFrame_OpenToCategory, frame)
-    end
-end
-
 
 function _G.Chatify_ToggleOptionsWindow()
-    if Chatify and type(Chatify.OpenConfig) == "function" then
-        return Chatify:OpenConfig()
-    end
+    if ns.SettingsWindow then return ns.SettingsWindow:Toggle() end
 end
 
 -- =========================================================
