@@ -1583,10 +1583,7 @@ function VisualsModule:ChannelListChanged()
     -- The options panel lists joined channels by name, so it has to be told the
     -- list moved; without this a channel joined while the panel is open never
     -- appears in it.
-    local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
-    if registry and type(registry.NotifyChange) == "function" then
-        pcall(registry.NotifyChange, registry, "Chatify")
-    end
+    if ns.SettingsWindow then ns.SettingsWindow:RequestRefresh() end
 end
 
 function VisualsModule:PLAYER_LOGIN()

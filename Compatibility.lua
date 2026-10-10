@@ -12,7 +12,7 @@ compat.version = "1.1.0"
 if type(_G.Chatify_ToggleOptionsWindow) ~= "function" then
     _G.Chatify_ToggleOptionsWindow = function()
         local addon
-        if type(_G.LibStub) == "function" then
+        if type(_G.LibStub) == "function" or type(_G.LibStub) == "table" then
             local okAce, aceAddon = pcall(_G.LibStub, "AceAddon-3.0", true)
             if okAce and aceAddon and type(aceAddon.GetAddon) == "function" then
                 local okAddon, loadedAddon = pcall(aceAddon.GetAddon, aceAddon, "Chatify", true)
@@ -26,16 +26,6 @@ if type(_G.Chatify_ToggleOptionsWindow) ~= "function" then
             return addon:OpenConfig()
         end
 
-        local acd
-        if type(_G.LibStub) == "function" then
-            local okACD, loadedACD = pcall(_G.LibStub, "AceConfigDialog-3.0", true)
-            if okACD then
-                acd = loadedACD
-            end
-        end
-        if acd and type(acd.Open) == "function" then
-            pcall(acd.Open, acd, "Chatify")
-        end
     end
 end
 

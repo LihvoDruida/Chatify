@@ -8,7 +8,7 @@
 ## Title: Chatify
 ## Notes: Clean chat, spam filters, copy & paste.
 
-## Version: 2.18.0
+## Version: 2.18.1
 ## Author: melles1991
 ## IconTexture: Interface\AddOns\Chatify\assets\icon
 ## DefaultState: Enabled
@@ -18,7 +18,7 @@
 ## X-Website: https://legacy.curseforge.com/wow/addons/chatify-chat-enhancer
 ## X-Curse-Project-ID: 1458193
 
-## OptionalDeps: Ace3, ElvUI, GW2_UI, LibChatAnims
+## OptionalDeps: ElvUI, GW2_UI, LibChatAnims
 ## X-Compatible-With: Prat-3.0, Chattynator, ElvUI, GW2_UI
 
 Compatibility.lua

@@ -8,7 +8,7 @@ local Compat = {
         return type(ns.HasSecretChatValue) == "function" and ns.HasSecretChatValue(value) or false
     end,
     GetAddonVersion = function()
-        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.0"
+        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.1"
     end,
 }
 local unpack = unpack or table.unpack

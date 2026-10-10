@@ -143,7 +143,7 @@ Quick chat button skins can be forced to Standard, ElvUI, or GW2 UI even if thos
 
 ## PTR 12.1 note
 
-This build includes a small compatibility layer for PTR clients where older embedded AceGUI checkbox code can fail on missing UI helpers. For PTR testing, delete the old `Interface/AddOns/Chatify` folder before installing this archive so stale bundled libraries do not remain from an older build.
+This build includes a small compatibility layer for PTR clients where older embedded AceGUI checkbox code can fail on missing UI helpers. A source/update archive does not include downloaded external libraries: install it over your existing `Interface/AddOns/Chatify` folder and preserve the required `libs` contents. A full packager release includes those libraries. See `ACE_CLEANUP_2.18.1_UA.md` for the dependency cleanup and optional removal of obsolete bundled libraries.
 
 
 - Classic-era chat button compatibility keeps Blizzard chat controls untouched; Chatify Settings, Copy and History use a detached toolbar on BCC, Vanilla, Wrath/Titan and MoP Classic.

@@ -339,10 +339,7 @@ local function RefreshChannelStateCaches()
             if type(ns.ApplyVisuals) == "function" then
                 ns.ApplyVisuals()
             end
-            local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
-            if registry and type(registry.NotifyChange) == "function" then
-                pcall(registry.NotifyChange, registry, "Chatify")
-            end
+            if ns.SettingsWindow then ns.SettingsWindow:RequestRefresh() end
         end)
     end
 end

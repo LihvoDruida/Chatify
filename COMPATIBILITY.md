@@ -75,7 +75,7 @@ Secret-value restrictions are treated as active when the runtime reports them. C
 
 Forever character identity uses the least-modified readable name exposed by the client (`UnitNameUnmodified` first, then guarded fallbacks). Forever currently has a required two-part name and exposes `C_PlayerInfo.ShouldDisplaySurname`, but no documented first-name/surname getter pair. Chatify therefore splits the readable local full name only on the Forever flavor and treats `First Surname` / `First-Surname` as equivalent identity forms. The built-in player mention rule expands to first name, surname, and both full-name spellings; other clients retain single-name behavior.
 
-Modern Blizzard Settings calls use only the numeric category ID returned by AceConfigDialog. Category names and frame objects are never passed to `Settings.OpenToCategory` or `C_SettingsUtil.OpenSettingsPanel`; legacy frame-based opening is kept as a separate fallback.
+Chatify registers its native settings canvas with modern Blizzard Settings or legacy InterfaceOptions, depending on the available API. `/chatify`, `/cfy`, Composer shortcuts and the addon compartment open the native settings window directly. Settings registration supports APIs that become available after addon initialization and does not require AceConfigDialog.
 
 
 ## Secure post-render formatting
@@ -156,7 +156,7 @@ If the optional Misspelled addon is present, Composer can attach it to the edito
 
 ## AceGUI shared-widget safety
 
-AceGUI widget registrations are global through LibStub. When several addons embed AceGUI, the active core and individual widgets can come from different addon folders depending on their registered revisions. Chatify therefore ships the current Label widget surface plus a protected-text guard as a newer Label revision. Values that are secret, inaccessible, or not valid FontString text are dropped before `FontString:SetText` is called. Chatify also sanitizes its own dynamic option names, descriptions, and joined-channel names before they reach AceConfig.
+AceGUI remains required by Composer's editor and help window. Widget registrations are global through LibStub, so the active core and individual widgets can come from different addon folders depending on their registered revisions. Chatify retains its compatibility shims for older embedded widgets. Native settings obtain font and sound choices from LibSharedMedia directly and no longer load AceGUI SharedMediaWidgets or AceConfig.
 
 
 ## History hook and dock-tab routing (2.16.2)

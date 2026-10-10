@@ -6,6 +6,21 @@ local env = require("wow_env")
 local client = os.getenv("CHATIFY_SETTINGS_CLIENT") or "retail"
 local api = os.getenv("CHATIFY_SETTINGS_API") or "modern"
 env.install(client == "classic" and "classic" or "retail")
+-- Removed libraries must not be requested, even if another addon installed
+-- them globally. Failing on optional lookups catches hidden legacy fallbacks.
+local originalLibStub = LibStub
+local removedLibraries = {
+    ["AceConfig-3.0"] = true, ["AceConfigDialog-3.0"] = true,
+    ["AceConfigRegistry-3.0"] = true, ["AceDBOptions-3.0"] = true,
+    ["AceLocale-3.0"] = true, ["AceGUI-3.0-SharedMediaWidgets"] = true,
+}
+_G.LibStub = function(name, silent)
+    assert(not removedLibraries[name], "removed library requested: " .. tostring(name))
+    return originalLibStub(name, silent)
+end
+_G.AceGUIWidgetLSMlists = setmetatable({}, {
+    __index = function() error("removed SharedMediaWidgets lists accessed") end,
+})
 if client == "classic" then
     GetBuildInfo = function() return "1.15.8", "12345", "fixture", 11508 end
 end
@@ -174,6 +189,14 @@ for _, row in ipairs(rows("channels")) do
     if table.concat(row.info, "."):find("SETTINGSPROBE", 1, true) then found = true end
 end
 check("joined channels refresh", found)
+ui.dirty = false
+addon:GetModule("Visuals"):ChannelListChanged()
+check("channel events refresh native settings", ui.dirty)
+ui.dirty = false
+local named = find("channels", "addChannel")
+ui:Apply(named, "DependencyProbe")
+check("custom channel addition refreshes native settings", ui.dirty)
+check("custom channel name saved", addon.db.profile.channelLabelNames.DEPENDENCYPROBE == "DependencyProbe")
 local selection = find("copy", "copyTabFrames")
 check("multiselect expanded per frame", type(selection.choice) == "string" and selection.choice ~= "__none")
 ui:Apply(selection, selection.choice, false)

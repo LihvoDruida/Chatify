@@ -49,19 +49,6 @@ local function GetLSMFontValues()
 
     local values = {}
 
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
-        for _, name in ipairs(AceGUIWidgetLSMlists.font) do
-            if type(name) == "string" and name ~= "" then
-                values[name] = name
-            end
-        end
-        for key, value in pairs(AceGUIWidgetLSMlists.font) do
-            if type(key) == "string" and type(value) == "string" and value ~= "" then
-                values[key] = value
-            end
-        end
-    end
-
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
     if LSM then
         local ok, hash = pcall(LSM.HashTable, LSM, "font")
@@ -91,12 +78,6 @@ end
 local function GetLSMSoundValues()
     local values = {}
 
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound then
-        for key, value in pairs(AceGUIWidgetLSMlists.sound) do
-            values[key] = value
-        end
-    end
-
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
     if LSM then
         local ok, hash = pcall(LSM.HashTable, LSM, "sound")
@@ -111,21 +92,6 @@ local function GetLSMSoundValues()
     values["Chatify Default"] = values["Chatify Default"] or "Chatify Default"
     return values
 end
-
-local function GetLSMFontControl()
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.font then
-        return "LSM30_Font"
-    end
-    return nil
-end
-
-local function GetLSMSoundControl()
-    if AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound then
-        return "LSM30_Sound"
-    end
-    return nil
-end
-
 
 local function GetLanguageChoices()
     if ns.Locale and ns.Locale.GetOptionsValues then
@@ -445,7 +411,7 @@ local function GetClientHeaderLine()
 end
 
 -- =========================================================
--- 4. SETTINGS TABLE (ACE CONFIG)
+-- 4. NATIVE SETTINGS SCHEMA
 -- =========================================================
 function Chatify:GetOptions()
     local options = {
@@ -590,7 +556,6 @@ function Chatify:GetOptions()
                                 desc = T("Select the typeface used for chat messages."),
                                 type = "select",
                                 width = "double",
-                                dialogControl = GetLSMFontControl(),
                                 values = GetLSMFontValues(),
                                 set = function(info, val) self.db.profile.fontID = val; ns.ApplyVisuals() end,
                                 get = function(info) return self.db.profile.fontID end,
@@ -1080,13 +1045,8 @@ function Chatify:GetOptions()
 
                             -- One inline group per chat type.
                             --
-                            -- AceConfigDialog lays widgets out in a flow and packs
-                            -- as many per row as will fit, so a flat list of
-                            -- mode+text pairs desynchronised as soon as three fit:
-                            -- the label above a control belonged to the previous
-                            -- channel. An inline group always starts a new row and
-                            -- owns its contents, so the pairing cannot drift, and
-                            -- the group title carries the channel name.
+                            -- Keep each channel's mode, custom label and preview
+                            -- together under its own named section.
                             for index, entry in ipairs(ns.Lists.ChannelLabels or {}) do
                                 local token = entry.token
 
@@ -1230,10 +1190,7 @@ function Chatify:GetOptions()
                                         profile.channelLabelNames[key] =
                                             ns.NormalizeChannelName(val) or val
 
-                                        local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
-                                        if registry and type(registry.NotifyChange) == "function" then
-                                            pcall(registry.NotifyChange, registry, "Chatify")
-                                        end
+                                        if ns.SettingsWindow then ns.SettingsWindow:RequestRefresh() end
                                     end,
                                     get = function(info) return "" end,
                                 },
@@ -1860,7 +1817,6 @@ function Chatify:GetOptions()
                             soundWhisper = {
                                 order = 2,
                                 type = "select",
-                                dialogControl = GetLSMSoundControl(),
                                 name = T("Whisper Received"),
                                 values = GetLSMSoundValues(),
                                 disabled = function() return not self.db.profile.sounds.enable end,
@@ -1870,7 +1826,6 @@ function Chatify:GetOptions()
                             soundGuild = {
                                 order = 3,
                                 type = "select",
-                                dialogControl = GetLSMSoundControl(),
                                 name = T("Guild Chat"),
                                 values = GetLSMSoundValues(),
                                 disabled = function() return not self.db.profile.sounds.enable end,
@@ -1880,7 +1835,6 @@ function Chatify:GetOptions()
                             soundParty = {
                                 order = 4,
                                 type = "select",
-                                dialogControl = GetLSMSoundControl(),
                                 name = T("Party Chat"),
                                 values = GetLSMSoundValues(),
                                 disabled = function() return not self.db.profile.sounds.enable end,
@@ -1890,7 +1844,6 @@ function Chatify:GetOptions()
                             soundRaid = {
                                 order = 5,
                                 type = "select",
-                                dialogControl = GetLSMSoundControl(),
                                 name = T("Raid Chat"),
                                 values = GetLSMSoundValues(),
                                 disabled = function() return not self.db.profile.sounds.enable end,
@@ -2480,7 +2433,6 @@ function Chatify:GetOptions()
                             mentionSound = {
                                 order = 4,
                                 type = "select",
-                                dialogControl = GetLSMSoundControl(),
                                 name = T("Sound"),
                                 desc = T("Sound for this mention rule. Choose None for highlight only."),
                                 values = GetLSMSoundValues(),
@@ -3058,25 +3010,7 @@ function Chatify:OnInitialize()
         ns.EnforceRetailSafeMode(ns.db)
     end
 
-    -- Setup Config GUI. PTR clients may expose small API differences that break
-    -- older AceGUI widgets, so never let the configuration UI stop Chatify from
-    -- loading or refreshing chat.
-    local aceConfig = LibStub("AceConfig-3.0", true)
-    if aceConfig and type(aceConfig.RegisterOptionsTable) == "function" then
-        -- Registered as a function rather than a built table. The Channels tab
-        -- lists the channels you are actually in, and that list changes at
-        -- runtime; a table built once at load would show whatever was joined
-        -- during login and never update.
-        pcall(aceConfig.RegisterOptionsTable, aceConfig, "Chatify", function()
-            local ok, options = pcall(self.GetOptions, self)
-            if ok and type(options) == "table" then
-                return options
-            end
-            -- Never let a build error take the whole options panel away.
-            return { name = "Chatify", type = "group", args = {} }
-        end)
-    end
-
+    -- The native renderer builds its live schema directly, without AceConfig.
     if ns.SettingsIntegration then ns.SettingsIntegration:Register() end
 
     -- Chat Commands. Keep the primary /chatify plus a short, addon-scoped alias.

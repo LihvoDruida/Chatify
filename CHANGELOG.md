@@ -1,3 +1,16 @@
+## 2.18.1 — 2026-10-10
+
+- Remove unused AceConfig (including Dialog and Registry), AceDBOptions,
+  AceLocale and AceGUI SharedMediaWidgets from the library manifest and packager.
+- Refresh native settings directly when channel lists change and use
+  LibSharedMedia for font and sound choices without shared AceGUI widgets.
+- Remove obsolete AceConfig registration and compartment fallbacks, and the
+  optional dependency on the standalone Ace3 addon in every TOC.
+- Keep AceGUI for Composer and AceHook for chat hooks, alongside the required
+  AceAddon, AceEvent, AceConsole and AceDB libraries.
+- Verify native settings in nine client/API combinations with removed library
+  lookups explicitly blocked.
+
 ## 2.18.0 — 2026-10-10
 
 - Replace the settings dialog with the native Max Camera-style window: sidebar,
