@@ -123,6 +123,10 @@ if command -v lua5.1 >/dev/null 2>&1; then
     for client in $(lua5.1 tools/stub/client_fixtures.lua); do
         printf '\n=== client compatibility (%s) ===\n' "$client"
         CHATIFY_COMPAT_CLIENT="$client" lua5.1 tools/compatibility_probe.lua || fail=1
+        for view in standalone embedded; do
+            printf '\n=== channel labels (%s / %s) ===\n' "$client" "$view"
+            CHATIFY_LABEL_CLIENT="$client" CHATIFY_LABEL_VIEW="$view" lua5.1 tools/channel_label_probe.lua || fail=1
+        done
         for api in modern legacy late; do
             printf '\n=== native settings (%s / %s) ===\n' "$client" "$api"
             CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_probe.lua || fail=1

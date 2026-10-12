@@ -1,6 +1,6 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-10-10** — Chatify **2.18.2**
+Audit date: **2026-10-12** — Chatify **2.18.3**
 
 Client identity and feature capability are evaluated separately. Forever is detected
 by its TOC marker, guarded Camelot project constant or 1.60.x interface range.
@@ -206,3 +206,13 @@ older generations.
 Blizzard API contract references:
 - [ChatInfoDocumentation](https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_APIDocumentationGenerated/ChatInfoDocumentation.lua)
 - [FriendListDocumentation](https://github.com/Gethe/wow-ui-source/blob/live/Interface/AddOns/Blizzard_APIDocumentationGenerated/FriendListDocumentation.lua)
+
+
+## Native text inputs (2.18.3)
+
+Channel labels save through Apply, Enter or focus loss. Escape cancels an edit.
+Other text inputs retain explicit submission. Drafts are scoped to their option
+path and profile, preserved across redraws, and cleared on successful submission
+or window closure. Invalid drafts remain visible for correction while the window
+is open. Channel label limits count UTF-8 code points rather than bytes.
+See `CHANNEL_LABEL_FIX_2.18.3_UA.md` for reproduction and regression coverage.

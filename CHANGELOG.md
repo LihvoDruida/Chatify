@@ -1,3 +1,16 @@
+## 2.18.3 — 2026-10-12
+
+- Fix custom channel labels reverting when an input loses focus and redraws
+  before Apply is clicked. Valid labels also save on focus loss; Enter and Apply
+  continue to work, and Escape cancels the edit.
+- Keep input drafts tied to their option path and profile so pooled controls and
+  refreshes cannot overwrite unfinished edits or move them to another setting.
+- Retain invalid drafts for correction instead of silently replacing them with
+  the old value; keep add actions on explicit submission.
+- Count the 12-character channel label limit as UTF-8 characters instead of bytes.
+- Add input-event regressions for built-in/custom channels, Unicode, '#' prefixes,
+  validation, profile switches and backup roundtrip in both settings layouts.
+
 ## 2.18.2 — 2026-10-10
 
 - Detect Forever through Camelot project constants or interface range as well as

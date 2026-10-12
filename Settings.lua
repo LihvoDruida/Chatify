@@ -1,5 +1,15 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
+local function ValidateChannelLabel(info, value)
+    if type(value) == "string" then
+        -- Lua's # counts UTF-8 bytes. Count leading bytes/code points instead,
+        -- matching the advertised character limit for Ukrainian and CJK labels.
+        local trimmed = value:match("^%s*(.-)%s*$")
+        local _, characters = trimmed:gsub("[^\128-\191]", "")
+        if characters > 12 then return ns.Locale:Get("Keep labels to 12 characters or fewer.") end
+    end
+    return true
+end
 local T = (ns.Locale and ns.Locale.Get and function(text) return ns.Locale:Get(text) end) or function(text) return text end
 
 local function TrimInput(value)
@@ -1089,7 +1099,8 @@ function Chatify:GetOptions()
                                             type = "input",
                                             width = "normal",
                                             name = T("Label"),
-                                            desc = T("Text used for this chat type."),
+                                            desc = T("Text used for this chat type. Up to 12 characters; saves when you leave the field. Escape cancels your edit."),
+                                            chatifyCommitOnFocusLost = true,
                                             -- Hidden rather than greyed: an empty
                                             -- disabled box next to every channel was
                                             -- most of the clutter, and it only means
@@ -1097,12 +1108,7 @@ function Chatify:GetOptions()
                                             hidden = function()
                                                 return not self.db.profile.shortChannels or Mode() ~= "custom"
                                             end,
-                                            validate = function(info, val)
-                                                if type(val) == "string" and #val > 12 then
-                                                    return T("Keep labels to 12 characters or fewer.")
-                                                end
-                                                return true
-                                            end,
+                                            validate = ValidateChannelLabel,
                                             set = function(info, val)
                                                 local profile = self.db.profile
                                                 profile.channelLabels = profile.channelLabels or {}
@@ -1259,16 +1265,12 @@ function Chatify:GetOptions()
                                             type = "input",
                                             width = "normal",
                                             name = T("Label"),
-                                            desc = T("Text used for this channel. Start with # to keep the number."),
+                                            desc = T("Text used for this channel. Start with # to keep the number. Up to 12 characters; saves when you leave the field. Escape cancels your edit."),
+                                            chatifyCommitOnFocusLost = true,
                                             hidden = function()
                                                 return not profile.shortChannels or Mode() ~= "custom"
                                             end,
-                                            validate = function(info, val)
-                                                if type(val) == "string" and #val > 12 then
-                                                    return T("Keep labels to 12 characters or fewer.")
-                                                end
-                                                return true
-                                            end,
+                                            validate = ValidateChannelLabel,
                                             set = function(info, val)
                                                 val = TrimInput(val)
                                                 profile.channelLabelsNamed = profile.channelLabelsNamed or {}

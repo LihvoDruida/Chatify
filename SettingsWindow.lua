@@ -8,7 +8,7 @@ local Compat = {
         return type(ns.HasSecretChatValue) == "function" and ns.HasSecretChatValue(value) or false
     end,
     GetAddonVersion = function()
-        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.2"
+        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.3"
     end,
 }
 local unpack = unpack or table.unpack
@@ -202,6 +202,27 @@ function UI:RequestRefresh()
     self.dirty = true
 end
 
+function UI:InputKey(row)
+    return table.concat(row.info, "\031")
+end
+
+function UI:InputDrafts()
+    local profile = ns.Chatify.db and ns.Chatify.db.profile
+    if self.inputDraftProfile ~= profile then
+        self.inputDraftProfile, self.inputDrafts = profile, {}
+    end
+    self.inputDrafts = self.inputDrafts or {}
+    return self.inputDrafts
+end
+
+function UI:CommitInput(f, onlyChanged)
+    -- A profile may be switched while an old control still owns keyboard focus.
+    if f.inputProfile ~= (ns.Chatify.db and ns.Chatify.db.profile) then return false end
+    local draft = self:InputDrafts()[self:InputKey(f.row)]
+    if onlyChanged and not draft then return false end
+    return self:Apply(f.row, draft and draft.value or f.input:GetText())
+end
+
 function UI:ShowDetails(row)
     if not self.window then return end
     self.detailTitle:SetText(row and clean(row.name) or L.UI_HELP_TITLE)
@@ -226,8 +247,8 @@ function UI:IsRowUnavailable(row)
 end
 
 function UI:Apply(row, ...)
-    if self:IsRowUnavailable(row) then return end
-    if row.disabled or self:Evaluate(row.option, "disabled", row.info, false) then return end
+    if self:IsRowUnavailable(row) then return false end
+    if row.disabled or self:Evaluate(row.option, "disabled", row.info, false) then return false end
     local values = { ... }
     local handler = row.option.type == "execute" and row.option.func or row.option.set
     if type(handler) == "string" then
@@ -237,12 +258,12 @@ function UI:Apply(row, ...)
             handler = function(info, ...) return method(owner, info, ...) end
         end
     end
-    if type(handler) ~= "function" then return end
+    if type(handler) ~= "function" then return false end
     if type(row.option.validate) == "function" then
         local ok, valid = pcall(row.option.validate, row.info, unpack(values))
         if not ok or valid ~= true then
             self:ShowDetails({ name = row.name, desc = type(valid) == "string" and valid or L.UI_INVALID })
-            return
+            return false
         end
     end
     local function commit()
@@ -250,10 +271,12 @@ function UI:Apply(row, ...)
         if not ok then
             UI.lastError = tostring(err)
             print("|cffff6060Chatify:|r " .. tostring(err))
-            return
+            return false
         end
+        if row.option.type == "input" then UI:InputDrafts()[UI:InputKey(row)] = nil end
         -- Rebuild the live schema after list edits, profile import or reset.
         UI:RequestRefresh()
+        return true
     end
     if self:Evaluate(row.option, "confirm", row.info, false) then
         local text = self:Evaluate(row.option, "confirmText", row.info, row.name)
@@ -263,7 +286,7 @@ function UI:Apply(row, ...)
         end
         self:Confirm(text, commit)
     else
-        commit()
+        return commit()
     end
 end
 
@@ -459,9 +482,29 @@ function UI:CreateRow(kind)
     elseif kind == "input" then
         f.input = edit(f, 362); f.input:SetPoint("BOTTOMLEFT", 12, 6)
         f.input:SetScript("OnEditFocusGained", function() UI.interacting = true end)
-        f.input:SetScript("OnEditFocusLost", function() UI.interacting = false; UI:RequestRefresh() end)
+        f.input:SetScript("OnTextChanged", function(self, userInput)
+            if not userInput or f.syncing or not f.row then return end
+            UI:InputDrafts()[UI:InputKey(f.row)] = { value = self:GetText() }
+        end)
+        f.input:SetScript("OnEditFocusLost", function()
+            if not f.syncing and not f.canceling and f.row and f.row.option.chatifyCommitOnFocusLost then
+                UI:CommitInput(f, true)
+            end
+            UI.interacting = false
+            UI:RequestRefresh()
+        end)
+        f.input:SetScript("OnEscapePressed", function(self)
+            f.canceling = true
+            UI:InputDrafts()[UI:InputKey(f.row)] = nil
+            f.syncing = true
+            self:SetText(UI:Evaluate(f.row.option, "get", f.row.info, ""))
+            f.syncing = false
+            self:ClearFocus()
+            f.canceling = false
+            UI:RequestRefresh()
+        end)
         f.control = button(f, L.UI_APPLY, 112, 28); f.control:SetPoint("BOTTOMRIGHT", -12, 6)
-        local function commit() UI:Apply(f.row, f.input:GetText()); f.input:ClearFocus() end
+        local function commit() UI:CommitInput(f); f.input:ClearFocus() end
         f.control:SetScript("OnClick", commit); f.input:SetScript("OnEnterPressed", commit)
     elseif kind == "execute" then
         f.control = button(f, "", 483, 30); f.control:SetPoint("LEFT", 12, 0)
@@ -506,7 +549,9 @@ function UI:BindRow(f, row)
         f.soundPreview:SetEnabled(not row.disabled and selected ~= nil and selected ~= "None")
         f.control:SetEnabled(not row.disabled and next(values) ~= nil)
     elseif o.type == "input" then
-        f.input:SetText(self:Evaluate(o, "get", row.info, ""))
+        local draft = self:InputDrafts()[self:InputKey(row)]
+        f.inputProfile = ns.Chatify.db and ns.Chatify.db.profile
+        f.input:SetText(draft and draft.value or self:Evaluate(o, "get", row.info, ""))
         f.input:SetEnabled(not row.disabled); f.control:SetEnabled(not row.disabled)
     elseif o.type == "execute" then
         f.control:SetHeight(max(30, row.height - 12))
@@ -746,6 +791,7 @@ function UI:Create()
                 if f.input then f.input:ClearFocus() end
             end
         end
+        self.inputDrafts = {}
     end)
     local tick, statusTick = 0, 0
     w:SetScript("OnUpdate", function(_, elapsed)

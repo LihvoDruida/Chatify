@@ -28,7 +28,7 @@ function Layout:Apply(options)
         end
     end
     root.settingsHelp = { type = "description", order = 1,
-        name = T("Choose a section on the left or search all settings. Hover over a control for details. Changes apply immediately; reset and destructive actions require confirmation.") }
+        name = T("Choose a section on the left or search all settings. Hover over a control for details. Use Apply or Enter to save text; channel labels also save when you leave the field. Reset and destructive actions require confirmation.") }
     root.groupLanguage.order = 2
     root.groupLanguage.args.languageOverride.sorting = ns.Locale.order
 

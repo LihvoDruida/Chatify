@@ -46,7 +46,7 @@ function M.install(env, name)
     _G.GetBuildInfo = function() return "fixture", "test", "fixture", fixture[1] end
     _G.Settings, _G.InterfaceOptions_AddCategory = nil, nil
     _G.C_Secrets = nil
-    _G.GetAddOnMetadata = function(_, key) return key == "Version" and "2.18.2" or nil end
+    _G.GetAddOnMetadata = function(_, key) return key == "Version" and "2.18.3" or nil end
     _G.IsAddOnLoaded = function() return false end
     _G.LoadAddOn = function() return true end
     _G.BNSendWhisper = function() end
