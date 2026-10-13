@@ -28,139 +28,134 @@ jobs:
         run: bash ./tools/negative_control.sh
 
 
-  package-preflight:
-    name: Pre-release packaged ZIP validation (embedded libraries)
+  release:
+    name: Validate and publish exact approved ZIP
     needs: validate
     if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
     steps:
-      - name: Checkout tagged sources
+      - name: Checkout tagged repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve tag and synchronize TOC versions
+      - name: Install Lua 5.1 for real packaged AceDB test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          command -v lua5.1
+
+      - name: Resolve version from triggering Git tag
         shell: bash
         run: |
           test "${GITHUB_REF_TYPE}" = "tag" || exit 1
           CLEAN_VERSION="${GITHUB_REF_NAME#v}"
           [[ "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?$ ]] || exit 1
-          echo "CLEAN_VERSION=$CLEAN_VERSION" >> "$GITHUB_ENV"
-          while IFS= read -r -d '' toc_file; do
-            grep -q '^## Version: ' "$toc_file" || exit 1
-            sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
-          done < <(find . -type f -name '*.toc' -print0)
-          python3 tools/generate_tocs.py --check
-
-      # -d = create full ZIP and fetch externals, but DO NOT upload.
-      # This gate executes before the actual publishing job.
-      - name: Build offline-upload preview with vendored externals
-        uses: BigWigsMods/packager@v2
-        with:
-          args: -d
-
-      - name: Verify the actual install ZIP (never SOURCE/overlay)
-        shell: bash
-        run: |
-          mapfile -d '' packages < <(find .release -maxdepth 2 -type f -name '*.zip' -print0)
-          test "${#packages[@]}" -eq 1 || {
-            echo "Expected exactly one built ZIP, found ${#packages[@]}" >&2
-            exit 1
-          }
-          python3 tools/validate_package.py "${packages[0]}" --expected-version "$CLEAN_VERSION" --json-report package-preflight.json
-
-      - name: Save package validation evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chatify-package-preflight
-          path: package-preflight.json
-          if-no-files-found: ignore
-
-  build:
-    needs: [validate, package-preflight]
-    if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
-    outputs:
-      changeLogText: ${{ steps.readChanglog.outputs.text }}
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Fetch all tags
-        run: git fetch --tags --force
-
-      - name: Resolve version from triggering Git tag
-        shell: bash
-        run: |
-          # Never use a local TOC value or git describe for the release version.
-          test "${GITHUB_REF_TYPE}" = "tag" || {
-            echo "Release blocked: the workflow was not triggered by a tag" >&2
-            exit 1
-          }
-          CLEAN_VERSION="${GITHUB_REF_NAME#v}"
-          if [[ ! "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Release blocked: invalid version tag '${GITHUB_REF_NAME}'" >&2
-            exit 1
-          fi
           echo "FINAL_VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-
-      - name: Print Debug Info
-        run: |
-          echo "GitHub Ref: ${{ github.ref }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Використана версія: $FINAL_VERSION"
 
       - name: Update Version in .toc Files
         shell: bash
         run: |
-          # All packaged TOC metadata must use the triggering tag, not local versions.
-          # Strip an optional leading v (e.g. v2.18.5 -> 2.18.5).
-          test -n "${FINAL_VERSION:-}" || { echo "FINAL_VERSION is empty" >&2; exit 1; }
-          CLEAN_VERSION=$(echo "${FINAL_VERSION}" | sed 's/^v//')
+          # The triggering tag takes precedence over EVERY local TOC version.
+          test -n "${FINAL_VERSION:-}" || exit 1
+          CLEAN_VERSION="${FINAL_VERSION#v}"
           updated=0
           while IFS= read -r -d '' toc_file; do
-            if ! grep -q '^## Version: ' "$toc_file"; then
-              echo "Missing Version directive in $toc_file" >&2
-              exit 1
-            fi
-            echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
+            grep -q '^## Version: ' "$toc_file" || exit 1
             sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
-            grep -Fxq "## Version: ${CLEAN_VERSION}" "$toc_file" || {
-              echo "Unable to update Version in $toc_file" >&2
-              exit 1
-            }
-            updated=$((updated + 1))
-          done < <(find . -type f -name '*.toc' -print0)
-          test "$updated" -gt 0 || { echo "No TOC files found" >&2; exit 1; }
+            updated=$((updated+1))
+          done < <(find . -type f -name '*.toc' -not -path './.release/*' -print0)
+          test "$updated" -eq 8 || exit 1
           python3 tools/generate_tocs.py --check
-          echo "Synced $updated TOC files to tag ${FINAL_VERSION}"
+          echo "Synced $updated TOCs to tag $FINAL_VERSION"
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> "$GITHUB_ENV"
 
-      # Генеруємо changelog (потрібен файл cliff.toml у корені)
-      - name: Generate CHANGELOG.md
+      - name: Generate release changelog BEFORE packaging
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
           args: --latest --strip header --output CHANGELOG.md
 
-      - name: Verify Changelog
-        run: test -s CHANGELOG.md && cat CHANGELOG.md
+      - name: Verify changelog
+        run: test -s CHANGELOG.md
 
-      # Пакування та відправка на CurseForge / GitHub Releases
-      - name: Create and Upload Package
+      # -d produces the complete install ZIP once, fetching externals once.
+      # The same .release/Chatify directory is kept for the upload phase.
+      - name: Build full candidate ZIP without publishing
         uses: BigWigsMods/packager@v2
-        env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}  # Токен CurseForge
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }} # Токен GitHub (автоматичний)
+        with:
+          args: -d
 
-      - name: Add Summary
+      - name: Validate ZIP and record approval hash
+        id: approve
+        shell: bash
         run: |
-          echo "## ✅ CI завершено успішно для версії $FINAL_VERSION" >> $GITHUB_STEP_SUMMARY
+          mapfile -d '' packages < <(find .release -maxdepth 2 -type f -name '*.zip' -print0)
+          test "${#packages[@]}" -eq 1 || { echo "Expected exactly one install ZIP" >&2; exit 1; }
+          archive="$(realpath "${packages[0]}")"
+          python3 tools/validate_package.py "$archive" --expected-version "$CLEAN_VERSION" --json-report package-preflight.json
+          test "$(python3 -c 'import json; print(json.load(open("package-preflight.json"))["status"])')" = PASS
+          hash="$(sha256sum "$archive")"
+          hash="${hash%% *}"
+          echo "$hash  $archive" > package-preflight.sha256
+          echo "CHATIFY_APPROVED_ZIP=$archive" >> "$GITHUB_ENV"
+          echo "CHATIFY_APPROVED_SHA256=$hash" >> "$GITHUB_ENV"
+          echo "CHATIFY_ZIP_GUARD_RECEIPT=$RUNNER_TEMP/chatify-zip-approved.receipt" >> "$GITHUB_ENV"
+          echo "Approved package: $archive SHA-256 $hash"
+
+      - name: Real embedded AceDB persistence regression
+        shell: bash
+        run: |
+          staging="$RUNNER_TEMP/chatify-real-acedb"
+          python3 tools/stage_acedb.py "$CHATIFY_APPROVED_ZIP" "$staging"
+          ACE3_PATH="$staging/libs" CHATIFY_REQUIRE_REAL_ACEDB=1 lua5.1 tools/roundtrip_test.lua
+
+      - name: Require publication credentials
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test -n "$CF_API_KEY" || { echo 'Missing CF_API_KEY' >&2; exit 1; }
+          test -n "$GITHUB_OAUTH" || { echo 'Missing GitHub token' >&2; exit 1; }
+
+      - name: Activate guarded ZIP executable
+        shell: bash
+        run: |
+          # BigWigs release.sh uses the regular `zip` binary immediately
+          # before uploading. This wrapper aborts BEFORE upload on SHA drift.
+          echo "$GITHUB_WORKSPACE/tools/release-guards" >> "$GITHUB_PATH"
+          rm -f "$CHATIFY_ZIP_GUARD_RECEIPT"
+          test -x tools/release-guards/zip
+          test "$(sha256sum "$CHATIFY_APPROVED_ZIP" | cut -d ' ' -f1)" = "$CHATIFY_APPROVED_SHA256"
+
+      - name: Publish only SHA-approved artifact; never refetch externals
+        uses: BigWigsMods/packager@v2
+        with:
+          # -c: reuse assembled tree, -e: no external downloads, -o: keep tree
+          args: -c -e -o
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify pre-upload guard was actually called
+        shell: bash
+        run: |
+          test -s "$CHATIFY_ZIP_GUARD_RECEIPT" || {
+            echo 'FAIL: packager bypassed approved ZIP guard' >&2; exit 1;
+          }
+          grep -Fq "$CHATIFY_APPROVED_SHA256" "$CHATIFY_ZIP_GUARD_RECEIPT" || exit 1
+          test "$(sha256sum "$CHATIFY_APPROVED_ZIP" | cut -d ' ' -f1)" = "$CHATIFY_APPROVED_SHA256"
+          echo "Verified release ZIP $CHATIFY_APPROVED_SHA256" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve exact release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatify-release-evidence
+          path: |
+            package-preflight.json
+            package-preflight.sha256
+            .release/*.zip
+          if-no-files-found: ignore

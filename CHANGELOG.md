@@ -1,3 +1,12 @@
+## UI/UX stage R2-01–R2-03 — 2026-10-13 (source candidate, not a tagged release)
+
+- Commit numeric range edits on Enter or focus loss; accept comma or dot decimals, clamp to the option's min/max/step, preserve invalid drafts rather than silently reverting them.
+- Add per-field pending/error feedback for numeric and textual input, with Escape restoring the last saved value and profile-aware draft isolation.
+- Route Blizzard panel Defaults through an explicit confirmation and the same ResetProfile operation used by the standalone Reset Profile control; cancel leaves the profile unchanged.
+- Surface client capability decisions in a dedicated Availability page and clarify protected whisper limitations. Report post-render transform capability separately from AddMessage replacement.
+- Add R2 field event and reset regressions to mandatory source validation on Retail, Forever, Era, TBC and Mists fixtures.
+- Versioning remains based on the triggering Git tag; these source changes do not declare an additional released version. Live WoW, Lua 5.1 and actual Blizzard Defaults behavior are not certified by TexLua.
+
 ## 2.18.4 — 2026-10-13 (validation candidate)
 
 - Gate every tag package on a required Lua 5.1/Python source validation job; CI also runs on branches and pull requests. Missing Lua, failed required probes or unapproved SKIP block release.

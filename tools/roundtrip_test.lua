@@ -37,7 +37,11 @@ for _, candidate in ipairs({
 end
 
 if not aceDBFile then
-    print("roundtrip: AceDB-3.0 not found; set ACE3_PATH or populate libs/. Skipped.")
+    if os.getenv("CHATIFY_REQUIRE_REAL_ACEDB") == "1" then
+        io.stderr:write("FAIL: real AceDB missing in mandatory release test\n")
+        os.exit(2)
+    end
+    print("OPTIONAL SKIP: AceDB-3.0 not found; set ACE3_PATH or populate libs/.")
     os.exit(0)
 end
 
@@ -192,6 +196,13 @@ for _, change in ipairs(CHANGES) do
 end
 addon.db.profile.channelLabels = addon.db.profile.channelLabels or {}
 addon.db.profile.channelLabels.PARTY = "Grp"
+-- Run Chatify's own transfer against real AceDB rather than the permissive
+-- DB stub used in the source-level tests.
+local transfer = assert(ns.ExportProfileText(), "real AceDB export failed")
+assert(transfer:match("^CHATIFY_PROFILE\t2"), "real AceDB export schema mismatch")
+addon.db.profile.channelLabels.PARTY = "Changed"
+assert(ns.ImportProfileText(transfer), "real AceDB import failed")
+assert(addon.db.profile.channelLabels.PARTY == "Grp", "real AceDB import lost label")
 
 -- Chatify's own logout handlers, then AceDB's, in the order the client fires
 -- them. AceDB's removeDefaults is what strips values back down before the file
@@ -204,7 +215,11 @@ end
 
 -- AceDB installs its own PLAYER_LOGOUT frame; firing it is what runs
 -- removeDefaults, which is the step that decides what actually reaches the file.
-env.fireEvent("PLAYER_LOGOUT")
+local logoutCallbacks = env.fireEvent("PLAYER_LOGOUT")
+if os.getenv("CHATIFY_REQUIRE_REAL_ACEDB") == "1" then
+    assert(logoutCallbacks > 0, "no PLAYER_LOGOUT handler called")
+    assert(not env.eventErrors or #env.eventErrors == 0, "error during AceDB logout")
+end
 
 -- ------------------------------------------------------- write, then read back
 

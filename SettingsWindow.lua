@@ -209,10 +209,68 @@ end
 function UI:InputDrafts()
     local profile = ns.Chatify.db and ns.Chatify.db.profile
     if self.inputDraftProfile ~= profile then
-        self.inputDraftProfile, self.inputDrafts = profile, {}
+        self.inputDraftProfile, self.inputDrafts, self.fieldErrors = profile, {}, {}
     end
     self.inputDrafts = self.inputDrafts or {}
+    self.fieldErrors = self.fieldErrors or {}
     return self.inputDrafts
+end
+
+function UI:FieldKey(row)
+    return self:InputKey(row)
+end
+
+function UI:SetFieldError(row, reason)
+    self:InputDrafts()
+    local key = self:FieldKey(row)
+    self.fieldErrors[key] = reason or L.UI_INVALID
+    self:ShowDetails({ name = row.name, desc = self.fieldErrors[key] })
+    self:RequestRefresh()
+end
+
+function UI:ClearFieldState(row)
+    local key = self:FieldKey(row)
+    self:InputDrafts()[key] = nil
+    self.fieldErrors[key] = nil
+end
+
+function UI:RememberDraft(row, value)
+    local key = self:FieldKey(row)
+    self:InputDrafts()[key] = { value = value }
+    self.fieldErrors[key] = nil
+end
+
+function UI:UpdateFieldFeedback(f)
+    if not f or not f.feedback or not f.row then return end
+    self:InputDrafts()
+    local key = self:FieldKey(f.row)
+    local reason, pending = self.fieldErrors[key], self.inputDrafts[key]
+    f.feedback:SetText(reason or (pending and L.UI_UNSAVED or ""))
+    f.feedback:SetTextColor(reason and 1 or 0.93, reason and 0.39 or 0.70, reason and 0.39 or 0.42)
+    f.feedback:SetShown(reason ~= nil or pending ~= nil)
+end
+
+function UI:CommitNumber(f)
+    if not f.row or f.inputProfile ~= (ns.Chatify.db and ns.Chatify.db.profile) then return false end
+    local row = f.row
+    local text = (self:InputDrafts()[self:FieldKey(row)] or {}).value or f.number:GetText()
+    -- Never replace invalid input with the old saved value on focus loss.
+    local value = tonumber(((text or ""):gsub(",", ".")))
+    if not value or value ~= value or value == math.huge or value == -math.huge then
+        self:SetFieldError(row, L.UI_INVALID_NUMBER)
+        return false
+    end
+    local o = row.option
+    local step = tonumber(o.step) or 1
+    if step <= 0 or type(o.min) ~= "number" or type(o.max) ~= "number" then
+        self:SetFieldError(row, L.UI_INVALID)
+        return false
+    end
+    value = min(o.max, max(o.min, o.min + floor((value - o.min) / step + 0.5) * step))
+    if not self:Apply(row, value) then return false end
+    self:ClearFieldState(row)
+    self:RequestRefresh()
+    return true
 end
 
 function UI:CommitInput(f, onlyChanged)
@@ -229,6 +287,11 @@ function UI:ShowDetails(row)
     local text = row and row.desc or L.UI_HELP_DESC
     if text == "" then text = L.UI_HELP_DESC end
     if row and row.disabled then text = text .. "\n\n|cffcda86c" .. L.UI_DISABLED .. "|r" end
+    if row and row.info then
+        self:InputDrafts()
+        local reason = self.fieldErrors[self:FieldKey(row)]
+        if reason then text = text .. "\n\n|cffff7777" .. clean(reason) .. "|r" end
+    end
     if row and row.trail then text = text .. "\n\n|cff9b8769" .. clean(row.trail) .. "|r" end
     self.detailText:SetText(text ~= "" and text or L.UI_HELP_DESC)
     self.detailChild:SetHeight(max(200, self.detailText:GetStringHeight() + self.detailTitle:GetStringHeight() + 25))
@@ -262,7 +325,7 @@ function UI:Apply(row, ...)
     if type(row.option.validate) == "function" then
         local ok, valid = pcall(row.option.validate, row.info, unpack(values))
         if not ok or valid ~= true then
-            self:ShowDetails({ name = row.name, desc = type(valid) == "string" and valid or L.UI_INVALID })
+            self:SetFieldError(row, type(valid) == "string" and valid or L.UI_INVALID)
             return false
         end
     end
@@ -273,7 +336,9 @@ function UI:Apply(row, ...)
             print("|cffff6060Chatify:|r " .. tostring(err))
             return false
         end
-        if row.option.type == "input" then UI:InputDrafts()[UI:InputKey(row)] = nil end
+        if row.option.type == "input" or row.option.type == "range" then
+            UI:ClearFieldState(row)
+        end
         -- Rebuild the live schema after list edits, profile import or reset.
         UI:RequestRefresh()
         return true
@@ -288,6 +353,19 @@ function UI:Apply(row, ...)
     else
         return commit()
     end
+end
+
+function UI:ConfirmProfileReset()
+    if not ns.Chatify or not ns.Chatify.db then return false end
+    if not self.window or not self.window:IsShown() then self:Open() end
+    self:Confirm(L.UI_RESET_PROFILE_CONFIRM, function()
+        if type(ns.Chatify.ResetChatifyProfile) == "function" then
+            ns.Chatify:ResetChatifyProfile()
+            self.inputDraftProfile, self.inputDrafts, self.fieldErrors = nil, {}, {}
+            self:RequestRefresh()
+        end
+    end)
+    return true
 end
 
 function UI:Confirm(text, callback)
@@ -433,7 +511,28 @@ function UI:CreateRow(kind)
         slider.high = label(f, "", 10, GOLD); slider.high:SetPoint("BOTTOMRIGHT", -130, 0)
         local number = edit(f, 91); number:SetPoint("BOTTOMRIGHT", -14, 9)
         number:SetScript("OnEditFocusGained", function() UI.interacting = true end)
-        number:SetScript("OnEditFocusLost", function() UI.interacting = false; UI:RequestRefresh() end)
+        number:SetScript("OnTextChanged", function(self, userInput)
+            if userInput and not f.syncing and f.row then
+                UI:RememberDraft(f.row, self:GetText())
+                UI:UpdateFieldFeedback(f)
+            end
+        end)
+        number:SetScript("OnEditFocusLost", function()
+            if not f.canceling and not f.syncing and f.row and UI:InputDrafts()[UI:FieldKey(f.row)] then
+                UI:CommitNumber(f)
+            end
+            UI.interacting = false; UI:RequestRefresh()
+        end)
+        number:SetScript("OnEscapePressed", function(self)
+            f.canceling = true
+            if f.row then UI:ClearFieldState(f.row) end
+            f.syncing = true
+            self:SetText(f.row and string.format("%g", tonumber(UI:Evaluate(f.row.option, "get", f.row.info, 0)) or 0) or "")
+            f.syncing = false
+            self:ClearFocus()
+            f.canceling = false
+            UI:RequestRefresh()
+        end)
         f.slider, f.number = slider, number
         local function normal(value)
             local o = f.row.option
@@ -460,10 +559,8 @@ function UI:CreateRow(kind)
         slider:SetScript("OnMouseWheel", function(_, delta) commit(slider:GetValue() + delta * (f.row.option.step or 1)) end)
         slider:SetScript("OnEnter", function() UI:ShowDetails(f.row) end)
         number:SetScript("OnEnterPressed", function(self)
-            local value = tonumber((self:GetText() or ""):gsub(",", "."))
+            UI:CommitNumber(f)
             self:ClearFocus()
-            if value and value == value and value ~= math.huge and value ~= -math.huge then commit(value) end
-            UI:RequestRefresh()
         end)
     elseif kind == "select" then
         f.control = button(f, "", 483, 29); f.control:SetPoint("BOTTOMLEFT", 12, 6)
@@ -484,7 +581,8 @@ function UI:CreateRow(kind)
         f.input:SetScript("OnEditFocusGained", function() UI.interacting = true end)
         f.input:SetScript("OnTextChanged", function(self, userInput)
             if not userInput or f.syncing or not f.row then return end
-            UI:InputDrafts()[UI:InputKey(f.row)] = { value = self:GetText() }
+            UI:RememberDraft(f.row, self:GetText())
+            UI:UpdateFieldFeedback(f)
         end)
         f.input:SetScript("OnEditFocusLost", function()
             if not f.syncing and not f.canceling and f.row and f.row.option.chatifyCommitOnFocusLost then
@@ -495,7 +593,7 @@ function UI:CreateRow(kind)
         end)
         f.input:SetScript("OnEscapePressed", function(self)
             f.canceling = true
-            UI:InputDrafts()[UI:InputKey(f.row)] = nil
+            UI:ClearFieldState(f.row)
             f.syncing = true
             self:SetText(UI:Evaluate(f.row.option, "get", f.row.info, ""))
             f.syncing = false
@@ -517,6 +615,11 @@ function UI:CreateRow(kind)
         line:SetHeight(1); line:SetPoint("BOTTOMLEFT", 12, 3); line:SetPoint("BOTTOMRIGHT", -12, 3)
         line:SetColorTexture(0.46, 0.34, 0.17, 0.65)
     end
+    if kind == "range" or kind == "input" then
+        f.feedback = label(f, "", 11, { 0.93, 0.70, 0.42 })
+        f.feedback:SetPoint("BOTTOMLEFT", 12, 40)
+        f.feedback:SetWidth(475)
+    end
     return f
 end
 
@@ -535,7 +638,10 @@ function UI:BindRow(f, row)
         local value = self:Evaluate(o, "get", row.info, o.min)
         value = tonumber(value) or o.min
         f.slider:SetValue(value); f.slider:SetEnabled(not row.disabled)
-        f.number:SetText(string.format("%g", value)); f.number:EnableMouse(not row.disabled)
+        local draft = self:InputDrafts()[self:FieldKey(row)]
+        f.inputProfile = ns.Chatify.db and ns.Chatify.db.profile
+        f.number:SetText(draft and draft.value or string.format("%g", value))
+        f.number:EnableMouse(not row.disabled)
         f.number:SetEnabled(not row.disabled)
         f.slider.low:SetText(string.format("%g", o.min)); f.slider.high:SetText(string.format("%g", o.max))
     elseif o.type == "select" then
@@ -557,6 +663,7 @@ function UI:BindRow(f, row)
         f.control:SetHeight(max(30, row.height - 12))
         f.control.text:SetText(row.name); f.control:SetEnabled(not row.disabled)
     end
+    self:UpdateFieldFeedback(f)
     f.syncing = false
 end
 
@@ -624,12 +731,12 @@ function UI:Rebuild(resetScroll)
     local y = 0
     for _, row in ipairs(self.rows) do
         local kind = row.option.type
-        local height = (kind == "range" and 88) or ((kind == "select" or kind == "input") and 80) or 46
+        local height = (kind == "range" and 94) or (kind == "input" and 90) or (kind == "select" and 80) or 46
         self.measure:SetWidth((kind == "toggle" or kind == "multiselect") and 451 or (kind == "execute" and 463 or 485))
         self.measure:SetText(row.name)
         local textHeight = self.measure:GetStringHeight()
-        if kind == "range" then height = max(height, textHeight + 61)
-        elseif kind == "select" or kind == "input" then height = max(height, textHeight + 54)
+        if kind == "range" or kind == "input" then height = max(height, textHeight + 75)
+        elseif kind == "select" then height = max(height, textHeight + 54)
         else height = max(height, textHeight + 23) end
         if kind == "description" then
             height = max(38, textHeight + 23)
@@ -792,6 +899,7 @@ function UI:Create()
             end
         end
         self.inputDrafts = {}
+        self.fieldErrors = {}
     end)
     local tick, statusTick = 0, 0
     w:SetScript("OnUpdate", function(_, elapsed)

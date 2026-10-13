@@ -29,8 +29,15 @@ function Integration:Register()
         -- Edits apply immediately, just as in the standalone window.
         panel.refresh = function() ns.SettingsWindow:RequestRefresh() end
         panel.OnRefresh = panel.refresh
+        -- Chatify applies normal edits immediately. Blizzard Defaults must not
+        -- silently reset an active profile: show the same explicit confirmation
+        -- as the standalone Reset Profile action.
         panel.OnCommit = function() end
-        panel.OnDefault = function() end
+        panel.OnDefault = function()
+            local ui = ns.SettingsWindow
+            if ui and ns.Chatify and ns.Chatify.db then return ui:ConfirmProfileReset() end
+            return false
+        end
         self.panel = panel
     end
     local registered = false

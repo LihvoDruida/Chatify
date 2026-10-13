@@ -28,7 +28,7 @@ function Layout:Apply(options)
         end
     end
     root.settingsHelp = { type = "description", order = 1,
-        name = T("Choose a section on the left or search all settings. Hover over a control for details. Use Apply or Enter to save text; channel labels also save when you leave the field. Reset and destructive actions require confirmation.") }
+        name = T("Choose a section or search settings. Use Apply/Enter for text; number fields save with Enter or when you leave them. Channel labels also save on blur. Esc cancels edits. Reset requires confirmation.") }
     root.groupLanguage.order = 2
     root.groupLanguage.args.languageOverride.sorting = ns.Locale.order
 
@@ -119,6 +119,45 @@ function Layout:Apply(options)
     profiles.groupProfileBackup = tools.groupProfileBackup
     profiles.groupProfileBackup.order = 1
     move(setup.groupMaintenance.args, group(profiles, "resetProfile", "Reset Profile", 2), { "btnReset" })
+
+    -- Explain unavailable controls using the very same capability result that
+    -- powers runtime diagnostics and protected-client shortcut routing.
+    local availability = page("availability", "Feature Availability", 125)
+    local features = {
+        { "autoReplyWhisper", "Whisper Auto Reply" },
+        { "autoReplyBNet", "Battle.net Auto Reply" },
+        { "autoReplyGuild", "Guild Auto Reply" },
+        { "virtualChat", "Virtual Chat" },
+        { "nativeCopy", "Native Copy" },
+        { "mentions", "Mentions" },
+        { "composer", "Message Composer" },
+    }
+    availability.capabilities = {
+        type = "description", order = 1,
+        name = function()
+            local lines = { T("Unavailable features are listed here rather than silently disappearing from Settings.") }
+            for _, entry in ipairs(features) do
+                local support = type(ns.GetFeatureSupport) == "function" and ns.GetFeatureSupport(entry[1]) or "unavailable"
+                local status = support == "supported" and T("Available")
+                    or (support == "warning" and T("Limited") or T("Unavailable"))
+                lines[#lines + 1] = "• " .. T(entry[2]) .. ": " .. status
+                if support == "warning" and type(ns.GetFeatureWarningText) == "function" then
+                    local warning = ns.GetFeatureWarningText(entry[1])
+                    if type(warning) == "string" and warning ~= "" then
+                        lines[#lines + 1] = "   " .. T(warning)
+                    end
+                elseif support == "unavailable" then
+                    if type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
+                        and (entry[1] == "autoReplyWhisper" or entry[1] == "autoReplyBNet" or entry[1] == "virtualChat") then
+                        lines[#lines + 1] = "   " .. T("Disabled to respect protected chat values.")
+                    else
+                        lines[#lines + 1] = "   " .. T("Required client capability is unavailable.")
+                    end
+                end
+            end
+            return table.concat(lines, "\n")
+        end,
+    }
 
     local maintenance = page("maintenance", "Compatibility & Diagnostics", 130)
     maintenance.groupSafety, maintenance.groupMaintenance = general.groupSafety, setup.groupMaintenance

@@ -49,6 +49,10 @@ run "secret guard audit" python3 tools/secret_guard_audit.py
 run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version
 run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
 run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
+run "R1-08 same-ZIP release workflow gate" python3 tools/release_workflow_probe.py
+run "R1-08 real AceDB staging control" python3 tools/stage_acedb_probe.py
+run "R1-08 publication SHA-256 guard syntax" bash -n tools/release-guards/zip
+run "R1-08 publication SHA-256 guard negatives" python3 tools/release_guard_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
 # a hard failure (never a green partial suite).
 require luac5.1
@@ -70,6 +74,11 @@ run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
 run "R1-04 history/render/buffer parity" lua5.1 tools/history_pipeline_probe.lua
 run "R1-05/06 friend identity and Unicode keywords" lua5.1 tools/filter_identity_unicode_probe.lua
 run "R1-07 PvP/BG/LFG queues and pending returns" lua5.1 tools/auto_reply_queue_probe.lua
+run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Era legacy" env CHATIFY_SETTINGS_CLIENT=era CHATIFY_SETTINGS_API=legacy lua5.1 tools/settings_edit_probe.lua
+run "R2 native editor/defaults / TBC legacy" env CHATIFY_SETTINGS_CLIENT=tbc CHATIFY_SETTINGS_API=legacy lua5.1 tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Mists" env CHATIFY_SETTINGS_CLIENT=mists CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
 
 clients=$(lua5.1 tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
 if [ -z "$clients" ]; then echo 'FAIL: fixture list is empty' >&2; exit 1; fi

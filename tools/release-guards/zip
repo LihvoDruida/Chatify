@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# R1-08: Prevent BigWigs packager from publishing anything except the ZIP
+# whose SHA-256 was approved by the pre-upload validation in this same job.
+set -euo pipefail
+: "${CHATIFY_APPROVED_ZIP:?missing approved ZIP path}"
+: "${CHATIFY_APPROVED_SHA256:?missing approved ZIP digest}"
+: "${CHATIFY_ZIP_GUARD_RECEIPT:?missing verification receipt path}"
+
+archive=""
+for argument in "$@"; do
+    case "$argument" in
+        *.zip)
+            if [[ -n "$archive" ]]; then
+                echo 'R1-08: more than one ZIP argument' >&2
+                exit 52
+            fi
+            archive="$argument"
+            ;;
+    esac
+done
+[[ -n "$archive" ]] || { echo 'R1-08: no release ZIP in zip invocation' >&2; exit 52; }
+[[ "$(realpath -m -- "$archive")" == "$(realpath -m -- "$CHATIFY_APPROVED_ZIP")" ]] || {
+    echo "R1-08: unexpected output ZIP: $archive" >&2
+    exit 52
+}
+
+# release.sh -c -e -o does not copy or refetch the already validated package
+# tree. It recreates the archive before upload, so compare its exact bytes.
+/usr/bin/zip "$@"
+actual="$(sha256sum -- "$archive")"
+actual="${actual%% *}"
+if [[ "$actual" != "$CHATIFY_APPROVED_SHA256" ]]; then
+    echo "R1-08: ZIP SHA-256 changed; refusing to publish" >&2
+    echo "  expected: $CHATIFY_APPROVED_SHA256" >&2
+    echo "  actual:   $actual" >&2
+    # Upstream release.sh checks whether the archive EXISTS after `zip`, and
+    # may continue even if the `zip` command returned non-zero. Delete it so
+    # the upstream existence check cannot upload an unapproved file.
+    rm -f -- "$archive" "$CHATIFY_ZIP_GUARD_RECEIPT"
+    exit 53
+fi
+printf '%s  %s\n' "$actual" "$archive" > "$CHATIFY_ZIP_GUARD_RECEIPT"
+echo "R1-08: approved ZIP SHA-256 confirmed before upload: $actual"

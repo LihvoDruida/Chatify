@@ -193,10 +193,17 @@ local function GetRetailSafeDescription()
     -- owning frame.AddMessage. Reporting the state here rather than leaving the user
     -- to discover that a rule they configured never fires.
     local rewrite = "available"
-    if type(ns.CanReplaceChatFrameAddMessage) == "function" then
+    local postRender = false
+    if type(ns.HasSecurePostRenderAPI) == "function" then
+        local ok, available = pcall(ns.HasSecurePostRenderAPI)
+        postRender = ok and available == true
+    end
+    if postRender then
+        rewrite = "post-render path available"
+    elseif type(ns.CanReplaceChatFrameAddMessage) == "function" then
         local ok, allowed = pcall(ns.CanReplaceChatFrameAddMessage)
-        if ok and not allowed then
-            rewrite = "|cff888888unavailable on this client|r"
+        if not ok or not allowed then
+            rewrite = "|cff888888render replacement unavailable; some transforms may be skipped|r"
         end
     end
 
@@ -2504,6 +2511,10 @@ function Chatify:GetOptions()
                                 name = function()
                                     local base = T("Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.")
                                     local warning = GetFeatureWarningDescription("autoReply")
+                                    if type(ns.GetFeatureSupport) == "function"
+                                        and ns.GetFeatureSupport("autoReplyWhisper") == "unavailable" then
+                                        base = base .. "\n\n" .. T("Whisper auto-reply settings are unavailable on this client; guild replies may still work.")
+                                    end
                                     if warning ~= "" then return base .. "\n\n" .. warning end
                                     return base
                                 end,
@@ -2722,11 +2733,7 @@ function Chatify:GetOptions()
                                 name = T("Reset All Settings"),
                                 desc = T("|cffff0000Cannot be undone!|r"),
                                 type = "execute",
-                                func = function() 
-                                    self.db:ResetProfile()
-                                    if ns.UpdateSpamCache then ns.UpdateSpamCache() end
-                                    self:Print(T("Configuration reset."))
-                                end,
+                                func = function() self:ResetChatifyProfile() end,
                                 width = "full",
                                 confirm = true,
                                 confirmText = "|cffff0000WARNING:|r Reset all settings?",
@@ -3092,6 +3099,15 @@ local function RefreshRuntimeModules()
     else
         run()
     end
+end
+
+-- Shared by the explicit Reset Profile action and Blizzard's Defaults callback.
+function Chatify:ResetChatifyProfile()
+    if not self.db then return false end
+    self.db:ResetProfile()
+    if type(ns.UpdateSpamCache) == "function" then ns.UpdateSpamCache() end
+    self:Print(T("Configuration reset."))
+    return true
 end
 
 function Chatify:RefreshConfig()
