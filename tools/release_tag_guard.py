@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Reject non-new-tag events and any tag whose GitHub Release already exists.
+"""Allow publication only for newly created tags and unoccupied release assets.
 
-Called only in the release job, before package downloads or publication.
-An authorized GitHub API call is required; network/auth failures are fatal.
+GitHub's New Release form creates both the tag and an empty Release before
+the tag-push workflow starts. That empty target is safe to populate once.
+An existing release containing any asset is never eligible for republishing.
 """
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ def check_event(env: dict[str, str], event: dict) -> str:
     return tag
 
 
-def check_no_existing_release(env: dict[str, str], tag: str, opener=urlopen) -> None:
+def check_no_existing_release(env: dict[str, str], tag: str, opener=urlopen) -> str:
     api = env.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
     repo = env['GITHUB_REPOSITORY']
     token = env.get('GITHUB_TOKEN', '')
@@ -50,13 +51,27 @@ def check_no_existing_release(env: dict[str, str], tag: str, opener=urlopen) -> 
     )
     try:
         with opener(req, timeout=20) as resp:
-            if resp.status == 200:
-                raise ReleaseTagError(f'Release already exists for {tag}; refusing to republish')
-            raise ReleaseTagError(f'Unexpected GitHub Releases API status {resp.status}')
+            if resp.status != 200:
+                raise ReleaseTagError(f'Unexpected GitHub Releases API status {resp.status}')
+            # Creating a Release in the GitHub UI creates its tag first, then
+            # triggers the push workflow. The Release can already exist before
+            # our first step. Allow only that unoccupied target: the new-tag
+            # event and checkout SHA are verified before this function runs.
+            release = json.load(resp)
+            if not isinstance(release, dict) or release.get('tag_name') != tag:
+                raise ReleaseTagError(f'GitHub Release identity mismatch for {tag}')
+            if release.get('draft') is not False or not release.get('published_at'):
+                raise ReleaseTagError(f'GitHub Release {tag} must already be published, not a draft')
+            if release.get('immutable') is True:
+                raise ReleaseTagError(f'GitHub Release {tag} is immutable')
+            if release.get('assets') != []:
+                raise ReleaseTagError(f'GitHub Release {tag} already has assets; refusing to overwrite')
+            return 'empty-existing-release' 
     except HTTPError as exc:
         if exc.code != 404:
             raise ReleaseTagError(f'GitHub Releases lookup failed: HTTP {exc.code}') from exc
-        # 404 means no GitHub Release for this tag; continue on the same tag event.
+        # 404 means the packager will create the release for this tag.
+        return 'new-release'
 
 
 def check_checkout_matches_tag(env: dict[str, str], tag: str) -> None:
@@ -76,8 +91,8 @@ def main() -> int:
         event = json.loads(Path(event_path).read_text(encoding='utf8'))
         tag = check_event(dict(os.environ), event)
         check_checkout_matches_tag(dict(os.environ), tag)
-        check_no_existing_release(dict(os.environ), tag)
-        print(f'PASS: newly created tag {tag}; no prior GitHub Release')
+        destination = check_no_existing_release(dict(os.environ), tag)
+        print(f'PASS: newly created tag {tag}; target={destination}; no existing assets')
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError, ReleaseTagError) as exc:
         print(f'FAIL: release tag guard: {exc}', file=sys.stderr)

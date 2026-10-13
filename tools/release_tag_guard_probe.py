@@ -44,8 +44,11 @@ for changes, event in [
         raise AssertionError(f'Unexpected release permission: {changes} / {event}')
 
 class FakeResponse:
-    def __init__(self, status):
+    def __init__(self, status, data):
         self.status = status
+        self.data = json.dumps(data).encode('utf-8')
+    def read(self):
+        return self.data
     def __enter__(self):
         return self
     def __exit__(self, *_):
@@ -55,17 +58,44 @@ def fake_new(request, timeout):
     assert request.full_url.endswith('/repos/LihvoDruida/Chatify/releases/tags/v2.19.0')
     raise HTTPError(request.full_url, 404, 'Not Found', {}, None)
 
-check_no_existing_release(base, 'v2.19.0', fake_new)
+assert check_no_existing_release(base, 'v2.19.0', fake_new) == 'new-release'
+
+empty_release = {'tag_name': 'v2.19.0', 'draft': False, 'published_at': '2026-10-13T20:48:35Z',
+                 'immutable': False, 'assets': []}
 
 def fake_existing(request, timeout):
-    return FakeResponse(200)
+    return FakeResponse(200, empty_release)
 
+# A GitHub UI-created Release may be published just BEFORE its new tag's push
+# workflow begins. BigWigs can attach the exact approved ZIP to that empty target.
+assert check_no_existing_release(base, 'v2.19.0', fake_existing) == 'empty-existing-release'
+
+# Never overwrite a previously published ZIP, an unknown target, or a draft.
+for change in (
+    {'assets': [{'id': 42, 'name': 'Chatify-v2.19.0.zip'}]},
+    {'tag_name': 'v2.18.9'},
+    {'draft': True},
+    {'published_at': None},
+    {'immutable': True},
+    {'assets': None},
+):
+    def fake_occupied(request, timeout):
+        return FakeResponse(200, {**empty_release, **change})
+    try:
+        check_no_existing_release(base, 'v2.19.0', fake_occupied)
+    except ReleaseTagError:
+        pass
+    else:
+        raise AssertionError(f'Unsafe existing Release was accepted: {change}')
+
+def fake_malformed(request, timeout):
+    return FakeResponse(200, [])
 try:
-    check_no_existing_release(base, 'v2.19.0', fake_existing)
+    check_no_existing_release(base, 'v2.19.0', fake_malformed)
 except ReleaseTagError:
     pass
 else:
-    raise AssertionError('Existing release was accepted')
+    raise AssertionError('Non-object API response was accepted')
 
 def fake_error(request, timeout):
     raise HTTPError(request.full_url, 403, 'Forbidden', {}, None)
@@ -104,4 +134,4 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         os.chdir(previous)
 
-print('Fresh-tag release gating: PASS (new tag, branch, PR, manual, force update, existing release, API failure)')
+print('Fresh-tag release gating: PASS (new tag, UI-created empty Release, occupied/draft/mismatched Release, branch, PR, manual, force update, API failure)')
