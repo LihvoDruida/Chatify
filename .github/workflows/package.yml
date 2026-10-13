@@ -2,17 +2,37 @@ name: Continuous Integration
 
 on:
   push:
-    tags:
-      - "*"           # Запускати на будь-який тег
-      - "!**-alpha**" # Ігнорувати теги з суфіксом -alpha
-      - "!**-beta**"  # Ігнорувати теги з суфіксом -beta
+    branches: ["**"]
+    tags: ["*"]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  validate:
+    name: Required source validation (Lua 5.1)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install required Lua 5.1 runtime and parser
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          command -v lua5.1
+          command -v luac5.1
+      - name: Required checks (no optional skips)
+        run: bash ./tools/check_all.sh
+      - name: Prove failure detection
+        run: bash ./tools/negative_control.sh
+
   build:
+    needs: validate
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     outputs:
       changeLogText: ${{ steps.readChanglog.outputs.text }}
@@ -26,35 +46,20 @@ jobs:
       - name: Fetch all tags
         run: git fetch --tags --force
 
-      - name: Get Latest Tag or use TOC version
-        id: get_latest_tag
+      - name: Resolve version from triggering Git tag
+        shell: bash
         run: |
-          # 1. Шукаємо файл .toc (беремо перший знайдений, щоб не хардкодити назву)
-          TOC_FILE=$(find . -maxdepth 1 -name "*.toc" | head -n 1)
-          echo "📂 Знайдено TOC файл: $TOC_FILE"
-
-          # 2. Витягуємо версію з TOC
-          if [ -f "$TOC_FILE" ]; then
-            TOC_VERSION=$(grep -oP '^## Version: \K.*' "$TOC_FILE" | tr -d '\r')
-          else
-            TOC_VERSION="1.0"
+          # Never use a local TOC value or git describe for the release version.
+          test "${GITHUB_REF_TYPE}" = "tag" || {
+            echo "Release blocked: the workflow was not triggered by a tag" >&2
+            exit 1
+          }
+          CLEAN_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release blocked: invalid version tag '${GITHUB_REF_NAME}'" >&2
+            exit 1
           fi
-          
-          TOC_FALLBACK="v${TOC_VERSION}"
-
-          # 3. Перевіряємо теги
-          TAGS=$(git tag -l)
-          if [ -z "$TAGS" ]; then
-            LATEST_TAG="$TOC_FALLBACK"
-            echo "⚠️ Теги не знайдено, використовується версія з TOC: $LATEST_TAG"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0)
-            echo "🧷 Знайдено останній тег: $LATEST_TAG"
-          fi
-
-          # 4. Зберігаємо змінні
-          echo "FINAL_VERSION=$LATEST_TAG" >> $GITHUB_ENV
-          echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "FINAL_VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
 
       - name: Print Debug Info
         run: |
@@ -63,15 +68,29 @@ jobs:
           echo "Використана версія: $FINAL_VERSION"
 
       - name: Update Version in .toc Files
+        shell: bash
         run: |
-          # Оновлює поле Version у всіх .toc файлах репозиторію на поточний тег
-          # Видаляє літеру 'v' якщо вона є (наприклад v1.2 -> 1.2), бо WoW любить чисті цифри
+          # All packaged TOC metadata must use the triggering tag, not local versions.
+          # Strip an optional leading v (e.g. v2.18.5 -> 2.18.5).
+          test -n "${FINAL_VERSION:-}" || { echo "FINAL_VERSION is empty" >&2; exit 1; }
           CLEAN_VERSION=$(echo "${FINAL_VERSION}" | sed 's/^v//')
-          
-          find . -type f -name "*.toc" | while read toc_file; do
+          updated=0
+          while IFS= read -r -d '' toc_file; do
+            if ! grep -q '^## Version: ' "$toc_file"; then
+              echo "Missing Version directive in $toc_file" >&2
+              exit 1
+            fi
             echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
             sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
-          done
+            grep -Fxq "## Version: ${CLEAN_VERSION}" "$toc_file" || {
+              echo "Unable to update Version in $toc_file" >&2
+              exit 1
+            }
+            updated=$((updated + 1))
+          done < <(find . -type f -name '*.toc' -print0)
+          test "$updated" -gt 0 || { echo "No TOC files found" >&2; exit 1; }
+          python3 tools/generate_tocs.py --check
+          echo "Synced $updated TOC files to tag ${FINAL_VERSION}"
 
       # Генеруємо changelog (потрібен файл cliff.toml у корені)
       - name: Generate CHANGELOG.md
@@ -81,7 +100,7 @@ jobs:
           args: --latest --strip header --output CHANGELOG.md
 
       - name: Verify Changelog
-        run: cat CHANGELOG.md || echo "Changelog not generated"
+        run: test -s CHANGELOG.md && cat CHANGELOG.md
 
       # Пакування та відправка на CurseForge / GitHub Releases
       - name: Create and Upload Package

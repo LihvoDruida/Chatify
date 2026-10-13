@@ -6,7 +6,8 @@ local MAX_ENTRIES = 10000
 local MAX_DEPTH = 12
 local MAX_KEY_BYTES = 128
 local MAX_STRING_BYTES = 8192
-local HEADER = "CHATIFY_PROFILE\t1"
+local HEADER = "CHATIFY_PROFILE\t2"
+local FOOTER = "CHATIFY_END"
 
 local function L(key)
     if type(ns.L) == "function" then
@@ -61,7 +62,8 @@ end
 local function SortedKeys(tbl)
     local keys = {}
     for key in pairs(tbl) do
-        if EncodeKey(key) then keys[#keys + 1] = key end
+        if not EncodeKey(key) then return nil, L("Profile contains an unsupported key.") end
+        keys[#keys + 1] = key
     end
     table.sort(keys, function(a, b)
         local ta, tb = type(a), type(b)
@@ -71,45 +73,55 @@ local function SortedKeys(tbl)
     return keys
 end
 
+-- Adler-32 uses exact integer arithmetic on Lua 5.1 and needs no bit library.
+local function Checksum(text)
+    local a, b = 1, 0
+    for i = 1, #text do
+        a = (a + text:byte(i)) % 65521
+        b = (b + a) % 65521
+    end
+    return string.format("%04X%04X", b, a)
+end
+
 local function ExportTable(root)
-    local lines = { HEADER }
-    local count = 0
+    local lines, count, ancestors = {}, 0, {}
     local function walk(tbl, path, depth)
-        if depth > MAX_DEPTH or count >= MAX_ENTRIES then return end
-        local keys = SortedKeys(tbl)
-        if #keys == 0 and path ~= "" then
-            lines[#lines + 1] = path .. "\tT\t"
-            count = count + 1
-            return
-        end
+        if depth > MAX_DEPTH then return nil, L("Profile nesting exceeds export limit.") end
+        if ancestors[tbl] then return nil, L("Profile contains a cyclic table.") end
+        ancestors[tbl] = true
+        local keys, err = SortedKeys(tbl)
+        if not keys then ancestors[tbl] = nil; return nil, err end
         for i = 1, #keys do
-            if count >= MAX_ENTRIES then break end
+            count = count + 1
+            if count > MAX_ENTRIES then ancestors[tbl] = nil; return nil, L("Profile contains too many entries.") end
             local key = keys[i]
-            local token = EncodeKey(key)
-            local childPath = path == "" and token or (path .. "/" .. token)
-            local value = tbl[key]
-            local kind = type(value)
+            local childPath = path == "" and EncodeKey(key) or (path .. "/" .. EncodeKey(key))
+            local value, kind = tbl[key], type(tbl[key])
             if kind == "table" then
                 lines[#lines + 1] = childPath .. "\tT\t"
-                count = count + 1
-                walk(value, childPath, depth + 1)
-            elseif kind == "string" and #value <= MAX_STRING_BYTES then
+                local ok, why = walk(value, childPath, depth + 1)
+                if not ok then ancestors[tbl] = nil; return nil, why end
+            elseif kind == "string" then
+                if #value > MAX_STRING_BYTES then ancestors[tbl] = nil; return nil, L("Profile contains text exceeding export limit.") end
                 lines[#lines + 1] = childPath .. "\tS\t" .. Encode(value)
-                count = count + 1
             elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
                 lines[#lines + 1] = childPath .. "\tN\t" .. tostring(value)
-                count = count + 1
             elseif kind == "boolean" then
                 lines[#lines + 1] = childPath .. "\tB\t" .. (value and "1" or "0")
-                count = count + 1
+            else
+                ancestors[tbl] = nil
+                return nil, L("Profile contains an unsupported value.")
             end
         end
+        ancestors[tbl] = nil
+        return true
     end
-    walk(root, "", 0)
-    local text = table.concat(lines, "\n")
-    if #text > MAX_EXPORT_BYTES then
-        return nil, L("Profile export is too large.")
-    end
+    local ok, err = walk(root, "", 0)
+    if not ok then return nil, err end
+    local body = table.concat(lines, "\n")
+    if body == "" then return nil, L("Cannot export an empty profile.") end
+    local text = HEADER .. "\n" .. body .. "\n" .. FOOTER .. "\t" .. tostring(count) .. "\t" .. Checksum(body)
+    if #text > MAX_EXPORT_BYTES then return nil, L("Profile export is too large.") end
     return text
 end
 
@@ -128,52 +140,139 @@ local function EnsurePath(root, tokens)
     return current, DecodeKey(tokens[#tokens])
 end
 
+-- Validate the actual supported schema, not just root keys. Maps with dynamic
+-- keys are intentionally limited to the value shape that their consumers use.
+local dynamicStrings = {
+    channelLabels = true, channelLabelsNamed = true, channelLabelNames = true,
+    channelLabelsNumbered = true,
+}
+local enums = {
+    channelModes = {default=true, short=true, custom=true, hidden=true},
+    spamFilterMode = {block=true, log=true},
+    chatTabsTemplate = {PM=true, GUILD=true, RAID=true},
+    copyTabMode = {ALL=true, VISIBLE=true, PINNED=true, SELECTED=true},
+    language = {client=true, enUS=true, ukUA=true},
+    retailChatFilterMode = {full=true, lockdown=true, off=true},
+    quickChatButtonTheme = {AUTO=true, STANDARD=true, ELVUI=true, GW2UI=true},
+    ["composer.continuation"] = {BOTH=true, START=true, END=true, NONE=true},
+    ["composer.defaultChannel"] = {SAY=true, YELL=true, PARTY=true, RAID=true, GUILD=true, OFFICER=true, INSTANCE_CHAT=true, WHISPER=true, CHANNEL=true},
+}
+local numberRanges = {
+    lineSpacing={0, 20}, historyLimit={1, 10000}, historyStorageKB={1, 100000},
+    throttleTime={0, 86400}, throttleMinLength={0, 10000},
+    spamLogLimit={0, 10000}, scrollbackLines={0, 100000},
+    chatFadeTime={0, 86400}, scrollLinesPerNotch={1, 100},
+    senderIconScale={1, 400}, senderIconOffset={-100, 100},
+    quickChatButtonSize={1, 256}, quickChatButtonGap={-500, 500},
+    quickChatButtonYOffset={-500, 500}, quickChatButtonAlpha={0, 1},
+    quickChatPanelAlpha={0, 1}, quickChatButtonSpacing={0, 200},
+    quickChatButtonFontScale={0.1, 5}, copyNativeTimeout={0, 86400},
+    ["composer.automationDelay"]={0, 3600}, ["composer.chunkLimit"]={1, 10000},
+    ["autoReply.cooldown"]={0, 86400},
+}
+
+local function ValidateValue(value, example, path, depth)
+    if depth > MAX_DEPTH then return false, path .. ": nesting limit" end
+    local kind = type(example)
+    if type(value) ~= kind then return false, path .. ": expected " .. kind end
+    if kind == "number" then
+        if value ~= value or math.abs(value) == math.huge then return false, path .. ": invalid number" end
+        local bounds = numberRanges[path]
+        if bounds and (value < bounds[1] or value > bounds[2]) then return false, path .. ": out of range" end
+        if not bounds and math.abs(value) > 1000000 then return false, path .. ": out of range" end
+    elseif kind == "string" then
+        local allowed = enums[path]
+        if allowed and not allowed[value] then return false, path .. ": unsupported option" end
+    elseif kind == "table" then
+        local root = path:match("^[^.]+")
+        for k, v in pairs(value) do
+            local keyKind = type(k)
+            if keyKind ~= "string" and keyKind ~= "number" then return false, path .. ": invalid map key" end
+            if path == "spamKeywords" or path == "mentionRules" then
+                if keyKind ~= "number" or k < 1 or k ~= math.floor(k) then return false, path .. ": invalid list index" end
+            elseif root == "channelModes" or dynamicStrings[root] or root == "copyTabFrames" then
+                if keyKind ~= "string" and keyKind ~= "number" then return false, path .. ": invalid key" end
+            end
+            local expected = example[k]
+            if expected == nil then
+                if root == "spamKeywords" then expected = ""
+                elseif root == "mentionRules" and path == "mentionRules" then expected = example[1]
+                elseif root == "channelModes" then expected = "default"
+                elseif dynamicStrings[root] then expected = ""
+                elseif root == "copyTabFrames" then expected = true
+                elseif path == "sounds.events" then expected = "None"
+                else return false, path .. "." .. tostring(k) .. ": unknown field" end
+            end
+            local childPath = path .. "." .. tostring(k)
+            if root == "channelModes" then
+                if type(v) ~= "string" or not enums.channelModes[v] then return false, childPath .. ": unsupported mode" end
+            else
+                local ok, why = ValidateValue(v, expected, childPath, depth + 1)
+                if not ok then return false, why end
+            end
+        end
+    end
+    return true
+end
+
+local function ValidateProfile(root)
+    local defaults = ns.defaults and ns.defaults.profile
+    if type(defaults) ~= "table" then return nil, L("Chatify defaults are unavailable.") end
+    if next(root) == nil then return nil, L("Cannot import an empty profile.") end
+    for key, value in pairs(root) do
+        local expected = defaults[key]
+        if expected == nil and (key == "_chatifyMentionSettingsMigrated" or key == "_chatifyCompatMigrated") then
+            expected = true -- legacy migration markers must survive round-trip
+        end
+        if expected == nil then return nil, "Unknown profile field: " .. tostring(key) end
+        local ok, err = ValidateValue(value, expected, tostring(key), 0)
+        if not ok then return nil, err end
+    end
+    return root
+end
+
 local function ParseProfile(text)
     if type(text) ~= "string" or text == "" or #text > MAX_EXPORT_BYTES then
         return nil, L("Invalid or empty Chatify profile text.")
     end
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
     local first, rest = text:match("^([^\n]+)\n?(.*)$")
-    if first ~= HEADER then return nil, L("This is not a Chatify profile export.") end
-
-    local root, count = {}, 0
-    for line in (rest .. "\n"):gmatch("([^\n]*)\n") do
-        if line ~= "" then
-            count = count + 1
-            if count > MAX_ENTRIES then return nil, L("Profile contains too many entries.") end
-            local path, kind, raw = line:match("^([^\t]+)\t([TSNB])\t(.*)$")
-            if not path then return nil, L("Profile contains an invalid line.") end
-            local tokens = {}
-            for token in path:gmatch("[^/]+") do tokens[#tokens + 1] = token end
-            if #tokens == 0 or #tokens > MAX_DEPTH then return nil, L("Profile nesting is invalid.") end
-            local parent, key = EnsurePath(root, tokens)
-            if not parent or key == nil then return nil, L("Profile contains an invalid key.") end
-
-            if kind == "T" then
-                if type(parent[key]) ~= "table" then parent[key] = {} end
-            elseif kind == "S" then
-                local value = Decode(raw)
-                if value == nil or #value > MAX_STRING_BYTES then return nil, L("Profile contains an invalid text value.") end
-                parent[key] = value
-            elseif kind == "N" then
-                local value = tonumber(raw)
-                if not value or value ~= value or value == math.huge or value == -math.huge then return nil, L("Profile contains an invalid number.") end
-                parent[key] = value
-            elseif kind == "B" then
-                if raw ~= "0" and raw ~= "1" then return nil, L("Profile contains an invalid boolean.") end
-                parent[key] = raw == "1"
-            end
+    if first ~= HEADER then return nil, L("Unsupported or incomplete profile format. Export a new backup first.") end
+    local body, expectedCount, expectedSum = rest:match("^(.*)\n" .. FOOTER .. "\t(%d+)\t(%x%x%x%x%x%x%x%x)$")
+    if not body or #body == 0 or Checksum(body) ~= expectedSum then
+        return nil, L("Profile backup is incomplete or has failed its checksum.")
+    end
+    local root, count, seen = {}, 0, {}
+    for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+        if line == "" then return nil, L("Profile contains an invalid line.") end
+        count = count + 1
+        if count > MAX_ENTRIES then return nil, L("Profile contains too many entries.") end
+        local path, kind, raw = line:match("^([^\t]+)\t([TSNB])\t(.*)$")
+        if not path or seen[path] then return nil, L("Profile contains an invalid or duplicate line.") end
+        seen[path] = true
+        local tokens = {}
+        for token in path:gmatch("[^/]+") do tokens[#tokens + 1] = token end
+        if #tokens == 0 or #tokens > MAX_DEPTH + 1 or path:find("//", 1, true) then return nil, L("Profile nesting is invalid.") end
+        local parent, key = EnsurePath(root, tokens)
+        if not parent or key == nil then return nil, L("Profile contains an invalid key.") end
+        if kind == "T" then
+            if raw ~= "" or parent[key] ~= nil and type(parent[key]) ~= "table" then return nil, L("Profile table is invalid.") end
+            parent[key] = parent[key] or {}
+        elseif kind == "S" then
+            local value = Decode(raw)
+            if value == nil or #value > MAX_STRING_BYTES then return nil, L("Profile contains an invalid text value.") end
+            parent[key] = value
+        elseif kind == "N" then
+            local value = tonumber(raw)
+            if not value or value ~= value or math.abs(value) == math.huge then return nil, L("Profile contains an invalid number.") end
+            parent[key] = value
+        elseif kind == "B" then
+            if raw ~= "0" and raw ~= "1" then return nil, L("Profile contains an invalid boolean.") end
+            parent[key] = raw == "1"
         end
     end
-
-    -- Only known Chatify top-level settings are importable. Nested maps are allowed
-    -- because channels, mention rules and event maps legitimately have dynamic keys.
-    local defaults = ns.defaults and ns.defaults.profile
-    if type(defaults) ~= "table" then return nil, L("Chatify defaults are unavailable.") end
-    for key in pairs(root) do
-        if defaults[key] == nil then root[key] = nil end
-    end
-    return root
+    if count ~= tonumber(expectedCount) then return nil, L("Profile entry count does not match.") end
+    return ValidateProfile(root)
 end
 
 local function DeepCopy(value, depth)
@@ -196,22 +295,29 @@ function ns.ExportProfileText()
     return ExportTable(profile)
 end
 
+local function ReplaceProfile(profile, source)
+    for key in pairs(profile) do profile[key] = nil end
+    for key, value in pairs(source) do profile[key] = DeepCopy(value, 0) end
+end
+
 function ns.ImportProfileText(text)
     local imported, err = ParseProfile(text)
     if not imported then return false, err end
     local profile = Chatify and Chatify.db and Chatify.db.profile
     if type(profile) ~= "table" then return false, L("Chatify profile is unavailable.") end
-
-    local wipeFn = wipe or table.wipe
-    if type(wipeFn) == "function" then
-        wipeFn(profile)
-    else
-        for key in pairs(profile) do profile[key] = nil end
+    local snapshot = DeepCopy(profile, 0)
+    -- Build everything before mutating the AceDB profile table.
+    local nextProfile = DeepCopy(imported, 0)
+    local ok, applyErr = pcall(function()
+        ReplaceProfile(profile, nextProfile)
+        if type(Chatify.RefreshConfig) == "function" then Chatify:RefreshConfig() end
+    end)
+    if not ok then
+        ReplaceProfile(profile, snapshot)
+        -- Best effort to restore the previous visual state as well as the data.
+        if type(Chatify.RefreshConfig) == "function" then pcall(Chatify.RefreshConfig, Chatify) end
+        return false, L("Profile application failed; previous settings restored.") .. " " .. tostring(applyErr)
     end
-    local copy = DeepCopy(imported, 0)
-    for key, value in pairs(copy) do profile[key] = value end
-
-    if type(Chatify.RefreshConfig) == "function" then pcall(Chatify.RefreshConfig, Chatify) end
     return true, L("Chatify settings imported. Reload the UI if a visual option does not refresh immediately.")
 end
 

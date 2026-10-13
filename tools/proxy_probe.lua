@@ -36,6 +36,9 @@ for line in assert(io.open("Chatify.toc")):lines() do
     end
 end
 
+-- Deliberately absent from TOC: exercise this experimental prototype explicitly.
+assert(loadfile("ChatProxy.lua"))(addonName, ns)
+
 local failures = 0
 local function check(label, ok, detail)
     print(string.format("%-58s %s%s", label, ok and "PASS" or "FAIL",

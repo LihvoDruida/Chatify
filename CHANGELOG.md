@@ -1,3 +1,14 @@
+## 2.18.4 — 2026-10-13 (validation candidate)
+
+- Gate every tag package on a required Lua 5.1/Python source validation job; CI also runs on branches and pull requests. Missing Lua, failed required probes or unapproved SKIP block release.
+- Add a negative-control CI test which deliberately breaks profile export limits and must fail.
+- Add strict stub API capability tests, separate experimental Plunderstorm SKIPs, and explicitly load the dormant proxy prototype only inside its isolated test; archive probes with pre-postrender assumptions under `tools/legacy`.
+- Replace profile export format with checksummed v2 and explicit entry count; reject incomplete, oversized, cyclic and unsupported content rather than silently dropping settings.
+- Validate imported types, option values and dynamic maps before mutation; preserve previous profile and restore it if runtime application raises.
+- Centralize `AddMessage` post-hook registration for History and ChatTransforms, recover from third-party method replacement, avoid duplicate observers when wrappers call the previous method and survive repeated refreshes.
+- Add executable P0 regression probes for atomic profile transfer and hook lifecycle. Source-only archive does not include external libraries; real AceDB and live-client acceptance remain under R1-08.
+- Compatibility note: legacy profile export format v1 has no integrity footer and is deliberately not auto-imported; make a fresh v2 backup from the installed profile before updating. This avoids silently importing truncated legacy text.
+
 ## 2.18.3 — 2026-10-12
 
 - Fix custom channel labels reverting when an input loses focus and redraws

@@ -848,6 +848,37 @@ function ns.ResolveSoundPath(soundID)
     return nil
 end
 
+-- Shared secure post-hook registry. Multiple Chatify modules must not treat each
+-- other's hooksecurefunc wrapper as a third-party replacement: re-hooking them
+-- in turn would otherwise grow an unbounded chain on every settings refresh.
+local chatPostHooks = setmetatable({}, { __mode = "k" })
+function ns.RegisterChatAddMessagePostHook(frame, owner, callback)
+    if not frame or type(frame.AddMessage) ~= "function"
+        or type(hooksecurefunc) ~= "function" or type(callback) ~= "function" then return false end
+    local record = chatPostHooks[frame]
+    if not record then
+        record = { listeners = {} }
+        chatPostHooks[frame] = record
+    end
+    record.listeners[owner] = callback
+    if record.method == frame.AddMessage then return true end
+
+    local state = { active = true }
+    local ok = pcall(hooksecurefunc, frame, "AddMessage", function(...)
+        if not state.active then return end
+        -- Stable order is important for matching final rendered lines in History.
+        local transform = record.listeners.transforms
+        if transform then transform(...) end
+        local history = record.listeners.history
+        if history then history(...) end
+    end)
+    if not ok then return false end
+    if record.state then record.state.active = false end
+    record.state = state
+    record.method = frame.AddMessage
+    return true
+end
+
 -- =========================================================
 -- 4. DEFAULT SETTINGS
 -- =========================================================

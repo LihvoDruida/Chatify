@@ -7,6 +7,7 @@ probes APIs; TOC metadata is not a capability detector.
 
     python3 tools/generate_tocs.py
     python3 tools/generate_tocs.py --check
+    python3 tools/generate_tocs.py --check --ignore-version  # pre-tag CI
 """
 
 import sys
@@ -48,8 +49,20 @@ def build(lines, target, suffix):
     return "\n".join(out).rstrip() + "\n"
 
 
+def normalize_version_metadata(content):
+    # Versions are filled from the triggering tag during packaging; all other
+    # source TOC metadata still needs to match the generated flavor files.
+    return "\n".join(
+        "## Version: <tag>" if line.startswith("## Version:") else line
+        for line in content.split("\n")
+    )
+
+
 def main():
     check = "--check" in sys.argv
+    ignore_version = "--ignore-version" in sys.argv
+    if ignore_version and not check:
+        sys.exit("--ignore-version may only be used together with --check")
     lines = SOURCE.read_text(encoding="utf-8-sig").splitlines()
     if not lines or not lines[0].startswith("## Interface:"):
         sys.exit("Chatify.toc must begin with ## Interface.")
@@ -61,7 +74,12 @@ def main():
         path = ROOT / f"Chatify_{suffix}.toc"
         content = build(lines, target, suffix)
         if check:
-            if not path.exists() or path.read_text(encoding="utf-8") != content:
+            actual = path.read_text(encoding="utf-8") if path.exists() else ""
+            if ignore_version:
+                valid = normalize_version_metadata(actual) == normalize_version_metadata(content)
+            else:
+                valid = actual == content
+            if not valid:
                 stale.append(path.name)
         else:
             path.write_text(content, encoding="utf-8")
@@ -69,7 +87,8 @@ def main():
     if check:
         if stale:
             sys.exit("Out of date, re-run tools/generate_tocs.py: " + ", ".join(stale))
-        print("All seven flavor TOCs are current, including Forever and legacy Wrath.")
+        print("All seven flavor TOCs are current, including Forever and legacy Wrath."
+              + (" Local release versions ignored until tag sync." if ignore_version else ""))
 
 
 if __name__ == "__main__":

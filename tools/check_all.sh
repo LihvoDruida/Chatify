@@ -1,157 +1,89 @@
 #!/usr/bin/env bash
-# Every check, in one place. Run before every release.
-#
-#   ./tools/check_all.sh
-#
-# Exits non-zero on the first failure so it can be wired into CI directly.
-
-set -uo pipefail
+# Required source validation. Every missing dependency and failed check is fatal.
+# Packaged libraries and live WoW validation are separate gates (R1-08).
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail=0
-step() {
-    printf '\n=== %s ===\n' "$1"
-    shift
-    if "$@"; then
-        return 0
+require() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'FAIL required dependency unavailable: %s\n' "$1" >&2
+        exit 2
     fi
-    fail=1
-    return 1
+}
+require python3
+
+passed=0
+optional_skips=0
+run() {
+    local label=$1
+    shift
+    printf '\n=== REQUIRED: %s ===\n' "$label"
+    local logfile
+    logfile=$(mktemp)
+    if ! "$@" > "$logfile" 2>&1; then
+        cat "$logfile"
+        rm -f "$logfile"
+        printf 'FAIL: %s\n' "$label" >&2
+        exit 1
+    fi
+    cat "$logfile"
+    if grep -Eq '(^|[[:space:]])FAIL([[:space:]:]|$)' "$logfile"; then
+        rm -f "$logfile"
+        printf 'FAIL: required test printed a failure: %s\n' "$label" >&2
+        exit 1
+    fi
+    if grep -Eq '(^|[[:space:]])SKIP([[:space:](]|$)' "$logfile"; then
+        rm -f "$logfile"
+        printf 'FAIL: required test SKIP: %s\n' "$label" >&2
+        exit 1
+    fi
+    rm -f "$logfile"
+    printf 'PASS: %s\n' "$label"
+    passed=$((passed+1))
 }
 
-# 1. Syntax. Catches nothing subtle, but catches typos instantly.
-printf '\n=== lua syntax ===\n'
-if command -v luac5.1 >/dev/null 2>&1; then
-    if luac5.1 -p ./*.lua locale/*.lua; then
-        rm -f luac.out
-        echo "all files parse"
-    else
-        rm -f luac.out
-        fail=1
-    fi
-else
-    echo "luac5.1 not installed, skipped"
-fi
+# Python audits intentionally run outside the Lua fixture loop.
+run "symbols" python3 tools/check_symbols.py
+run "static audit" python3 tools/audit.py
+run "secret guard audit" python3 tools/secret_guard_audit.py
+run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version
+run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
+# Python audits above run even when Lua is unavailable. Missing Lua is then
+# a hard failure (never a green partial suite).
+require luac5.1
+require lua5.1
+run "Lua 5.1 parser" luac5.1 -p ./*.lua locale/*.lua
 
-# 2. Symbols. Valid Lua that resolves to nil at runtime.
-step "symbol check" python3 tools/check_symbols.py
+for mode in classic retail; do
+    run "load/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/stub/load_test.lua
+    run "mentions/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/mention_probe.lua
+    run "commands/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/command_probe.lua
+    run "proxy prototype/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/proxy_probe.lua
+done
+run "copy" lua5.1 tools/copy_probe.lua
+run "public hooks" lua5.1 tools/hook_probe.lua
+run "SavedVariables serialization" lua5.1 tools/savedvars_test.lua
+run "strict API capabilities" lua5.1 tools/strict_api_probe.lua
+run "R1-01 atomic profile backups" lua5.1 tools/profile_integrity_probe.lua
+run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
 
-# 3. Deeper static audit: shadowed keys, missing handlers, dead references.
-step "static audit" python3 tools/audit.py
-
-# 4. TOC files regenerated from Chatify.toc and in version sync.
-step "toc freshness" python3 tools/generate_tocs.py --check
-
-# 5. The real test: load every file and drive the hot paths, in both client
-#    shapes. Classic has no secret-value API; retail has one, and asserts that a
-#    secret payload comes back byte-identical.
-if command -v lua5.1 >/dev/null 2>&1; then
-    printf '\n=== load test (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/stub/load_test.lua | tail -3 || fail=1
-
-    printf '\n=== load test (retail, secret values) ===\n'
-    CHATIFY_STUB_MODE=retail lua5.1 tools/stub/load_test.lua | tail -3 || fail=1
-    # 5a2. Guard ordering on chat entry points. This is a static check because the
-    #      runtime harness cannot model it: a marked secret in wow_env.lua is an
-    #      ordinary Lua string and comparing it succeeds there while it raises in
-    #      game.
-    printf '\n=== secret-guard ordering ===\n'
-    python3 tools/secret_guard_audit.py || fail=1
-
-    # 5b. Mention Manager end to end, in both client shapes. This is the check
-    #     that would have caught 0.11.38: on a secret-value build the message
-    #     filters are absent, so the highlight has to come from the render path.
-    printf '\n=== mention manager (retail) ===\n'
-    # No pipe: `cmd | tail` reports tail's exit status, which is always 0 and hid a
-    # real probe failure once already.
-    CHATIFY_STUB_MODE=retail lua5.1 tools/mention_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== mention manager (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/mention_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== history routing ===\n'
-    lua5.1 tools/history_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== copy window content ===\n'
-    lua5.1 tools/copy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    # 5c. Hooks on public Blizzard chat functions, driven with the argument shapes
-    #     real third-party callers use.
-    printf '\n=== blizzard hook signatures ===\n'
-    lua5.1 tools/hook_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    # 5d. The taint that cannot be withdrawn: frame.AddMessage. Replacing it once on
-    #     a 12.x client taints the field until /reload, and Blizzard reads it five
-    #     lines before calling SetLastTellTarget on a secret whisper sender.
-    printf '\n=== render hook taint (retail) ===\n'
-    CHATIFY_STUB_MODE=retail lua5.1 tools/render_taint_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== render hook taint (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/render_taint_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    # 5e. Proxy capture and parity. Also asserts the proxy stays unwired: running
-    #     Blizzard's handler on a proxy alongside the real one would double history
-    #     IDs, whisper sounds and tab flashes.
-    printf '\n=== proxy capture (retail) ===\n'
-    CHATIFY_STUB_MODE=retail lua5.1 tools/proxy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== proxy capture (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/proxy_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    # 5f. Slash commands are actually invoked. The load tests import every file, which
-    #     proves the chunks compile; a wrong upvalue inside a function body survives
-    #     that untouched. /chatifytrace was dead from 0.11.49 to 0.11.53 for exactly
-    #     that reason and nothing in CI noticed.
-    printf '\n=== slash commands (retail) ===\n'
-    CHATIFY_STUB_MODE=retail lua5.1 tools/command_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    printf '\n=== slash commands (classic) ===\n'
-    CHATIFY_STUB_MODE=classic lua5.1 tools/command_probe.lua > /tmp/chatify_probe.log 2>&1 || fail=1
-    tail -2 /tmp/chatify_probe.log
-
-    # Native settings: layouts, handler retention, client gates and embedding.
-    for client in $(lua5.1 tools/stub/client_fixtures.lua); do
-        printf '\n=== client compatibility (%s) ===\n' "$client"
-        CHATIFY_COMPAT_CLIENT="$client" lua5.1 tools/compatibility_probe.lua || fail=1
-        for view in standalone embedded; do
-            printf '\n=== channel labels (%s / %s) ===\n' "$client" "$view"
-            CHATIFY_LABEL_CLIENT="$client" CHATIFY_LABEL_VIEW="$view" lua5.1 tools/channel_label_probe.lua || fail=1
-        done
-        for api in modern legacy late; do
-            printf '\n=== native settings (%s / %s) ===\n' "$client" "$api"
-            CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_probe.lua || fail=1
-        done
+clients=$(lua5.1 tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
+if [ -z "$clients" ]; then echo 'FAIL: fixture list is empty' >&2; exit 1; fi
+for client in $clients; do
+    run "identity/$client" env CHATIFY_COMPAT_CLIENT="$client" lua5.1 tools/compatibility_probe.lua
+    for view in standalone embedded; do
+        if [ "$client" = "plunderstorm" ]; then
+            # Experimental fixture intentionally has no channel API. Not a pass.
+            echo "OPTIONAL SKIP labels/plunderstorm/$view: API deliberately absent in synthetic fixture"
+            optional_skips=$((optional_skips+1))
+        else
+            run "labels/$client/$view" env CHATIFY_LABEL_CLIENT="$client" CHATIFY_LABEL_VIEW="$view" lua5.1 tools/channel_label_probe.lua
+        fi
     done
+    for api in modern legacy late; do
+        run "settings/$client/$api" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_probe.lua
+    done
+done
 
-    # 6. SavedVariables round-trip. A value the client cannot write costs the
-    #    user every setting, because ChatifyDB and ChatifyHistoryDB share one
-    #    file and one bad value discards both.
-    printf '\n=== savedvariables ===\n'
-    lua5.1 tools/savedvars_test.lua | tail -4 || fail=1
-
-    # 7. The question a user actually asks: change a setting, log out, log back
-    #    in, is it still there. Needs the real AceDB, since the behaviour under
-    #    test is its removeDefaults pass. Skips itself if Ace3 is not available.
-    printf '\n=== settings round trip ===\n'
-    lua5.1 tools/roundtrip_test.lua | tail -4 || fail=1
-else
-    printf '\n=== load test ===\nlua5.1 not installed, skipped\n'
-fi
-
-printf '\n%s\n' "----------------------------------------"
-if [ "$fail" -eq 0 ]; then
-    echo "All checks passed."
-else
-    echo "FAILURES above."
-fi
-exit "$fail"
+printf '\nPASS: %d required checks; OPTIONAL SKIP: %d (documented experimental fixture).\n' "$passed" "$optional_skips"
+printf 'NOT RUN IN SOURCE GATE: real AceDB persistence, packaged libs, live-client taint. See R1-08.\n'

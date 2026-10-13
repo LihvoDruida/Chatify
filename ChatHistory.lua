@@ -64,7 +64,6 @@ local savedSeeded = false
 local restoredToChatFrames = false
 local exactFrameCaptureActive = false
 local historyCaptureEnabled = false
-local historyHookedFrames = setmetatable({}, { __mode = "k" })
 local lastCapturedEntry = setmetatable({}, { __mode = "k" })
 local HISTORY_SCHEMA_VERSION = 4
 local HISTORY_CAPTURE_MODE = "frame-addmessage-once"
@@ -513,21 +512,8 @@ local function AttachHistoryFrame(frame)
     if not frame or not IsFrameAllowed(frame) then return false end
     if type(frame.AddMessage) ~= "function" or type(hooksecurefunc) ~= "function" then return false end
 
-    -- Secure-hook each concrete ChatFrame exactly once. hooksecurefunc installs
-    -- its own wrapper into frame.AddMessage, so comparing the method identity on
-    -- later UPDATE_CHAT_WINDOWS events incorrectly looks like another addon
-    -- replaced it and stacks another history callback. That was the source of
-    -- the 4x/6x duplicated rows visible in the History window.
-    if historyHookedFrames[frame] then
-        return true
-    end
-
-    local ok = pcall(hooksecurefunc, frame, "AddMessage", StoreRenderedHistoryLine)
-    if ok then
-        historyHookedFrames[frame] = true
-        return true
-    end
-    return false
+    if type(ns.RegisterChatAddMessagePostHook) ~= "function" then return false end
+    return ns.RegisterChatAddMessagePostHook(frame, "history", StoreRenderedHistoryLine)
 end
 
 local function AttachAllHistoryFrames()

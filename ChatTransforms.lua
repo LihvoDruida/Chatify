@@ -2,7 +2,6 @@ local addonName, ns = ...
 local Chatify = ns.Chatify or LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Module = Chatify:NewModule("ChatTransforms", "AceEvent-3.0")
 
-local hookedFrames = setmetatable({}, { __mode = "k" })
 local spamDecisionByArgs = setmetatable({}, { __mode = "k" })
 local stats = { observed = 0, transformed = 0, removedSpam = 0, skipped = 0, errors = 0 }
 
@@ -375,9 +374,10 @@ local function ObserveAddMessage(self, text, ...)
 end
 
 local function Attach(frame)
-    if not FrameSupportsObservation(frame) or hookedFrames[frame] then return end
-    local ok = pcall(hooksecurefunc, frame, "AddMessage", ObserveAddMessage)
-    if ok then hookedFrames[frame] = true end
+    if not FrameSupportsObservation(frame) then return end
+    if type(ns.RegisterChatAddMessagePostHook) == "function" then
+        ns.RegisterChatAddMessagePostHook(frame, "transforms", ObserveAddMessage)
+    end
 end
 
 local function AttachAll()
