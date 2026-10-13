@@ -27,8 +27,60 @@ jobs:
       - name: Prove failure detection
         run: bash ./tools/negative_control.sh
 
-  build:
+
+  package-preflight:
+    name: Pre-release packaged ZIP validation (embedded libraries)
     needs: validate
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and synchronize TOC versions
+        shell: bash
+        run: |
+          test "${GITHUB_REF_TYPE}" = "tag" || exit 1
+          CLEAN_VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?$ ]] || exit 1
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> "$GITHUB_ENV"
+          while IFS= read -r -d '' toc_file; do
+            grep -q '^## Version: ' "$toc_file" || exit 1
+            sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
+          done < <(find . -type f -name '*.toc' -print0)
+          python3 tools/generate_tocs.py --check
+
+      # -d = create full ZIP and fetch externals, but DO NOT upload.
+      # This gate executes before the actual publishing job.
+      - name: Build offline-upload preview with vendored externals
+        uses: BigWigsMods/packager@v2
+        with:
+          args: -d
+
+      - name: Verify the actual install ZIP (never SOURCE/overlay)
+        shell: bash
+        run: |
+          mapfile -d '' packages < <(find .release -maxdepth 2 -type f -name '*.zip' -print0)
+          test "${#packages[@]}" -eq 1 || {
+            echo "Expected exactly one built ZIP, found ${#packages[@]}" >&2
+            exit 1
+          }
+          python3 tools/validate_package.py "${packages[0]}" --expected-version "$CLEAN_VERSION" --json-report package-preflight.json
+
+      - name: Save package validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatify-package-preflight
+          path: package-preflight.json
+          if-no-files-found: ignore
+
+  build:
+    needs: [validate, package-preflight]
     if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
     runs-on: ubuntu-22.04
     permissions:

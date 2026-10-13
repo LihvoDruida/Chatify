@@ -31,6 +31,8 @@ local string_lower = string.lower
 local WallClock = time
 local activityTicker = nil
 local lastGuildReplyTime = 0
+local lastReturnAttemptAt = 0
+local RETURN_RETRY_INTERVAL = 15
 local GUILD_REPLY_COOLDOWN = 600
 local STALE_PENDING_SECONDS = 6 * 60 * 60
 local STALE_REPLY_SECONDS = 7 * 24 * 60 * 60
@@ -38,6 +40,7 @@ local ACTIVITY_IDLE_INTERVAL = 3
 local ACTIVITY_ACTIVE_INTERVAL = 1
 local lastActivityMessage = nil
 local lastActivityActive = false
+local lastActivityQueueUnknown = false
 local lastActivityCheckAt = 0
 
 local function DB()
@@ -233,109 +236,125 @@ local function SendWhisper(target, message)
     return SendChatMessageCompat(message, "WHISPER", nil, target)
 end
 
-local function NormalizeQueueWaitSeconds(value)
-    local num = tonumber(value)
-    if not num or num <= 0 then
-        return 0
-    end
-    if num >= 1000 then
-        return math_floor(num / 1000)
-    end
-    return math_floor(num)
+-- Queue adapters return (true/false/nil, estimated minutes or nil, label or nil).
+-- nil is UNKNOWN (API unsupported/errored), distinct from "not queued". Each
+-- time value is converted at the API boundary, never guessed by magnitude.
+local function SecondsToMinutes(seconds)
+    if type(seconds) ~= "number" or seconds <= 0 then return nil end
+    return math_floor(seconds / 60)
 end
 
-local function GetModernBattlegroundQueueInfo()
-    if not C_PvP then
-        return false, 0, nil
+local function MillisecondsToMinutes(milliseconds)
+    if type(milliseconds) ~= "number" or milliseconds <= 0 then return nil end
+    return math_floor(milliseconds / 60000)
+end
+
+local function ReadLFGQueue(category, fallbackName)
+    if type(category) ~= "number" then return nil, nil, nil end
+    local mode = nil
+    local known = false
+    if type(GetLFGMode) == "function" then
+        local ok, result = pcall(GetLFGMode, category)
+        if ok and (result == nil or type(result) == "string") then
+            mode, known = result, true
+        end
     end
 
-    if type(C_PvP) == "table" and type(C_PvP.GetActiveMatchState) == "function" then
-        local ok, state = pcall(C_PvP.GetActiveMatchState)
-        if ok and type(state) == "table" then
-            local status = state.status or state.queueStatus
+    local hasData, name, seconds = nil, nil, nil
+    if type(GetLFGQueueStats) == "function" then
+        -- Contract (5.4+): instanceName is return #11, myWait is return #16.
+        local ok, inQueue, _, _, _, _, _, _, _, _, _, instanceName,
+            _, _, _, _, myWait = pcall(GetLFGQueueStats, category)
+        if ok and type(inQueue) == "boolean" then
+            hasData = inQueue
+            known = true
+            name = SafeChatText(instanceName)
+            seconds = myWait
+        end
+    end
+
+    -- GetLFGMode is authoritative for queue lifecycle: a wait estimate of 0
+    -- does NOT mean the player is no longer queued; proposal/rolecheck may
+    -- have no estimate at all.
+    if mode == "queued" or mode == "proposal" or mode == "rolecheck" or mode == "suspended" then
+        return true, SecondsToMinutes(seconds), name or fallbackName
+    end
+    if mode == "listed" or mode == "lfgparty" or mode == "abandonedInDungeon" then
+        return false, nil, nil
+    end
+    if mode == nil and hasData then
+        return true, SecondsToMinutes(seconds), name or fallbackName
+    end
+    if known then return false, nil, nil end
+    return nil, nil, nil
+end
+
+local function ReadBattlegroundQueue()
+    if type(GetBattlefieldStatus) ~= "function" then return nil, nil, nil end
+    local maxQueues = 3
+    if type(GetMaxBattlefieldID) == "function" then
+        local ok, count = pcall(GetMaxBattlefieldID)
+        if ok and type(count) == "number" and count >= 0 then
+            maxQueues = math.min(math_floor(count), 10)
+        end
+    end
+    local known = maxQueues == 0
+    for index = 1, maxQueues do
+        -- Modern returns status, mapName, teamSize, ...; there is NO time in
+        -- slot 8. Older Classic flavors have different trailing metadata.
+        local ok, status, mapName = pcall(GetBattlefieldStatus, index)
+        if ok and type(status) == "string" then
             if status == "queued" or status == "confirm" then
-                local mapName = SafeChatText(state.mapName or state.name) or "battleground"
-                local waitSeconds = NormalizeQueueWaitSeconds(state.estimatedWaitTimeSeconds or state.waitTime or state.estimatedWaitTime)
-                return true, math_floor(waitSeconds / 60), mapName
-            end
-        end
-    end
-
-    if type(C_PvP) == "table" and type(C_PvP.GetQueueState) == "function" then
-        for index = 1, 4 do
-            local ok, info = pcall(C_PvP.GetQueueState, index)
-            if ok and type(info) == "table" then
-                local status = info.status or info.queueStatus
-                if status == "queued" or status == "confirm" then
-                    local mapName = SafeChatText(info.mapName or info.name) or "battleground"
-                    local waitSeconds = NormalizeQueueWaitSeconds(info.estimatedWaitTimeSeconds or info.waitTime or info.estimatedWaitTime)
-                    return true, math_floor(waitSeconds / 60), mapName
+                local waitMinutes = nil
+                if type(GetBattlefieldEstimatedWaitTime) == "function" then
+                    local okWait, waitMS = pcall(GetBattlefieldEstimatedWaitTime, index)
+                    if okWait then waitMinutes = MillisecondsToMinutes(waitMS) end
                 end
+                return true, waitMinutes, SafeChatText(mapName) or "battleground"
             end
+            if status == "none" or status == "active" then known = true end
         end
     end
-
-    return false, 0, nil
+    if known then return false, nil, nil end
+    return nil, nil, nil
 end
 
 local function GetQueueInfo()
-    if type(GetLFGQueueStats) == "function" then
-        local function ReadLFGQueue(category)
-            if type(category) ~= "number" then
-                return false, nil, nil
-            end
-            local ok, hasData, _, _, _, _, _, _, _, _, _, instanceName, _, _, _, _, myWait = pcall(GetLFGQueueStats, category)
-            if not ok then
-                return false, nil, nil
-            end
-            return hasData and true or false, instanceName, myWait
-        end
-
-        local hasData, instanceName, myWait = ReadLFGQueue(LE_LFG_CATEGORY_LFD)
-        if hasData and type(myWait) == "number" and myWait > 0 then
-            return true, math_floor(myWait / 60), SafeChatText(instanceName) or "instance"
-        end
-
-        hasData, instanceName, myWait = ReadLFGQueue(LE_LFG_CATEGORY_RF)
-        if hasData and type(myWait) == "number" and myWait > 0 then
-            return true, math_floor(myWait / 60), SafeChatText(instanceName) or "raid"
-        end
+    local known = false
+    -- Classic and hybrid clients may expose only some category constants.
+    -- Do not put nil entries in an ipairs list: Lua stops at the first hole.
+    local categories = {}
+    if type(LE_LFG_CATEGORY_LFD) == "number" then
+        categories[#categories + 1] = { LE_LFG_CATEGORY_LFD, "instance" }
     end
-
-    local okModern, waitMinutesModern, mapNameModern = GetModernBattlegroundQueueInfo()
-    if okModern then
-        return true, waitMinutesModern, mapNameModern
+    if type(LE_LFG_CATEGORY_RF) == "number" then
+        categories[#categories + 1] = { LE_LFG_CATEGORY_RF, "raid" }
     end
-
-    if type(GetBattlefieldStatus) == "function" then
-        local maxQueues = 3
-        if type(GetMaxBattlefieldID) == "function" then
-            local ok, count = pcall(GetMaxBattlefieldID)
-            if ok and type(count) == "number" and count > 0 then
-                maxQueues = count
-            end
-        end
-
-        for index = 1, maxQueues do
-            local ok, status, mapName, _, _, _, _, legacyWait = pcall(GetBattlefieldStatus, index)
-            if ok and (status == "queued" or status == "confirm") then
-                local estimatedWaitTime = legacyWait
-                if type(GetBattlefieldEstimatedWaitTime) == "function" then
-                    local okWait, waitTime = pcall(GetBattlefieldEstimatedWaitTime, index)
-                    if okWait and type(waitTime) == "number" and waitTime > 0 then
-                        estimatedWaitTime = waitTime
-                    end
-                end
-
-                local waitSeconds = NormalizeQueueWaitSeconds(estimatedWaitTime)
-                return true, math_floor(waitSeconds / 60), SafeChatText(mapName) or "battleground"
-            end
-        end
+    if type(LE_LFG_CATEGORY_SCENARIO) == "number" then
+        categories[#categories + 1] = { LE_LFG_CATEGORY_SCENARIO, "scenario" }
     end
-
-    return false, 0, nil
+    for _, entry in ipairs(categories) do
+        local queued, minutes, name = ReadLFGQueue(entry[1], entry[2])
+        if queued then return true, minutes, name end
+        if queued == false then known = true end
+    end
+    local queued, minutes, name = ReadBattlegroundQueue()
+    if queued then return true, minutes, name end
+    if queued == false then known = true end
+    if known then return false, nil, nil end
+    return nil, nil, nil
 end
 
+local function HasActivePvPMatch()
+    -- Unlike queue state, this API returns an Enum.PvPMatchState NUMBER.
+    -- It describes a running match (or its startup), not a BG queue.
+    if type(C_PvP) ~= "table" or type(C_PvP.GetActiveMatchState) ~= "function" then
+        return false
+    end
+    local ok, state = pcall(C_PvP.GetActiveMatchState)
+    if not ok or type(state) ~= "number" then return false end
+    return state >= 1 and state <= 4
+end
 
 local function PruneCharState()
     local char = EnsureCharState()
@@ -398,10 +417,10 @@ local function GetCurrentActivity(forceRefresh)
     local now = GetTime()
     local refreshInterval = lastActivityActive and ACTIVITY_ACTIVE_INTERVAL or ACTIVITY_IDLE_INTERVAL
     if not forceRefresh and lastActivityCheckAt > 0 and (now - lastActivityCheckAt) < refreshInterval then
-        return lastActivityMessage, lastActivityActive
+        return lastActivityMessage, lastActivityActive, lastActivityQueueUnknown
     end
 
-    local ok, message, active = pcall(function()
+    local ok, message, active, queueUnknown = pcall(function()
         local cfg = db.autoReply
         local isAFK = false
         if type(UnitIsAFK) == "function" then
@@ -418,7 +437,8 @@ local function GetCurrentActivity(forceRefresh)
         end
         local inDungeon = inInstance and (instanceType == "party" or instanceType == "scenario")
         local inRaid = inInstance and instanceType == "raid"
-        local inPvP = inInstance and (instanceType == "pvp" or instanceType == "arena")
+        local inPvP = (inInstance and (instanceType == "pvp" or instanceType == "arena"))
+            or HasActivePvPMatch()
 
         if cfg.busyMode and cfg.busyMessage and cfg.busyMessage ~= "" then
             return cfg.busyMessage, true
@@ -433,9 +453,9 @@ local function GetCurrentActivity(forceRefresh)
         elseif inQueue and cfg.queueMessage and cfg.queueMessage ~= "" then
             local formatted = cfg.queueMessage
             if string_find(formatted, "%s", 1, true) then
-                formatted = string_format(formatted, waitMinutes)
+                formatted = string_format(formatted, waitMinutes ~= nil and tostring(waitMinutes) or "?")
             else
-                formatted = formatted .. " " .. waitMinutes
+                formatted = formatted .. " " .. (waitMinutes ~= nil and tostring(waitMinutes) or "?")
             end
             if queueName and queueName ~= "" then
                 formatted = formatted .. " (" .. queueName .. ")"
@@ -443,20 +463,22 @@ local function GetCurrentActivity(forceRefresh)
             return formatted, true
         end
 
-        return nil, false
+        return nil, false, inQueue == nil
     end)
 
     if ok then
         lastActivityCheckAt = now
         lastActivityMessage = message
         lastActivityActive = active and true or false
-        return lastActivityMessage, lastActivityActive
+        lastActivityQueueUnknown = queueUnknown and true or false
+        return lastActivityMessage, lastActivityActive, lastActivityQueueUnknown
     end
 
     lastActivityCheckAt = now
     lastActivityMessage = nil
     lastActivityActive = false
-    return nil, false
+    lastActivityQueueUnknown = true
+    return nil, false, true
 end
 
 local function IsAddonLikeWhisper(messageBody)
@@ -668,34 +690,57 @@ local function NotifyReturn(targetKey, message)
     return SendWhisper(targetKey, message)
 end
 
+local function ClearPendingReturns(char)
+    char.pendingWhispers = {}
+    char.pendingGuildMentions = {}
+end
+
+local function RetryPendingReturns(char, message)
+    if not CanSendAddonChat() then return end
+    local now = GetTime()
+    if lastReturnAttemptAt > 0 and now - lastReturnAttemptAt < RETURN_RETRY_INTERVAL then return end
+    lastReturnAttemptAt = now
+    local attempted = {}
+    for playerKey in pairs(char.pendingWhispers) do
+        attempted[playerKey] = true
+        if NotifyReturn(playerKey, message) then
+            char.pendingWhispers[playerKey] = nil
+            char.pendingGuildMentions[playerKey] = nil
+        end
+    end
+    for playerKey in pairs(char.pendingGuildMentions) do
+        if not attempted[playerKey] and NotifyReturn(playerKey, message) then
+            char.pendingGuildMentions[playerKey] = nil
+            char.pendingWhispers[playerKey] = nil
+        end
+    end
+end
+
 local function CheckActivityStatus()
     local db = DB()
     local char = EnsureCharState()
-    if not db or not char or not db.autoReply then
-        return
-    end
-
+    if not db or not char or not db.autoReply then return end
     PruneCharState()
 
-    local _, inActivity = GetCurrentActivity(true)
-    if char.wasInActivity and not inActivity then
-        local returnMessage = db.autoReply.returnMessage
-        if db.autoReply.autoNotify and type(returnMessage) == "string" and returnMessage ~= "" then
-            for playerKey in pairs(char.pendingWhispers) do
-                NotifyReturn(playerKey, returnMessage)
+    local _, inActivity, queueUnknown = GetCurrentActivity(true)
+    -- Temporary API errors cannot be treated as "returned from activity":
+    -- otherwise a protected/unknown state triggers false return whispers.
+    if queueUnknown and not inActivity then return end
+
+    if not inActivity then
+        if db.autoReply.autoNotify then
+            local message = db.autoReply.returnMessage
+            if type(message) == "string" and message ~= "" then
+                RetryPendingReturns(char, message)
+            else
+                ClearPendingReturns(char)
             end
-            for playerKey in pairs(char.pendingGuildMentions) do
-                NotifyReturn(playerKey, returnMessage)
-            end
+        else
+            ClearPendingReturns(char)
         end
-
-        char.pendingWhispers = {}
-        char.pendingGuildMentions = {}
     end
-
     char.wasInActivity = inActivity and true or false
 end
-
 local function InvalidateActivityCache()
     lastActivityCheckAt = 0
 end
@@ -756,6 +801,10 @@ function AutoReply:OnEnable()
     RegisterEventSafe(self, "PLAYER_FLAGS_CHANGED", InvalidateActivityCache)
     RegisterEventSafe(self, "ZONE_CHANGED_NEW_AREA", InvalidateActivityCache)
     RegisterEventSafe(self, "LFG_UPDATE", InvalidateActivityCache)
+    RegisterEventSafe(self, "LFG_QUEUE_STATUS_UPDATE", InvalidateActivityCache)
+    RegisterEventSafe(self, "LFG_PROPOSAL_SHOW", InvalidateActivityCache)
+    RegisterEventSafe(self, "LFG_PROPOSAL_FAILED", InvalidateActivityCache)
+    RegisterEventSafe(self, "UPDATE_BATTLEFIELD_STATUS", InvalidateActivityCache)
     RegisterEventSafe(self, "GROUP_ROSTER_UPDATE", InvalidateActivityCache)
     RegisterEventSafe(self, "PLAYER_ENTERING_WORLD", InvalidateActivityCache)
 

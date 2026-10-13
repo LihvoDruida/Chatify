@@ -48,6 +48,7 @@ run "static audit" python3 tools/audit.py
 run "secret guard audit" python3 tools/secret_guard_audit.py
 run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version
 run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
+run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
 # a hard failure (never a green partial suite).
 require luac5.1
@@ -68,6 +69,7 @@ run "R1-01 atomic profile backups" lua5.1 tools/profile_integrity_probe.lua
 run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
 run "R1-04 history/render/buffer parity" lua5.1 tools/history_pipeline_probe.lua
 run "R1-05/06 friend identity and Unicode keywords" lua5.1 tools/filter_identity_unicode_probe.lua
+run "R1-07 PvP/BG/LFG queues and pending returns" lua5.1 tools/auto_reply_queue_probe.lua
 
 clients=$(lua5.1 tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
 if [ -z "$clients" ]; then echo 'FAIL: fixture list is empty' >&2; exit 1; fi
