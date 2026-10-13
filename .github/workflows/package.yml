@@ -3,7 +3,7 @@ name: Continuous Integration
 on:
   push:
     branches: ["**"]
-    tags: ["*"]
+    tags: ["v[0-9]*", "[0-9]*"]
   pull_request:
   workflow_dispatch:
 
@@ -31,8 +31,13 @@ jobs:
   release:
     name: Validate and publish exact approved ZIP
     needs: validate
-    if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
+    # Only a newly created Git tag can publish. Branch commits, PRs,
+    # workflow_dispatch, and tag updates cannot trigger this job.
+    if: ${{ github.event_name == 'push' && github.event.created == true && startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
     runs-on: ubuntu-24.04
+    concurrency:
+      group: chatify-release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -40,6 +45,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Require fresh tag and reject an existing GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/release_tag_guard.py
 
       - name: Install Lua 5.1 for real packaged AceDB test
         run: |
@@ -127,6 +137,10 @@ jobs:
           # before uploading. This wrapper aborts BEFORE upload on SHA drift.
           echo "$GITHUB_WORKSPACE/tools/release-guards" >> "$GITHUB_PATH"
           rm -f "$CHATIFY_ZIP_GUARD_RECEIPT"
+          # Some repository histories/checkouts record the wrapper as 100644.
+          # The Python probe explicitly invokes bash, but BigWigs requires
+          # the PATH interceptor to be executable as `zip`.
+          chmod +x tools/release-guards/zip
           test -x tools/release-guards/zip
           test "$(sha256sum "$CHATIFY_APPROVED_ZIP" | cut -d ' ' -f1)" = "$CHATIFY_APPROVED_SHA256"
 

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
 
 WRAPPER = str(Path('tools/release-guards/zip').resolve())
+BASH = shutil.which('bash') or '/bin/bash'
+
 
 def run(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run([WRAPPER, *args], env=env, text=True,
+    return subprocess.run([BASH, WRAPPER, *args], env=env, text=True,
                           capture_output=True, check=False)
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -28,7 +31,10 @@ with tempfile.TemporaryDirectory() as tmp:
                CHATIFY_APPROVED_SHA256=approved,
                CHATIFY_ZIP_GUARD_RECEIPT=str(receipt))
 
-    valid = subprocess.run([WRAPPER, '-X', '-r', str(zipfile), 'Chatify'],
+    nonexec_wrapper = root / 'zip-no-exec'
+    nonexec_wrapper.write_bytes(Path(WRAPPER).read_bytes())
+    nonexec_wrapper.chmod(0o644)
+    valid = subprocess.run([BASH, str(nonexec_wrapper), '-X', '-r', str(zipfile), 'Chatify'],
                            cwd=root, env=env, text=True, capture_output=True)
     assert valid.returncode == 0, valid.stdout + valid.stderr
     assert receipt.exists(), 'missing byte-identity receipt'
@@ -36,7 +42,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     receipt.unlink()
     (addon / 'Chatify.toc').write_text('## Version: 0.0.0\n', encoding='utf8')
-    changed = subprocess.run([WRAPPER, '-X', '-r', str(zipfile), 'Chatify'],
+    changed = subprocess.run([BASH, WRAPPER, '-X', '-r', str(zipfile), 'Chatify'],
                              cwd=root, env=env, text=True, capture_output=True)
     assert changed.returncode == 53, changed.stdout + changed.stderr
     assert not receipt.exists(), 'mismatched package got a receipt'

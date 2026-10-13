@@ -30,4 +30,9 @@ assert 'CHATIFY_REQUIRE_REAL_ACEDB=1' in source, 'real AceDB must not silently s
 assert 'GITHUB_PATH' in source, 'guard interception not installed'
 assert 'CF_API_KEY' in source, 'CurseForge token missing'
 assert 'GITHUB_REF_NAME' in source, 'tag-controlled release missing'
+assert "github.event_name == 'push'" in source, 'manual run may trigger publishing'
+assert 'github.event.created == true' in source, 'tag update or branch push could publish'
+assert 'tools/release_tag_guard.py' in source, 'fresh-tag guard missing'
+assert 'chmod +x tools/release-guards/zip' in source, 'zip guard may not be executable after checkout'
+
 print('R1-08 single-job source -> ZIP -> validate -> AceDB -> SHA-check -> publish contract: PASS')

@@ -51,6 +51,7 @@ run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
 run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
 run "R1-08 same-ZIP release workflow gate" python3 tools/release_workflow_probe.py
 run "R1-08 real AceDB staging control" python3 tools/stage_acedb_probe.py
+run "Tag-only release trigger and fresh release guard" python3 tools/release_tag_guard_probe.py
 run "R1-08 publication SHA-256 guard syntax" bash -n tools/release-guards/zip
 run "R1-08 publication SHA-256 guard negatives" python3 tools/release_guard_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
