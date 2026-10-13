@@ -179,6 +179,13 @@ function UI:CollectRows(pageKey, query)
             walk(group, { pageKey }, self:Evaluate(group, "disabled", { pageKey }, false), self:Evaluate(group, "name", { pageKey }, ""))
         end
     end
+    if searching then
+        for _, row in ipairs(rows) do
+            if row.trail and row.trail ~= "" then
+                row.displayName = clean(row.trail) .. " / " .. clean(row.name)
+            end
+        end
+    end
     return rows
 end
 
@@ -209,10 +216,11 @@ end
 function UI:InputDrafts()
     local profile = ns.Chatify.db and ns.Chatify.db.profile
     if self.inputDraftProfile ~= profile then
-        self.inputDraftProfile, self.inputDrafts, self.fieldErrors = profile, {}, {}
+        self.inputDraftProfile, self.inputDrafts, self.fieldErrors, self.fieldSuccess = profile, {}, {}, {}
     end
     self.inputDrafts = self.inputDrafts or {}
     self.fieldErrors = self.fieldErrors or {}
+    self.fieldSuccess = self.fieldSuccess or {}
     return self.inputDrafts
 end
 
@@ -232,12 +240,102 @@ function UI:ClearFieldState(row)
     local key = self:FieldKey(row)
     self:InputDrafts()[key] = nil
     self.fieldErrors[key] = nil
+    self.fieldSuccess[key] = nil
+end
+
+function UI:MarkFieldSaved(row)
+    self:InputDrafts()
+    self.fieldSuccess[self:FieldKey(row)] = (type(GetTime) == "function" and GetTime() or 0) + 1.6
 end
 
 function UI:RememberDraft(row, value)
     local key = self:FieldKey(row)
     self:InputDrafts()[key] = { value = value }
     self.fieldErrors[key] = nil
+    self.fieldSuccess[key] = nil
+end
+
+-- Feedback and previews are based on the unsaved draft only. Never mutate
+-- SavedVariables while the user is typing a colour or other validated input.
+function UI:PreviewHexColor(f, text)
+    if not f.colorSwatch or not f.row or not f.row.option.chatifyColorHex then
+        if f.colorButton then f.colorButton:Hide() end
+        return
+    end
+    if f.colorButton then f.colorButton:SetShown(not f.row.disabled) end
+    local hex = type(text) == "string" and text:gsub("^#", "") or ""
+    if not hex:match("^%x%x%x%x%x%x$") then
+        f.colorSwatch:SetColorTexture(0.28, 0.28, 0.28, 1)
+        return
+    end
+    f.colorSwatch:SetColorTexture(tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255, 1)
+end
+
+-- The picker updates only the edit-box draft. The stored colour changes
+-- exclusively after Apply/Enter and the option's own validation succeeds.
+function UI:OpenColorPicker(f)
+    local row, picker = f and f.row, ColorPickerFrame
+    if not row or not row.option.chatifyColorHex or row.disabled or not picker then return false end
+    if f.inputProfile ~= (ns.Chatify.db and ns.Chatify.db.profile) then return false end
+    local raw = f.input:GetText()
+    local normalized = tostring(raw or ""):gsub("^#", "")
+    if not normalized:match("^%x%x%x%x%x%x$") then
+        normalized = tostring(self:Evaluate(row.option, "get", row.info, "FFFFFF")):gsub("^#", "")
+    end
+    if not normalized:match("^%x%x%x%x%x%x$") then normalized = "FFFFFF" end
+    local r, g, b = tonumber(normalized:sub(1, 2), 16) / 255,
+        tonumber(normalized:sub(3, 4), 16) / 255, tonumber(normalized:sub(5, 6), 16) / 255
+    local key = self:FieldKey(row)
+    local previousDraft = self:InputDrafts()[key]
+    local previousError = self.fieldErrors[key]
+    local function stillEditing()
+        return f.row == row and f.inputProfile == (ns.Chatify.db and ns.Chatify.db.profile)
+    end
+    local opening = true
+    local function colorChanged()
+        if opening or not stillEditing() or type(picker.GetColorRGB) ~= "function" then return end
+        local nr, ng, nb = picker:GetColorRGB()
+        if type(nr) ~= "number" or type(ng) ~= "number" or type(nb) ~= "number" then return end
+        local hex = string.format("%02X%02X%02X", floor(max(0, min(1, nr)) * 255 + .5),
+            floor(max(0, min(1, ng)) * 255 + .5), floor(max(0, min(1, nb)) * 255 + .5))
+        f.input:SetText(hex)
+        self:RememberDraft(row, hex)
+        self:PreviewHexColor(f, hex)
+        self:UpdateFieldFeedback(f)
+    end
+    local function cancelled()
+        if not stillEditing() then return end
+        f.input:SetText(raw)
+        self:InputDrafts()[key] = previousDraft
+        self.fieldErrors[key] = previousError
+        self:PreviewHexColor(f, raw)
+        self:UpdateFieldFeedback(f)
+    end
+    if type(picker.SetupColorPickerAndShow) == "function" then
+        local ok = pcall(picker.SetupColorPickerAndShow, picker, {
+            r = r, g = g, b = b, hasOpacity = false,
+            swatchFunc = colorChanged, cancelFunc = cancelled,
+        })
+        opening = false
+        return ok
+    end
+    if type(picker.SetColorRGB) ~= "function" or type(picker.Show) ~= "function" then return false end
+    picker.hasOpacity = false
+    picker.func = colorChanged
+    picker.cancelFunc = cancelled
+    local ok = pcall(function() picker:SetColorRGB(r, g, b); picker:Show() end)
+    opening = false
+    return ok
+end
+
+function UI:ValidateDraft(row, value)
+    if type(row.option.validate) ~= "function" then return end
+    local ok, result = pcall(row.option.validate, row.info, value)
+    if not ok or result ~= true then
+        self.fieldErrors[self:FieldKey(row)] = type(result) == "string" and result or L.UI_INVALID
+    end
 end
 
 function UI:UpdateFieldFeedback(f)
@@ -245,9 +343,13 @@ function UI:UpdateFieldFeedback(f)
     self:InputDrafts()
     local key = self:FieldKey(f.row)
     local reason, pending = self.fieldErrors[key], self.inputDrafts[key]
-    f.feedback:SetText(reason or (pending and L.UI_UNSAVED or ""))
-    f.feedback:SetTextColor(reason and 1 or 0.93, reason and 0.39 or 0.70, reason and 0.39 or 0.42)
-    f.feedback:SetShown(reason ~= nil or pending ~= nil)
+    local savedUntil = self.fieldSuccess[key]
+    local saved = savedUntil and savedUntil > (type(GetTime) == "function" and GetTime() or 0)
+    f.feedback:SetText(reason or (pending and L.UI_UNSAVED) or (saved and L.UI_SAVED) or "")
+    if reason then f.feedback:SetTextColor(1, 0.39, 0.39)
+    elseif pending then f.feedback:SetTextColor(0.93, 0.70, 0.42)
+    else f.feedback:SetTextColor(0.48, 0.87, 0.56) end
+    f.feedback:SetShown(reason ~= nil or pending ~= nil or saved == true)
 end
 
 function UI:CommitNumber(f)
@@ -269,6 +371,7 @@ function UI:CommitNumber(f)
     value = min(o.max, max(o.min, o.min + floor((value - o.min) / step + 0.5) * step))
     if not self:Apply(row, value) then return false end
     self:ClearFieldState(row)
+    self:MarkFieldSaved(row)
     self:RequestRefresh()
     return true
 end
@@ -338,6 +441,7 @@ function UI:Apply(row, ...)
         end
         if row.option.type == "input" or row.option.type == "range" then
             UI:ClearFieldState(row)
+            UI:MarkFieldSaved(row)
         end
         -- Rebuild the live schema after list edits, profile import or reset.
         UI:RequestRefresh()
@@ -361,7 +465,7 @@ function UI:ConfirmProfileReset()
     self:Confirm(L.UI_RESET_PROFILE_CONFIRM, function()
         if type(ns.Chatify.ResetChatifyProfile) == "function" then
             ns.Chatify:ResetChatifyProfile()
-            self.inputDraftProfile, self.inputDrafts, self.fieldErrors = nil, {}, {}
+            self.inputDraftProfile, self.inputDrafts, self.fieldErrors, self.fieldSuccess = nil, {}, {}, {}
             self:RequestRefresh()
         end
     end)
@@ -438,6 +542,7 @@ function UI:ShowChoices(row, anchor)
     end
     local popup = self.choices
     popup.row = row
+    popup:SetHeight(min(320, max(150, self.body:GetHeight() - 64)))
     popup:ClearAllPoints()
     -- Fixed in the inspector column: even a bottom-of-list control cannot put
     -- the choices below the screen, and the current control stays visible.
@@ -562,6 +667,11 @@ function UI:CreateRow(kind)
             UI:CommitNumber(f)
             self:ClearFocus()
         end)
+        number:SetScript("OnTabPressed", function(self)
+            local oldRow = f.row
+            self:ClearFocus()
+            UI:FocusNextEditable(oldRow)
+        end)
     elseif kind == "select" then
         f.control = button(f, "", 483, 29); f.control:SetPoint("BOTTOMLEFT", 12, 6)
         f.control.text:SetJustifyH("LEFT")
@@ -582,6 +692,8 @@ function UI:CreateRow(kind)
         f.input:SetScript("OnTextChanged", function(self, userInput)
             if not userInput or f.syncing or not f.row then return end
             UI:RememberDraft(f.row, self:GetText())
+            UI:ValidateDraft(f.row, self:GetText())
+            UI:PreviewHexColor(f, self:GetText())
             UI:UpdateFieldFeedback(f)
         end)
         f.input:SetScript("OnEditFocusLost", function()
@@ -597,6 +709,8 @@ function UI:CreateRow(kind)
             f.syncing = true
             self:SetText(UI:Evaluate(f.row.option, "get", f.row.info, ""))
             f.syncing = false
+            UI:PreviewHexColor(f, self:GetText())
+            UI:UpdateFieldFeedback(f)
             self:ClearFocus()
             f.canceling = false
             UI:RequestRefresh()
@@ -604,6 +718,18 @@ function UI:CreateRow(kind)
         f.control = button(f, L.UI_APPLY, 112, 28); f.control:SetPoint("BOTTOMRIGHT", -12, 6)
         local function commit() UI:CommitInput(f); f.input:ClearFocus() end
         f.control:SetScript("OnClick", commit); f.input:SetScript("OnEnterPressed", commit)
+        f.input:SetScript("OnTabPressed", function(self)
+            local oldRow = f.row
+            self:ClearFocus()
+            UI:FocusNextEditable(oldRow)
+        end)
+        f.colorButton = frame("Button", nil, f.input)
+        f.colorButton:SetSize(23, 22)
+        f.colorButton:SetPoint("RIGHT", f.input, "RIGHT", -3, 0)
+        f.colorButton:SetScript("OnClick", function() UI:OpenColorPicker(f) end)
+        f.colorSwatch = f.colorButton:CreateTexture(nil, "ARTWORK")
+        f.colorSwatch:SetAllPoints()
+        f.colorButton:Hide()
     elseif kind == "execute" then
         f.control = button(f, "", 483, 30); f.control:SetPoint("LEFT", 12, 0)
         f.control:SetScript("OnClick", function() UI:ShowDetails(f.row); UI:Apply(f.row) end)
@@ -625,7 +751,7 @@ end
 
 function UI:BindRow(f, row)
     f.row, f.syncing, f.pendingValue = row, true, nil
-    f.title:SetText(row.name)
+    f.title:SetText(row.displayName or row.name)
     f:SetAlpha(row.disabled and 0.45 or 1)
     f:EnableMouse(false)
     local o = row.option
@@ -657,11 +783,14 @@ function UI:BindRow(f, row)
     elseif o.type == "input" then
         local draft = self:InputDrafts()[self:InputKey(row)]
         f.inputProfile = ns.Chatify.db and ns.Chatify.db.profile
-        f.input:SetText(draft and draft.value or self:Evaluate(o, "get", row.info, ""))
+        local value = draft and draft.value or self:Evaluate(o, "get", row.info, "")
+        f.input:SetText(value)
+        f.input:SetTextInsets(9, o.chatifyColorHex and 31 or 9, 0, 0)
+        self:PreviewHexColor(f, value)
         f.input:SetEnabled(not row.disabled); f.control:SetEnabled(not row.disabled)
     elseif o.type == "execute" then
         f.control:SetHeight(max(30, row.height - 12))
-        f.control.text:SetText(row.name); f.control:SetEnabled(not row.disabled)
+        f.control.text:SetText(row.displayName or row.name); f.control:SetEnabled(not row.disabled)
     end
     self:UpdateFieldFeedback(f)
     f.syncing = false
@@ -728,12 +857,13 @@ function UI:Rebuild(resetScroll)
     for i = #self.pages + 1, #self.navButtons do self.navButtons[i]:Hide() end
     self.navChild:SetHeight(max(1, navY))
     self.rows = self:CollectRows(self.pageKey, self.search:GetText())
+    if self.searchIndex and self.searchIndex > #self.rows then self.searchIndex = 0 end
     local y = 0
     for _, row in ipairs(self.rows) do
         local kind = row.option.type
         local height = (kind == "range" and 94) or (kind == "input" and 90) or (kind == "select" and 80) or 46
         self.measure:SetWidth((kind == "toggle" or kind == "multiselect") and 451 or (kind == "execute" and 463 or 485))
-        self.measure:SetText(row.name)
+        self.measure:SetText(row.displayName or row.name)
         local textHeight = self.measure:GetStringHeight()
         if kind == "range" or kind == "input" then height = max(height, textHeight + 75)
         elseif kind == "select" then height = max(height, textHeight + 54)
@@ -761,15 +891,76 @@ function UI:Rebuild(resetScroll)
     if self.search:GetText() == "" then
         for _, page in ipairs(self.pages) do if page.key == self.pageKey then title = page.name end end
     end
+    if self.search:GetText() ~= "" then
+        title = title .. " (" .. tostring(self.searchIndex or 0) .. "/" .. tostring(#self.rows) .. ")"
+    end
     self.pageTitle:SetText(title)
     self.empty:SetShown(#self.rows == 0)
     self.dirty = false
     self:RenderVisible()
 end
 
+-- Arrow keys select search results without applying them. Tab moves into
+-- a matching editable field. This does not auto-trigger dangerous executes.
+function UI:JumpToSearchResult(delta, focusInput)
+    if not self.search or self.search:GetText() == "" or not self.rows or #self.rows == 0 then return false end
+    local count, old = #self.rows, self.searchIndex or 0
+    local index = old ~= 0 and old or (delta > 0 and 0 or 1)
+    local move = delta
+    for _ = 1, count do
+        index = ((index + move - 1) % count) + 1
+        if move == 0 then move = 1 end
+        local row = self.rows[index]
+        if not focusInput or ((row.option.type == "range" or row.option.type == "input") and not row.disabled) then
+            self.searchIndex = index
+            self.scroll:SetVerticalScroll(max(0, min(self.scroll:GetVerticalScrollRange(), row.y - 8)))
+            self:RenderVisible()
+            self:ShowDetails(row)
+            self.pageTitle:SetText(L.UI_SEARCH_RESULTS .. " (" .. index .. "/" .. count .. ")")
+            if focusInput then
+                for _, pool in pairs(self.pools) do
+                    for _, item in ipairs(pool) do
+                        if item.row == row and item:IsShown() then
+                            local control = item.input or item.number
+                            if control then control:SetFocus(); return true end
+                        end
+                    end
+                end
+            end
+            return true
+        end
+    end
+    return false
+end
+
+function UI:FocusNextEditable(previous)
+    if not self.rows then return false end
+    local start = 0
+    for i, row in ipairs(self.rows) do if row == previous then start = i; break end end
+    local count = #self.rows
+    for offset = 1, count do
+        local index = ((start + offset - 1) % count) + 1
+        local row = self.rows[index]
+        if (row.option.type == "input" or row.option.type == "range") and not row.disabled then
+            self.scroll:SetVerticalScroll(max(0, min(self.scroll:GetVerticalScrollRange(), row.y - 8)))
+            self:RenderVisible()
+            self:ShowDetails(row)
+            for _, pool in pairs(self.pools) do
+                for _, item in ipairs(pool) do
+                    if item.row == row and item:IsShown() then
+                        local control = item.input or item.number
+                        if control then control:SetFocus(); return true end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 function UI:SelectPage(key)
     self:ClearInputFocus()
-    self.pageKey = key
+    self.pageKey, self.searchIndex = key, 0
     if self.search then self.search:SetText(""); self:Rebuild(true); self:ShowDetails(nil) end
 end
 
@@ -781,11 +972,23 @@ function UI:UpdateStatus()
 end
 
 function UI:FitScreen()
+    if not self.window then return end
     local host = self.embeddedHost or UIParent
     local width, height = host:GetWidth(), host:GetHeight()
     if width <= 0 or height <= 0 then return end
     local margin = self.embeddedHost and 0 or 24
-    self.window:SetScale(max(0.1, min(1, (width - margin) / self.window:GetWidth(), (height - margin) / 670)))
+    local compact = self.embeddedHost ~= nil or width < 1120
+    -- Prefer reducing *unused* width and scroll viewport height rather than
+    -- shrinking glyphs, checkboxes and click targets on small displays.
+    local desiredHeight = min(670, max(500, height - margin))
+    local signature = (compact and "compact" or "wide") .. ":" .. tostring(desiredHeight)
+    if self.layoutSignature ~= signature then
+        self:ConfigureLayout(self.embeddedHost ~= nil, compact, desiredHeight)
+        self.layoutSignature = signature
+        self:RequestRefresh()
+    end
+    self.window:SetScale(max(0.1, min(1, (width - margin) / self.window:GetWidth(),
+        (height - margin) / self.window:GetHeight())))
 end
 
 function UI:SetStandaloneEscape(enabled)
@@ -797,27 +1000,40 @@ function UI:SetStandaloneEscape(enabled)
     if enabled then table.insert(UISpecialFrames, name) end
 end
 
-function UI:ConfigureLayout(embedded)
-    self.window:SetSize(embedded and 790 or 1060, 670)
-    self.body:SetHeight(embedded and 350 or 533)
-    self.scroll:SetHeight(embedded and 284 or 467)
-    self.scrollbar:SetHeight(embedded and 279 or 462)
+function UI:ConfigureLayout(embedded, compact, height)
+    compact = compact or embedded
+    height = height or 670
+    local width = compact and 790 or 1060
+    self.window:SetSize(width, height)
+    local bodyHeight = compact and max(220, height - 320) or height - 137
+    self.body:SetHeight(bodyHeight)
+    self.nav:SetHeight(max(180, height - 180))
+    self.scroll:SetHeight(bodyHeight - 66)
+    self.scrollbar:SetHeight(bodyHeight - 71)
     self.inspector:ClearAllPoints()
-    if embedded then
-        self.inspector:SetPoint("TOPLEFT", 225, -438)
-        self.inspector:SetSize(538, 171)
+    local detailWidth, detailHeight
+    if compact then
+        local inspectorY = 76 + bodyHeight + 14
+        local inspectorHeight = height - inspectorY - 55
+        self.inspector:SetPoint("TOPLEFT", 225, -inspectorY)
+        self.inspector:SetSize(538, inspectorHeight)
+        detailWidth, detailHeight = 506, inspectorHeight - 36
     else
         self.inspector:SetPoint("TOPLEFT", 776, -76)
-        self.inspector:SetSize(266, 533)
+        self.inspector:SetSize(266, bodyHeight)
+        detailWidth, detailHeight = 234, bodyHeight - 37
     end
-    local width = embedded and 506 or 234
-    self.detailScroll:SetSize(width, embedded and 135 or 496)
-    self.detailChild:SetWidth(width - 2)
-    self.detailTitle:SetWidth(width - 2); self.detailText:SetWidth(width - 2)
-    self.profile:ClearAllPoints(); self.profile:SetPoint("TOPRIGHT", embedded and -20 or -60, -25)
-    self.profile:SetWidth(embedded and 300 or 430)
-    self.status:SetWidth(embedded and 740 or 810)
-    self.closeButton:SetShown(not embedded); self.doneButton:SetShown(not embedded)
+    self.detailScroll:SetSize(detailWidth, detailHeight)
+    self.detailChild:SetWidth(detailWidth - 2)
+    self.detailTitle:SetWidth(detailWidth - 2)
+    self.detailText:SetWidth(detailWidth - 2)
+    self.profile:ClearAllPoints()
+    self.profile:SetPoint("TOPRIGHT", compact and -20 or -60, -25)
+    self.profile:SetWidth(compact and 300 or 430)
+    self.status:SetWidth(compact and 530 or 810)
+    self.closeButton:SetShown(not embedded)
+    self.doneButton:SetShown(not embedded)
+    if self.choices then self:CloseChoices() end
     self:ShowDetails(nil)
 end
 
@@ -840,9 +1056,25 @@ function UI:Create()
     close:SetScript("OnClick", function() w:Hide() end)
     self.profile = label(w, "", 12); self.profile:SetPoint("TOPRIGHT", -60, -25); self.profile:SetWidth(430); self.profile:SetJustifyH("RIGHT")
     self.search = edit(w, 194); self.search:SetMaxLetters(200); self.search:SetPoint("TOPLEFT", 18, -76)
-    self.search:SetScript("OnTextChanged", function() self.searchDelay = 0.14; self.dirty = true end)
+    self.search:SetScript("OnTextChanged", function()
+        self.searchIndex = 0
+        self.searchDelay = 0.14
+        self.dirty = true
+    end)
     self.search:SetScript("OnEscapePressed", function(e) e:SetText(""); e:ClearFocus() end)
-    self.search:SetScript("OnEnterPressed", function(e) e:ClearFocus() end)
+    self.search:SetScript("OnEnterPressed", function(e)
+        if self.searchDelay then self.searchDelay = nil; self:Rebuild(true) end
+        if not self:JumpToSearchResult((self.searchIndex or 0) > 0 and 0 or 1, true) then e:ClearFocus() end
+    end)
+    self.search:SetScript("OnArrowPressed", function(_, arrow)
+        if arrow ~= "UP" and arrow ~= "DOWN" then return end
+        if self.searchDelay then self.searchDelay = nil; self:Rebuild(true) end
+        self:JumpToSearchResult(arrow == "UP" and -1 or 1, false)
+    end)
+    self.search:SetScript("OnTabPressed", function()
+        if self.searchDelay then self.searchDelay = nil; self:Rebuild(true) end
+        self:JumpToSearchResult(IsShiftKeyDown and IsShiftKeyDown() and -1 or 1, true)
+    end)
     self.searchHint = label(w, L.UI_SEARCH, 12, { 0.50, 0.46, 0.39 })
     self.searchHint:SetPoint("LEFT", self.search, "LEFT", 10, 0)
     self.nav = CreateFrame("ScrollFrame", nil, w)
@@ -900,6 +1132,7 @@ function UI:Create()
         end
         self.inputDrafts = {}
         self.fieldErrors = {}
+        self.fieldSuccess = {}
     end)
     local tick, statusTick = 0, 0
     w:SetScript("OnUpdate", function(_, elapsed)
@@ -913,6 +1146,15 @@ function UI:Create()
         self.searchHint:SetShown(self.search:GetText() == "")
         if statusTick >= 1 then
             statusTick = 0; self:UpdateStatus()
+            if self.fieldSuccess then
+                local now = type(GetTime) == "function" and GetTime() or 0
+                for key, untilTime in pairs(self.fieldSuccess) do
+                    if now >= untilTime then
+                        self.fieldSuccess[key] = nil
+                        self:RequestRefresh()
+                    end
+                end
+            end
             -- Diagnostic descriptions depend on runtime state. Rebuild only this page,
             -- through the normal interaction/debounce guard, while it is open.
             if self.pageKey == "maintenance" then self:RequestRefresh() end
@@ -938,8 +1180,8 @@ function UI:OpenEmbedded(host)
     self.window:SetParent(host); self.window:ClearAllPoints(); self.window:SetPoint("CENTER", host, "CENTER")
     self.window:SetFrameStrata(host:GetFrameStrata())
     self.window:SetFrameLevel(host:GetFrameLevel() + 1)
-    self:SetStandaloneEscape(false); self:ConfigureLayout(true)
-    self.window:Show(); self:FitScreen()
+    self:SetStandaloneEscape(false); self.layoutSignature = nil
+    self:FitScreen(); self.window:Show()
     self.pageKey = self.pageKey or "overview"
     self:Rebuild(false); self:UpdateStatus()
     return true
@@ -951,8 +1193,8 @@ function UI:Open()
     self.embeddedHost = nil
     self.window:SetParent(UIParent); self.window:ClearAllPoints(); self.window:SetPoint("CENTER")
     self.window:SetFrameStrata("DIALOG")
-    self:SetStandaloneEscape(true); self:ConfigureLayout(false)
-    self.window:Show(); self:FitScreen()
+    self:SetStandaloneEscape(true); self.layoutSignature = nil
+    self:FitScreen(); self.window:Show()
     self.pageKey = self.pageKey or "overview"
     self:Rebuild(false); self:UpdateStatus()
     return true

@@ -241,7 +241,7 @@ check("fully offscreen control not interactive", not mouse)
 local panel = ns.SettingsIntegration.panel
 panel:GetScript("OnShow")(panel)
 check("same window embeds in game settings", ui.embeddedHost == panel and ui.window:GetParent() == panel)
-check("embedded layout", ui.window:GetWidth() == 790 and ui.inspector:GetHeight() == 171)
+check("embedded layout", ui.window:GetWidth() == 790 and ui.inspector:GetHeight() >= 130 and ui.scroll:GetHeight() >= 150)
 check("embedded escape released", #UISpecialFrames == 0)
 panel:GetScript("OnHide")(panel)
 check("embedded closes with category", not ui.window:IsShown())

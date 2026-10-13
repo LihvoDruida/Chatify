@@ -604,6 +604,7 @@ function Chatify:GetOptions()
                                 desc = T("Six hex digits used for the web links Chatify makes clickable, for example 0099FF."),
                                 type = "input",
                                 width = "half",
+                                chatifyColorHex = true,
                                 validate = function(info, val)
                                     val = tostring(val or ""):gsub("^#", "")
                                     if val:match("^%x%x%x%x%x%x$") then return true end
@@ -2436,7 +2437,16 @@ function Chatify:GetOptions()
                                 name = T("Color Hex"),
                                 desc = T("Use 6-digit RGB hex without #. Example: ffd700, ff4040, 68ccef."),
                                 type = "input",
-                                set = function(info, val) local rule = GetSelectedMentionRule(self.db.profile); if rule then rule.color = TrimInput(val):gsub("#", "") end end,
+                                chatifyColorHex = true,
+                                validate = function(info, val)
+                                    val = TrimInput(val):gsub("^#", "")
+                                    if val:match("^%x%x%x%x%x%x$") then return true end
+                                    return T("Enter six hex digits, for example 68ccef.")
+                                end,
+                                set = function(info, val)
+                                    local rule = GetSelectedMentionRule(self.db.profile)
+                                    if rule then rule.color = TrimInput(val):gsub("^#", "") end
+                                end,
                                 get = function(info) local rule = GetSelectedMentionRule(self.db.profile); return rule and rule.color or "ffd700" end,
                             },
                             mentionSound = {

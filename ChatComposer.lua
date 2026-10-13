@@ -491,6 +491,24 @@ local function ChannelLabel(chatType, target)
     return tostring(chatType or "?")
 end
 
+-- Compatibility internals return machine-readable English identifiers or
+-- raw Blizzard errors. These are diagnostics, not strings for the UA/EN UI.
+local function FriendlySendReason(reason)
+    if reason == "chat messaging lockdown" then
+        return T("WoW is blocking addon chat sends right now. Try again after the protected activity ends.")
+    elseif reason == "protected message" or reason == "protected target" or reason == "protected chat arguments" then
+        return T("WoW protected this message or target. It was not sent.")
+    elseif reason == "chat send API unavailable" then
+        return T("No supported chat send API is available on this client.")
+    elseif reason == "invalid channel target" or reason == "invalid target" or reason == "invalid chat type" then
+        return T("Invalid chat destination. Choose a channel or recipient again.")
+    elseif reason == "invalid message" or reason == "invalid language" then
+        return T("The message could not be sent.")
+    end
+    -- Unknown Lua/API errors are not safe to show as end-user status text.
+    return T("The message could not be sent.")
+end
+
 local function SendChunk(chunk)
     if type(chunk) ~= "table" or type(chunk.text) ~= "string" or chunk.text == "" then
         return false, T("This chunk is empty.")
@@ -513,7 +531,7 @@ local function SendChunk(chunk)
     if type(ns.SendChatMessageCompat) == "function" then
         local ok, sendReason = ns.SendChatMessageCompat(chunk.text, chunk.channel, nil, chunk.target)
         if ok then return true end
-        return false, sendReason or T("The message could not be sent.")
+        return false, FriendlySendReason(sendReason)
     end
 
     if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then

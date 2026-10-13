@@ -74,6 +74,11 @@ run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
 run "R1-04 history/render/buffer parity" lua5.1 tools/history_pipeline_probe.lua
 run "R1-05/06 friend identity and Unicode keywords" lua5.1 tools/filter_identity_unicode_probe.lua
 run "R1-07 PvP/BG/LFG queues and pending returns" lua5.1 tools/auto_reply_queue_probe.lua
+# R2-04/05/06 viewport, inline hex/picker and keyboard search contracts.
+for config in "retail modern" "forever modern" "era legacy" "tbc legacy" "mists modern" "titan modern"; do
+    read -r client api <<< "$config"
+    run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_responsive_probe.lua
+done
 run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
 run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
 run "R2 native editor/defaults / Era legacy" env CHATIFY_SETTINGS_CLIENT=era CHATIFY_SETTINGS_API=legacy lua5.1 tools/settings_edit_probe.lua
