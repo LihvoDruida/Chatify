@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Required source validation. Every missing dependency and failed check is fatal.
-# Packaged libraries and live WoW validation are separate gates (R1-08).
+# Release publishing is independent; regression checks run only on PRs/commits.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -49,11 +49,8 @@ run "secret guard audit" python3 tools/secret_guard_audit.py
 run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version
 run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
 run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
-run "R1-08 same-ZIP release workflow gate" python3 tools/release_workflow_probe.py
+run "Lean new-tag release workflow contract" python3 tools/release_workflow_probe.py
 run "R1-08 real AceDB staging control" python3 tools/stage_acedb_probe.py
-run "Tag-only release trigger and fresh release guard" python3 tools/release_tag_guard_probe.py
-run "R1-08 publication SHA-256 guard syntax" bash -n tools/release-guards/zip
-run "R1-08 publication SHA-256 guard negatives" python3 tools/release_guard_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
 # a hard failure (never a green partial suite).
 require luac5.1

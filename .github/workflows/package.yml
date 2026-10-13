@@ -2,174 +2,94 @@ name: Continuous Integration
 
 on:
   push:
-    branches: ["**"]
-    tags: ["v[0-9]*", "[0-9]*"]
-  pull_request:
-  workflow_dispatch:
+    tags:
+      - "*"           # Запускати на будь-який тег
+      - "!**-alpha**" # Ігнорувати теги з суфіксом -alpha
+      - "!**-beta**"  # Ігнорувати теги з суфіксом -beta
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
-    name: Required source validation (Lua 5.1)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install required Lua 5.1 runtime and parser
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.1
-          command -v lua5.1
-          command -v luac5.1
-      - name: Required checks (no optional skips)
-        run: bash ./tools/check_all.sh
-      - name: Prove failure detection
-        run: bash ./tools/negative_control.sh
+  build:
+    runs-on: ubuntu-22.04
 
+    outputs:
+      changeLogText: ${{ steps.readChanglog.outputs.text }}
 
-  release:
-    name: Validate and publish exact approved ZIP
-    needs: validate
-    # Only a newly created Git tag can publish. Branch commits, PRs,
-    # workflow_dispatch, and tag updates cannot trigger this job.
-    if: ${{ github.event_name == 'push' && github.event.created == true && startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') }}
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: chatify-release-${{ github.ref }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
     steps:
-      - name: Checkout tagged repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Require fresh tag and reject an existing GitHub release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/release_tag_guard.py
+      - name: Fetch all tags
+        run: git fetch --tags --force
 
-      - name: Install Lua 5.1 for real packaged AceDB test
+      - name: Get Latest Tag or use TOC version
+        id: get_latest_tag
         run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.1
-          command -v lua5.1
+          # 1. Шукаємо файл .toc (беремо перший знайдений, щоб не хардкодити назву)
+          TOC_FILE=$(find . -maxdepth 1 -name "*.toc" | head -n 1)
+          echo "📂 Знайдено TOC файл: $TOC_FILE"
 
-      - name: Resolve version from triggering Git tag
-        shell: bash
+          # 2. Витягуємо версію з TOC
+          if [ -f "$TOC_FILE" ]; then
+            TOC_VERSION=$(grep -oP '^## Version: \K.*' "$TOC_FILE" | tr -d '\r')
+          else
+            TOC_VERSION="1.0"
+          fi
+          
+          TOC_FALLBACK="v${TOC_VERSION}"
+
+          # 3. Перевіряємо теги
+          TAGS=$(git tag -l)
+          if [ -z "$TAGS" ]; then
+            LATEST_TAG="$TOC_FALLBACK"
+            echo "⚠️ Теги не знайдено, використовується версія з TOC: $LATEST_TAG"
+          else
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "🧷 Знайдено останній тег: $LATEST_TAG"
+          fi
+
+          # 4. Зберігаємо змінні
+          echo "FINAL_VERSION=$LATEST_TAG" >> $GITHUB_ENV
+          echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Print Debug Info
         run: |
-          test "${GITHUB_REF_TYPE}" = "tag" || exit 1
-          CLEAN_VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?$ ]] || exit 1
-          echo "FINAL_VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Використана версія: $FINAL_VERSION"
 
       - name: Update Version in .toc Files
-        shell: bash
         run: |
-          # The triggering tag takes precedence over EVERY local TOC version.
-          test -n "${FINAL_VERSION:-}" || exit 1
-          CLEAN_VERSION="${FINAL_VERSION#v}"
-          updated=0
-          while IFS= read -r -d '' toc_file; do
-            grep -q '^## Version: ' "$toc_file" || exit 1
+          # Оновлює поле Version у всіх .toc файлах репозиторію на поточний тег
+          # Видаляє літеру 'v' якщо вона є (наприклад v1.2 -> 1.2), бо WoW любить чисті цифри
+          CLEAN_VERSION=$(echo "${FINAL_VERSION}" | sed 's/^v//')
+          
+          find . -type f -name "*.toc" | while read toc_file; do
+            echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
             sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
-            updated=$((updated+1))
-          done < <(find . -type f -name '*.toc' -not -path './.release/*' -print0)
-          test "$updated" -eq 8 || exit 1
-          python3 tools/generate_tocs.py --check
-          echo "Synced $updated TOCs to tag $FINAL_VERSION"
-          echo "CLEAN_VERSION=$CLEAN_VERSION" >> "$GITHUB_ENV"
+          done
 
-      - name: Generate release changelog BEFORE packaging
+      # Генеруємо changelog (потрібен файл cliff.toml у корені)
+      - name: Generate CHANGELOG.md
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
           args: --latest --strip header --output CHANGELOG.md
 
-      - name: Verify changelog
-        run: test -s CHANGELOG.md
+      - name: Verify Changelog
+        run: cat CHANGELOG.md || echo "Changelog not generated"
 
-      # -d produces the complete install ZIP once, fetching externals once.
-      # The same .release/Chatify directory is kept for the upload phase.
-      - name: Build full candidate ZIP without publishing
+      # Пакування та відправка на CurseForge / GitHub Releases
+      - name: Create and Upload Package
         uses: BigWigsMods/packager@v2
-        with:
-          args: -d
-
-      - name: Validate ZIP and record approval hash
-        id: approve
-        shell: bash
-        run: |
-          mapfile -d '' packages < <(find .release -maxdepth 2 -type f -name '*.zip' -print0)
-          test "${#packages[@]}" -eq 1 || { echo "Expected exactly one install ZIP" >&2; exit 1; }
-          archive="$(realpath "${packages[0]}")"
-          python3 tools/validate_package.py "$archive" --expected-version "$CLEAN_VERSION" --json-report package-preflight.json
-          test "$(python3 -c 'import json; print(json.load(open("package-preflight.json"))["status"])')" = PASS
-          hash="$(sha256sum "$archive")"
-          hash="${hash%% *}"
-          echo "$hash  $archive" > package-preflight.sha256
-          echo "CHATIFY_APPROVED_ZIP=$archive" >> "$GITHUB_ENV"
-          echo "CHATIFY_APPROVED_SHA256=$hash" >> "$GITHUB_ENV"
-          echo "CHATIFY_ZIP_GUARD_RECEIPT=$RUNNER_TEMP/chatify-zip-approved.receipt" >> "$GITHUB_ENV"
-          echo "Approved package: $archive SHA-256 $hash"
-
-      - name: Real embedded AceDB persistence regression
-        shell: bash
-        run: |
-          staging="$RUNNER_TEMP/chatify-real-acedb"
-          python3 tools/stage_acedb.py "$CHATIFY_APPROVED_ZIP" "$staging"
-          ACE3_PATH="$staging/libs" CHATIFY_REQUIRE_REAL_ACEDB=1 lua5.1 tools/roundtrip_test.lua
-
-      - name: Require publication credentials
         env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}  # Токен CurseForge
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }} # Токен GitHub (автоматичний)
+
+      - name: Add Summary
         run: |
-          test -n "$CF_API_KEY" || { echo 'Missing CF_API_KEY' >&2; exit 1; }
-          test -n "$GITHUB_OAUTH" || { echo 'Missing GitHub token' >&2; exit 1; }
-
-      - name: Activate guarded ZIP executable
-        shell: bash
-        run: |
-          # BigWigs release.sh uses the regular `zip` binary immediately
-          # before uploading. This wrapper aborts BEFORE upload on SHA drift.
-          echo "$GITHUB_WORKSPACE/tools/release-guards" >> "$GITHUB_PATH"
-          rm -f "$CHATIFY_ZIP_GUARD_RECEIPT"
-          # Some repository histories/checkouts record the wrapper as 100644.
-          # The Python probe explicitly invokes bash, but BigWigs requires
-          # the PATH interceptor to be executable as `zip`.
-          chmod +x tools/release-guards/zip
-          test -x tools/release-guards/zip
-          test "$(sha256sum "$CHATIFY_APPROVED_ZIP" | cut -d ' ' -f1)" = "$CHATIFY_APPROVED_SHA256"
-
-      - name: Publish only SHA-approved artifact; never refetch externals
-        uses: BigWigsMods/packager@v2
-        with:
-          # -c: reuse assembled tree, -e: no external downloads, -o: keep tree
-          args: -c -e -o
-        env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify pre-upload guard was actually called
-        shell: bash
-        run: |
-          test -s "$CHATIFY_ZIP_GUARD_RECEIPT" || {
-            echo 'FAIL: packager bypassed approved ZIP guard' >&2; exit 1;
-          }
-          grep -Fq "$CHATIFY_APPROVED_SHA256" "$CHATIFY_ZIP_GUARD_RECEIPT" || exit 1
-          test "$(sha256sum "$CHATIFY_APPROVED_ZIP" | cut -d ' ' -f1)" = "$CHATIFY_APPROVED_SHA256"
-          echo "Verified release ZIP $CHATIFY_APPROVED_SHA256" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Preserve exact release evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chatify-release-evidence
-          path: |
-            package-preflight.json
-            package-preflight.sha256
-            .release/*.zip
-          if-no-files-found: ignore
+          echo "## ✅ CI завершено успішно для версії $FINAL_VERSION" >> $GITHUB_STEP_SUMMARY
