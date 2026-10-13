@@ -66,6 +66,8 @@ run "SavedVariables serialization" lua5.1 tools/savedvars_test.lua
 run "strict API capabilities" lua5.1 tools/strict_api_probe.lua
 run "R1-01 atomic profile backups" lua5.1 tools/profile_integrity_probe.lua
 run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
+run "R1-04 history/render/buffer parity" lua5.1 tools/history_pipeline_probe.lua
+run "R1-05/06 friend identity and Unicode keywords" lua5.1 tools/filter_identity_unicode_probe.lua
 
 clients=$(lua5.1 tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
 if [ -z "$clients" ]; then echo 'FAIL: fixture list is empty' >&2; exit 1; fi

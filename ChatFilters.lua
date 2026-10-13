@@ -749,6 +749,75 @@ local UnicodeSpamFold = {
     ["ｚ"] = "z",
 }
 
+-- Lua 5.1 string.upper is ASCII-only. Fold common Cyrillic case pairs
+-- byte-safely without changing arbitrary bytes or revealing secret values.
+local CyrillicUpper = {}
+do
+    local lower = "абвгґдеєжзиіїйклмнопрстуфхцчшщъыьэюяё"
+    local upper = "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯЁ"
+    local lowerChars, upperChars = {}, {}
+    for ch in lower:gmatch("[\194-\244][\128-\191]+") do lowerChars[#lowerChars + 1] = ch end
+    for ch in upper:gmatch("[\194-\244][\128-\191]+") do upperChars[#upperChars + 1] = ch end
+    for i = 1, #lowerChars do CyrillicUpper[lowerChars[i]] = upperChars[i] end
+end
+
+-- A conservative Unicode letter/ideograph tokenizer. Non-ASCII punctuation,
+-- emojis and zero-width controls are not keywords. We deliberately keep words
+-- in Cyrillic and East Asian scripts that an ASCII %w would erase entirely.
+local function UTF8Codepoint(char)
+    local a, b, c, d = char:byte(1, 4)
+    if not a then return nil end
+    if a < 128 then return a end
+    if a < 224 and b then return (a - 192) * 64 + (b - 128) end
+    if a < 240 and b and c then return (a - 224) * 4096 + (b - 128) * 64 + (c - 128) end
+    if a < 245 and b and c and d then return (a - 240) * 262144 + (b - 128) * 4096 + (c - 128) * 64 + (d - 128) end
+    return nil
+end
+
+local function IsUnicodeWord(cp)
+    if not cp then return false end
+    if cp < 128 then return (cp >= 48 and cp <= 57) or (cp >= 65 and cp <= 90) or (cp >= 97 and cp <= 122) end
+    return (cp >= 0x00C0 and cp <= 0x02FF)
+        or (cp >= 0x0370 and cp <= 0x052F)
+        or (cp >= 0x1E00 and cp <= 0x1EFF)
+        or (cp >= 0x2E80 and cp <= 0x2FFF)
+        or (cp >= 0x3040 and cp <= 0xA4CF)
+        or (cp >= 0xAC00 and cp <= 0xD7AF)
+        or (cp >= 0xF900 and cp <= 0xFAFF)
+end
+
+local function HasCJK(text)
+    for char in text:gmatch("[\194-\244][\128-\191]+") do
+        local cp = UTF8Codepoint(char)
+        if cp and ((cp >= 0x2E80 and cp <= 0x2FFF) or (cp >= 0x3040 and cp <= 0xA4CF) or (cp >= 0xAC00 and cp <= 0xD7AF) or (cp >= 0xF900 and cp <= 0xFAFF)) then
+            return true
+        end
+    end
+    return false
+end
+
+local function TokenizeSpamText(text)
+    local tokens = {}
+    local word = {}
+    local function finish()
+        if #word > 0 then tokens[#tokens + 1] = table_concat(word); word = {} end
+    end
+    local index = 1
+    while index <= #text do
+        local b = text:byte(index)
+        local bytes = b >= 240 and 4 or (b >= 224 and 3 or (b >= 192 and 2 or 1))
+        local char = text:sub(index, index + bytes - 1)
+        if #char == bytes and IsUnicodeWord(UTF8Codepoint(char)) then
+            word[#word + 1] = char
+        else
+            finish()
+        end
+        index = index + bytes
+    end
+    finish()
+    return " " .. table_concat(tokens, " ") .. " " , table_concat(tokens, "")
+end
+
 local function FoldSpamUnicode(value)
     if type(value) ~= "string" or value == "" then
         return value or ""
@@ -761,7 +830,7 @@ local function FoldSpamUnicode(value)
         if replacement ~= nil then
             return replacement
         end
-        return character
+        return CyrillicUpper[character] or character
     end))
 end
 
@@ -845,9 +914,7 @@ function ns.NormalizeSpamText(text)
 
     local ok, forms = pcall(function()
         local clean = string_upper(StripWoWMarkup(safe))
-        local tokens = string_gsub(clean, "[^%w]+", " ")
-        tokens = " " .. Trim(tokens) .. " "
-        local compact = string_gsub(tokens, "%s+", "")
+        local tokens, compact = TokenizeSpamText(clean)
 
         return {
             compact = compact,
@@ -921,7 +988,7 @@ function ns.UpdateSpamCache()
                     compact = compact,
                     token = " " .. compact .. " ",
                     fuzzyPattern = BuildFuzzyWordPattern(compact),
-                    allowCompactSubstring = #compact >= 4,
+                    allowCompactSubstring = #compact >= 4 and (compact:match("^[%w]+$") ~= nil or HasCJK(compact)),
                     skeleton = compact:match("^[%a]+$") and #compact >= 4 and forms.skeleton or nil,
                 })
             end
@@ -1048,7 +1115,11 @@ local function IsSelfAuthorForMention(author)
     if type(Ambiguate) == "function" then
         local ok, result = pcall(Ambiguate, safeAuthor, "none")
         if ok and type(result) == "string" and result ~= "" then
-            shortName = result
+            -- Even if a client unexpectedly abbreviates "none", preserve a
+            -- realm-qualified sender rather than broadening the whitelist.
+            if not safeAuthor:find("-", 1, true) or result:find("-", 1, true) then
+                shortName = result
+            end
         end
     end
     shortName = shortName:match("([^%-]+)") or shortName
@@ -1105,6 +1176,10 @@ function Filters:BN_FRIEND_LIST_SIZE_CHANGED()
     ClearFriendCache()
 end
 
+function Filters:BN_FRIEND_INFO_CHANGED()
+    ClearFriendCache()
+end
+
 local function IsFriendAuthor(author)
     local safeAuthor = GetSafeString(author)
     if type(safeAuthor) ~= "string" or safeAuthor == "" then
@@ -1115,16 +1190,22 @@ local function IsFriendAuthor(author)
     if type(Ambiguate) == "function" then
         local ok, result = pcall(Ambiguate, safeAuthor, "none")
         if ok and type(result) == "string" and result ~= "" then
-            shortName = result
+            -- Even if a client unexpectedly abbreviates "none", preserve a
+            -- realm-qualified sender rather than broadening the whitelist.
+            if not safeAuthor:find("-", 1, true) or result:find("-", 1, true) then
+                shortName = result
+            end
         end
     end
-    shortName = shortName:match("([^%-]+)") or shortName
+    -- Keep the realm and Forever's two-part names. A same-named player on a
+    -- different realm must never inherit a friend's whitelist entry.
     if shortName == "" then
         return false
     end
 
     local now = GetTime and GetTime() or 0
-    local cached = FriendCache[shortName]
+    local cacheKey = strlower(shortName)
+    local cached = FriendCache[cacheKey]
     if cached and (now - cached.time) < 30 then
         return cached.value
     end
@@ -1135,7 +1216,7 @@ local function IsFriendAuthor(author)
         result = ok and isFriend and true or false
     end
 
-    FriendCache[shortName] = { value = result, time = now }
+    FriendCache[cacheKey] = { value = result, time = now }
     return result
 end
 
@@ -2314,9 +2395,11 @@ function Filters:OnEnable()
     if type(ns.RegisterEventIfSupported) == "function" then
         ns.RegisterEventIfSupported(self, "FRIENDLIST_UPDATE", "FRIENDLIST_UPDATE")
         ns.RegisterEventIfSupported(self, "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED")
+        ns.RegisterEventIfSupported(self, "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_INFO_CHANGED")
     else
         pcall(self.RegisterEvent, self, "FRIENDLIST_UPDATE", "FRIENDLIST_UPDATE")
         pcall(self.RegisterEvent, self, "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED")
+        pcall(self.RegisterEvent, self, "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_INFO_CHANGED")
     end
 
     InstallMessageFilters()

@@ -3,6 +3,7 @@ local Chatify = ns.Chatify or LibStub("AceAddon-3.0"):GetAddon("Chatify")
 local Module = Chatify:NewModule("ChatTransforms", "AceEvent-3.0")
 
 local spamDecisionByArgs = setmetatable({}, { __mode = "k" })
+local renderedOutcomeByFrame = setmetatable({}, { __mode = "k" })
 local stats = { observed = 0, transformed = 0, removedSpam = 0, skipped = 0, errors = 0 }
 
 local function DB()
@@ -318,21 +319,27 @@ local function RemoveExactEntry(frame, text, event, eventArgs)
     if not FrameSupportsRemoval(frame) or type(text) ~= "string" or type(event) ~= "string" then return false end
     if not Safe(text) or not Safe(event) or not CanReadEventArgs(eventArgs) then return false end
 
-    local ok = pcall(frame.RemoveMessagesByPredicate, frame,
+    local matched = false
+    local ok, result = pcall(frame.RemoveMessagesByPredicate, frame,
         function(message, r, g, b, ...)
             local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
             if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, event, message, storedEvent) then return false end
             if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
-            return message == text and storedEvent == event and storedArgs == eventArgs
+            local exact = message == text and storedEvent == event and storedArgs == eventArgs
+            if exact then matched = true end
+            return exact
         end)
-    if ok then stats.removedSpam = stats.removedSpam + 1 end
-    return ok
+    local removed = ok and result ~= false and matched
+    if removed then stats.removedSpam = stats.removedSpam + 1 end
+    if not ok then stats.errors = stats.errors + 1 end
+    return removed
 end
 
 local function TransformExactEntry(frame, text, event, eventArgs)
-    if not FrameSupportsTransform(frame) or type(text) ~= "string" or type(event) ~= "string" then return end
-    if not Safe(text) or not Safe(event) or not CanReadEventArgs(eventArgs) then return end
+    if not FrameSupportsTransform(frame) or type(text) ~= "string" or type(event) ~= "string" then return nil end
+    if not Safe(text) or not Safe(event) or not CanReadEventArgs(eventArgs) then return nil end
 
+    local transformedText
     local ok = pcall(frame.TransformMessages, frame,
         function(message, r, g, b, ...)
             local storedEvent, storedArgs = ns.ResolveRenderedChatMetadata(...)
@@ -343,9 +350,11 @@ local function TransformExactEntry(frame, text, event, eventArgs)
         function(message, r, g, b, ...)
             local rendered = TransformText(message, event, eventArgs, frame)
             if rendered ~= message then stats.transformed = stats.transformed + 1 end
+            transformedText = rendered
             return rendered, r, g, b, ...
         end)
     if not ok then stats.errors = stats.errors + 1 end
+    return ok and transformedText or nil
 end
 
 function ns.ShouldSuppressRenderedChatLine(event, eventArgs, renderedText)
@@ -356,21 +365,36 @@ function ns.NoteRenderedSpamSuppressed()
     stats.removedSpam = stats.removedSpam + 1
 end
 
+-- Published only for the current post-hook dispatch. The shared registry invokes
+-- transforms before History, so History consumes the same removal/render verdict
+-- that the live buffer actually received, not an independent spam guess.
+function ns.GetChatRenderedLineOutcome(frame, text, event, eventArgs)
+    if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, event) then return nil end
+    if not Safe(text) or not Safe(event) then return nil end
+    local outcome = renderedOutcomeByFrame[frame]
+    if outcome and outcome.text == text and outcome.event == event and outcome.args == eventArgs then
+        return outcome
+    end
+    return nil
+end
+
 local function ObserveAddMessage(self, text, ...)
     stats.observed = stats.observed + 1
+    -- Clear stale state even if this invocation has no readable metadata.
+    renderedOutcomeByFrame[self] = nil
     if not Safe(text) or type(text) ~= "string" then stats.skipped = stats.skipped + 1; return end
     local event, eventArgs = ns.ResolveRenderedChatMetadata(...)
     if not event or not CanReadEventArgs(eventArgs) then stats.skipped = stats.skipped + 1; return end
 
-    -- Filter Engine 3.0 fallback: when protected clients deliberately keep
-    -- ChatFrame_AddMessageEventFilter detached, inspect Blizzard's original
-    -- readable eventArgs after render and remove only this exact stored line.
+    local outcome = { text = text, event = event, args = eventArgs, removed = false }
+    renderedOutcomeByFrame[self] = outcome
     if FrameSupportsRemoval(self) and ShouldRemoveSpam(event, eventArgs, text) then
-        RemoveExactEntry(self, text, event, eventArgs)
-        return
+        outcome.removed = RemoveExactEntry(self, text, event, eventArgs)
+        -- A failed/no-match removal leaves the line visible. History must also
+        -- retain it, rather than trusting only the spam classifier's answer.
+        if outcome.removed then return end
     end
-
-    TransformExactEntry(self, text, event, eventArgs)
+    outcome.rendered = TransformExactEntry(self, text, event, eventArgs)
 end
 
 local function Attach(frame)

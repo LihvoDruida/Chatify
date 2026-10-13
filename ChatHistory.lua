@@ -62,9 +62,9 @@ local targetFrameCache = {}
 local activeEventTypeMap = {}
 local savedSeeded = false
 local restoredToChatFrames = false
-local exactFrameCaptureActive = false
+local frameCaptureStatus = {}  -- [chatID] = true when its AddMessage post-hook is active
+local fallbackFrameCount = 0
 local historyCaptureEnabled = false
-local lastCapturedEntry = setmetatable({}, { __mode = "k" })
 local HISTORY_SCHEMA_VERSION = 4
 local HISTORY_CAPTURE_MODE = "frame-addmessage-once"
 local unpack = table.unpack or unpack
@@ -450,7 +450,7 @@ end
 -- no need to infer destinations from event registrations. This is the source
 -- of truth for History whenever hooksecurefunc is available.
 local function StoreRenderedHistoryLine(frame, rawText, ...)
-    if not historyCaptureEnabled or not exactFrameCaptureActive then return end
+    if not historyCaptureEnabled or frameCaptureStatus[NormalizeFrameID(frame)] ~= true then return end
     local db = GetHistoryDB()
     if not db or db.enableHistory == false or not IsFrameAllowed(frame) then return end
 
@@ -467,41 +467,28 @@ local function StoreRenderedHistoryLine(frame, rawText, ...)
         return
     end
 
-    -- hooksecurefunc(table, "AddMessage", ...) replaces the table method with
-    -- its own secure wrapper. Re-attaching the same post-hook on every chat
-    -- refresh therefore stacks callbacks and stores one rendered line several
-    -- times. Keep one hook per frame for the whole UI session and, as an extra
-    -- guard, collapse callbacks that carry the exact same eventArgs table.
-    local event, eventArgs = select(7, ...), select(8, ...)
-    if type(eventArgs) == "table" then
-        local accessible = true
-        if type(ns.IsProtectedChatValue) == "function" then
-            local okProtected, protected = pcall(ns.IsProtectedChatValue, eventArgs)
-            if not okProtected or protected then accessible = false end
-        end
-        if accessible and type(ns.CanAccessChatValue) == "function" then
-            local okAccess, canAccess = pcall(ns.CanAccessChatValue, eventArgs)
-            if not okAccess or not canAccess then accessible = false end
-        end
-        if accessible and type(canaccesstable) == "function" then
-            local okAccess, canAccess = pcall(canaccesstable, eventArgs)
-            accessible = okAccess and canAccess == true
-        end
-        if accessible then
-            local previous = lastCapturedEntry[frame]
-            if previous and previous.eventArgs == eventArgs and previous.text == safeText and previous.event == event then
-                return
-            end
-            lastCapturedEntry[frame] = { eventArgs = eventArgs, text = safeText, event = event }
-        end
+    -- Both Chatify post-hooks use the same registry: transforms runs first and
+    -- publishes the result of the actual message-buffer operation. History must
+    -- never keep a line that was successfully removed from the live buffer.
+    local event, eventArgs
+    if type(ns.ResolveRenderedChatMetadata) == "function" then
+        local ok, resolvedEvent, resolvedArgs = pcall(ns.ResolveRenderedChatMetadata, ...)
+        if ok then event, eventArgs = resolvedEvent, resolvedArgs end
     end
-
-    -- Match the final Chatify presentation when the modern AddMessage metadata
-    -- is readable. If metadata is absent on an older client, the raw rendered
-    -- line is still the exact text Blizzard routed into this frame.
-    if type(ns.TransformRenderedChatLine) == "function" and type(event) == "string" then
-        local ok, transformed = pcall(ns.TransformRenderedChatLine, safeText, event, eventArgs, frame)
-        if ok and type(transformed) == "string" then safeText = transformed end
+    if type(event) == "string" then
+        local outcome
+        if type(ns.GetChatRenderedLineOutcome) == "function" then
+            local ok, result = pcall(ns.GetChatRenderedLineOutcome, frame, safeText, event, eventArgs)
+            if ok then outcome = result end
+        end
+        if outcome and outcome.removed then return end
+        if outcome and type(outcome.rendered) == "string" then
+            safeText = outcome.rendered
+        elseif not outcome and type(ns.TransformRenderedChatLine) == "function" then
+            -- Legacy / pre-render path: a modern post-render API was not active.
+            local ok, transformed = pcall(ns.TransformRenderedChatLine, safeText, event, eventArgs, frame)
+            if ok and type(transformed) == "string" then safeText = transformed end
+        end
     end
 
     AddFrameHistory(chatID, safeText, tonumber(db.historyLimit) or 250)
@@ -518,20 +505,25 @@ end
 
 local function AttachAllHistoryFrames()
     local hooked, eligible = 0, 0
+    local newStatus = {}
     for i = 1, GetMaxChatWindows() do
         local frame = _G["ChatFrame" .. i]
         if frame and IsFrameAllowed(frame) then
-            eligible = eligible + 1
-            if AttachHistoryFrame(frame) then
-                hooked = hooked + 1
+            local chatID = NormalizeFrameID(frame)
+            if chatID then
+                eligible = eligible + 1
+                local attached = AttachHistoryFrame(frame)
+                newStatus[chatID] = attached
+                if attached then hooked = hooked + 1 end
             end
         end
     end
 
-    -- Use exact capture only when every currently eligible chat frame is hooked.
-    -- Event handlers stay registered as a hot fallback, but OnChatEvent exits
-    -- while this flag is true so the two paths never write the same line.
-    exactFrameCaptureActive = eligible > 0 and hooked == eligible
+    -- One unhookable frame must not downgrade the other frames to event-mode.
+    -- Event fallback is used only for the unavailable frames; exact capture
+    -- remains authoritative for every frame with its own post-hook.
+    frameCaptureStatus = newStatus
+    fallbackFrameCount = eligible - hooked
     return hooked, eligible
 end
 
@@ -716,7 +708,7 @@ local function RecordProtectedLine(event)
 
     for _, chatID in ipairs(targetFrames) do
         chatID = NormalizeFrameID(chatID)
-        if chatID and not lastWasProtected[chatID] then
+        if chatID and frameCaptureStatus[chatID] ~= true and not lastWasProtected[chatID] then
             AddFrameHistory(chatID, line, limit)
             lastWasProtected[chatID] = true
         end
@@ -739,7 +731,7 @@ function History:OnChatEvent(event, message, author, ...)
     -- Exact AddMessage hooks already know the real destination frame. Running
     -- the event router as well would duplicate a line and can merge it into
     -- other tabs that happen to register the same CHAT_MSG_* event.
-    if exactFrameCaptureActive then return end
+    if fallbackFrameCount == 0 then return end
 
     if type(ns.NoteChatEntryPoint) == "function" then
         ns.NoteChatEntryPoint("history capture", event)
@@ -803,7 +795,7 @@ function History:OnChatEvent(event, message, author, ...)
 
     for _, chatID in ipairs(targetFrames) do
         chatID = NormalizeFrameID(chatID)
-        if chatID then
+        if chatID and frameCaptureStatus[chatID] ~= true then
             AddFrameHistory(chatID, fullMessage, limit)
             ClearProtectedRun(chatID)
         end
@@ -1030,6 +1022,8 @@ end
 
 function History:OnDisable()
     historyCaptureEnabled = false
+    fallbackFrameCount = 0
+    frameCaptureStatus = {}
     self:UnregisterAllEvents()
     InvalidateTargetFrameCache()
 end

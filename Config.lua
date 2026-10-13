@@ -1773,27 +1773,29 @@ function ns.GetFriendInfoByNameCompat(name)
         return nil
     end
 
-    if type(C_FriendList) == "table" and type(C_FriendList.GetFriendInfo) == "function" then
-        local ok, info = pcall(C_FriendList.GetFriendInfo, name)
-        if ok and type(info) == "table" and not ns.IsProtectedChatValue(info.name)
-            and type(info.name) == "string" then
-            return info
-        end
-    end
-
     local function Matches(friendName)
         if ns.IsProtectedChatValue(friendName) or type(friendName) ~= "string" then return false end
-        if friendName == name then return true end
-        -- Never whitelist another realm merely because the short names match.
-        if name:find("-", 1, true) then
-            local realm = type(GetRealmName) == "function" and GetRealmName() or nil
-            if not ns.IsProtectedChatValue(realm) and type(realm) == "string"
-                and not friendName:find("-", 1, true) then
-                return friendName .. "-" .. realm:gsub("%s", "") == name
-            end
-            return false
+        local wanted, actual = name:lower(), friendName:lower()
+        if actual == wanted then return true end
+        -- When either name is realm-qualified, never compare only the player
+        -- segment. A bare local name may match only a friend on this realm.
+        local realm = type(GetRealmName) == "function" and GetRealmName() or nil
+        if ns.IsProtectedChatValue(realm) or type(realm) ~= "string" or realm == "" then return false end
+        local localRealm = realm:gsub("%s", ""):lower()
+        if wanted:find("-", 1, true) and not actual:find("-", 1, true) then
+            return actual .. "-" .. localRealm == wanted
         end
-        return (friendName:match("^[^-]+") or friendName) == name
+        if actual:find("-", 1, true) and not wanted:find("-", 1, true) then
+            return actual == wanted .. "-" .. localRealm
+        end
+        return false
+    end
+
+    if type(C_FriendList) == "table" and type(C_FriendList.GetFriendInfo) == "function" then
+        local ok, info = pcall(C_FriendList.GetFriendInfo, name)
+        if ok and type(info) == "table" and Matches(info.name) then
+            return info
+        end
     end
 
     if type(C_FriendList) == "table" and type(C_FriendList.GetNumFriends) == "function"
