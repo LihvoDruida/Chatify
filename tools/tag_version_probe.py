@@ -61,7 +61,7 @@ def main():
             subprocess.run([sys.executable, 'tools/generate_tocs.py', '--check', '--ignore-version'], cwd=temp, check=True, capture_output=True)
             strict_before = subprocess.run([sys.executable, 'tools/generate_tocs.py', '--check'], cwd=temp, capture_output=True)
             assert strict_before.returncode != 0, 'Pre-tag versions must genuinely differ'
-            env = dict(os.environ, GITHUB_REF_TYPE='tag', GITHUB_REF_NAME=tag)
+            env = dict(os.environ, GITHUB_REF_TYPE='tag', GITHUB_REF_NAME=tag, GITHUB_ENV=str(temp / 'github-env'))
             subprocess.run(['bash', '-euo', 'pipefail', '-c', sync], cwd=temp, env=env, check=True, capture_output=True, text=True)
             for toc in TOCS:
                 lines = (temp / toc.name).read_text(encoding='utf-8').splitlines()

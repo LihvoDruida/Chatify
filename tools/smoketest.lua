@@ -1,3 +1,4 @@
+local unpack = table.unpack or unpack
 --[[
 Loads every Lua file in Chatify.toc order under a stub WoW environment, then
 calls the entry points that run at login and when settings change.
@@ -15,22 +16,12 @@ bugs. What it does catch is the class of error that actually shipped - calling
 something that does not exist.
 ]]
 
-local FILES = {
-    "Compatibility.lua",
-    "Locales.lua",
-    "locale/enUS.lua",
-    "locale/ukUA.lua",
-    "Config.lua",
-    "Settings.lua",
-    "ChatCopy.lua",
-    "ChatRouter.lua",
-    "ChatVisuals.lua",
-    "ChatQuickButtons.lua",
-    "ChatFilters.lua",
-    "ChatHistory.lua",
-    "ChatSounds.lua",
-    "ChatAutoReply.lua",
-}
+local FILES = {}
+for line in io.lines("Chatify.toc") do
+    if not line:match("^#") and line:match("%.lua%s*$") then
+        FILES[#FILES + 1] = line:gsub("\\", "/"):gsub("%s+$", "")
+    end
+end
 
 -- ---------------------------------------------------------------- stub frames
 

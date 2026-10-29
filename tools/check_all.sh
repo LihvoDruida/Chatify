@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Required source validation. Every missing dependency and failed check is fatal.
-# Release publishing is independent; regression checks run only on PRs/commits.
+# Tag publishing also depends on this gate; live-client taint remains manual.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,6 +11,10 @@ require() {
     fi
 }
 require python3
+lua_version=${CHATIFY_LUA_VERSION:-5.1}
+case "$lua_version" in 5.1|5.4) ;; *) echo 'Unsupported Lua test version' >&2; exit 2 ;; esac
+lua_cmd="lua$lua_version"
+luac_cmd="luac$lua_version"
 
 passed=0
 optional_skips=0
@@ -43,61 +47,70 @@ run() {
 }
 
 # Python audits intentionally run outside the Lua fixture loop.
+run "Lua audit lexer controls" python3 tools/lua_source_probe.py
+run "asset integrity and Ukrainian fonts" python3 tools/assets_audit.py
 run "symbols" python3 tools/check_symbols.py
 run "static audit" python3 tools/audit.py
+run "legacy API audit negative controls" python3 tools/api_audit_probe.py
 run "secret guard audit" python3 tools/secret_guard_audit.py
 run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version
 run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
 run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
-run "Lean new-tag release workflow contract" python3 tools/release_workflow_probe.py
+run "Guarded tag release workflow contract" python3 tools/release_workflow_probe.py
+run "new-tag release guard controls" python3 tools/release_tag_guard_probe.py
+run "exact package ZIP guard controls" python3 tools/release_guard_probe.py
 run "R1-08 real AceDB staging control" python3 tools/stage_acedb_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
 # a hard failure (never a green partial suite).
-require luac5.1
-require lua5.1
-run "Lua 5.1 parser" luac5.1 -p ./*.lua locale/*.lua
+require "$luac_cmd"
+require "$lua_cmd"
+run "Lua $lua_version parser" "$luac_cmd" -p ./*.lua locale/*.lua
 
+run "TOC-driven smoke test" "$lua_cmd" tools/smoketest.lua
+run "modern namespace signatures and no retries" "$lua_cmd" tools/chat_api_probe.lua
 for mode in classic retail; do
-    run "load/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/stub/load_test.lua
-    run "mentions/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/mention_probe.lua
-    run "commands/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/command_probe.lua
-    run "proxy prototype/$mode" env CHATIFY_STUB_MODE="$mode" lua5.1 tools/proxy_probe.lua
+    run "load/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/stub/load_test.lua
+    run "history fallback/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/history_probe.lua
+    run "post-render security contracts/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/render_taint_probe.lua
+    run "mentions/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/mention_probe.lua
+    run "commands/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/command_probe.lua
+    run "proxy prototype/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/proxy_probe.lua
 done
-run "copy" lua5.1 tools/copy_probe.lua
-run "public hooks" lua5.1 tools/hook_probe.lua
-run "SavedVariables serialization" lua5.1 tools/savedvars_test.lua
-run "strict API capabilities" lua5.1 tools/strict_api_probe.lua
-run "R1-01 atomic profile backups" lua5.1 tools/profile_integrity_probe.lua
-run "R1-02 post-hook lifecycle" lua5.1 tools/frame_hook_lifecycle_probe.lua
-run "R1-04 history/render/buffer parity" lua5.1 tools/history_pipeline_probe.lua
-run "R1-05/06 friend identity and Unicode keywords" lua5.1 tools/filter_identity_unicode_probe.lua
-run "R1-07 PvP/BG/LFG queues and pending returns" lua5.1 tools/auto_reply_queue_probe.lua
+run "copy" "$lua_cmd" tools/copy_probe.lua
+run "public hooks" "$lua_cmd" tools/hook_probe.lua
+run "SavedVariables serialization" "$lua_cmd" tools/savedvars_test.lua
+run "strict API capabilities" "$lua_cmd" tools/strict_api_probe.lua
+run "R1-01 atomic profile backups" "$lua_cmd" tools/profile_integrity_probe.lua
+run "R1-02 post-hook lifecycle" "$lua_cmd" tools/frame_hook_lifecycle_probe.lua
+run "R1-04 history/render/buffer parity" "$lua_cmd" tools/history_pipeline_probe.lua
+run "R1-05/06 friend identity and Unicode keywords" "$lua_cmd" tools/filter_identity_unicode_probe.lua
+run "R1-07 PvP/BG/LFG queues and pending returns" "$lua_cmd" tools/auto_reply_queue_probe.lua
 # R2-04/05/06 viewport, inline hex/picker and keyboard search contracts.
 for config in "retail modern" "forever modern" "era legacy" "tbc legacy" "mists modern" "titan modern"; do
     read -r client api <<< "$config"
-    run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_responsive_probe.lua
+    run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/settings_responsive_probe.lua
 done
-run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
-run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
-run "R2 native editor/defaults / Era legacy" env CHATIFY_SETTINGS_CLIENT=era CHATIFY_SETTINGS_API=legacy lua5.1 tools/settings_edit_probe.lua
-run "R2 native editor/defaults / TBC legacy" env CHATIFY_SETTINGS_CLIENT=tbc CHATIFY_SETTINGS_API=legacy lua5.1 tools/settings_edit_probe.lua
-run "R2 native editor/defaults / Mists" env CHATIFY_SETTINGS_CLIENT=mists CHATIFY_SETTINGS_API=modern lua5.1 tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Era legacy" env CHATIFY_SETTINGS_CLIENT=era CHATIFY_SETTINGS_API=legacy "$lua_cmd" tools/settings_edit_probe.lua
+run "R2 native editor/defaults / TBC legacy" env CHATIFY_SETTINGS_CLIENT=tbc CHATIFY_SETTINGS_API=legacy "$lua_cmd" tools/settings_edit_probe.lua
+run "R2 native editor/defaults / Mists" env CHATIFY_SETTINGS_CLIENT=mists CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
 
-clients=$(lua5.1 tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
+clients=$("$lua_cmd" tools/stub/client_fixtures.lua) || { echo 'FAIL: fixture generation' >&2; exit 1; }
 if [ -z "$clients" ]; then echo 'FAIL: fixture list is empty' >&2; exit 1; fi
 for client in $clients; do
-    run "identity/$client" env CHATIFY_COMPAT_CLIENT="$client" lua5.1 tools/compatibility_probe.lua
+    run "identity/$client" env CHATIFY_COMPAT_CLIENT="$client" "$lua_cmd" tools/compatibility_probe.lua
     for view in standalone embedded; do
         if [ "$client" = "plunderstorm" ]; then
             # Experimental fixture intentionally has no channel API. Not a pass.
             echo "OPTIONAL SKIP labels/plunderstorm/$view: API deliberately absent in synthetic fixture"
             optional_skips=$((optional_skips+1))
         else
-            run "labels/$client/$view" env CHATIFY_LABEL_CLIENT="$client" CHATIFY_LABEL_VIEW="$view" lua5.1 tools/channel_label_probe.lua
+            run "labels/$client/$view" env CHATIFY_LABEL_CLIENT="$client" CHATIFY_LABEL_VIEW="$view" "$lua_cmd" tools/channel_label_probe.lua
         fi
     done
     for api in modern legacy late; do
-        run "settings/$client/$api" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" lua5.1 tools/settings_probe.lua
+        run "settings/$client/$api" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/settings_probe.lua
     done
 done
 

@@ -1582,6 +1582,7 @@ function ns.GetCVarCompat(name)
     if C_CVar and type(C_CVar.GetCVar) == "function" then
         local ok, value = pcall(C_CVar.GetCVar, name)
         if ok then return value end
+        return nil
     end
     if type(GetCVar) == "function" then
         local ok, value = pcall(GetCVar, name)
@@ -1596,15 +1597,13 @@ function ns.SetCVarCompat(name, value)
     -- can land in during login. Where the probe exists, wait rather than lose it.
     if C_CVar and type(C_CVar.AreCVarsLoaded) == "function" then
         local okProbe, loaded = pcall(C_CVar.AreCVarsLoaded)
-        if okProbe and not loaded then
+        if not okProbe or not loaded then
             return false
         end
     end
 
     if C_CVar and type(C_CVar.SetCVar) == "function" then
-        if pcall(C_CVar.SetCVar, name, value) then
-            return true
-        end
+        return pcall(C_CVar.SetCVar, name, value) and true or false
     end
     if type(SetCVar) == "function" then
         return pcall(SetCVar, name, value) and true or false
@@ -1612,93 +1611,28 @@ function ns.SetCVarCompat(name, value)
     return false
 end
 
--- Chat helper resolution.
---
--- Modern FrameXML moved a number of loose ChatFrame_* / ChatEdit_* helpers into
--- ChatFrameUtil (not every FCF_* helper moved; current FloatingChatFrame still
--- exposes several FCF_* globals). The flat global is preferred where it is still
--- real, because ElvUI, GW2_UI and Prat may hook it. ChatFrameUtil is the fallback
--- only for helpers Blizzard actually exposes there.
---
--- Successful routing is memoised, never the function object. A missing route is
--- deliberately NOT cached: Blizzard can load parts of the chat UI later in the
--- login sequence, and caching "missing" would permanently hide a feature that
--- becomes valid a few frames later.
-local chatApiRoute = {}
-
+-- Current FrameXML namespace entries are plain functions, not frame methods.
+-- Resolve on each call: Blizzard may load ChatFrameUtil after addon startup and
+-- other addons may replace its entries. A cached legacy route would never upgrade.
+-- Only use a legacy global when the corresponding namespace function is absent.
 function ns.GetChatAPI(legacyName, utilName)
-    local key = tostring(legacyName) .. "/" .. tostring(utilName)
-    local route = chatApiRoute[key]
-
-    if route == nil then
-        local util = _G.ChatFrameUtil
-        if legacyName and type(_G[legacyName]) == "function" then
-            route = "global"
-        elseif utilName and type(util) == "table" and type(util[utilName]) == "function" then
-            route = "util"
-        else
-            return nil, nil
-        end
-        chatApiRoute[key] = route
+    local util = _G.ChatFrameUtil
+    if utilName and type(util) == "table" and type(util[utilName]) == "function" then
+        return util[utilName], util
     end
-
-    if route == "global" then
-        local fn = legacyName and _G[legacyName]
-        if type(fn) == "function" then
-            return fn, nil
-        end
-        chatApiRoute[key] = nil
-        return ns.GetChatAPI(legacyName, utilName)
+    local legacy = legacyName and _G[legacyName]
+    if type(legacy) == "function" then
+        return legacy, nil
     end
-
-    if route == "util" then
-        local util = _G.ChatFrameUtil
-        if type(util) == "table" and type(util[utilName]) == "function" then
-            return util[utilName], util
-        end
-        chatApiRoute[key] = nil
-        return ns.GetChatAPI(legacyName, utilName)
-    end
-
     return nil, nil
 end
 
--- Blizzard's util namespaces are plain function tables rather than mixins, so
--- the namespace entries take no implicit self. Earlier call sites passed the
--- table through as the first argument, which made `text` the namespace itself
--- and would have broken every fallback path the moment the flat globals go
--- away. Plain style is tried first and the mixin form is kept as a one-shot
--- retry, memoised per function, so a future signature change cannot strand us.
-local chatUtilCallStyle = {}
-
 function ns.CallChatAPI(legacyName, utilName, ...)
-    local fn, owner = ns.GetChatAPI(legacyName, utilName)
-    if type(fn) ~= "function" then
-        return false
-    end
-
-    if not owner then
-        return pcall(fn, ...)
-    end
-
-    local key = tostring(utilName)
-    if chatUtilCallStyle[key] == "method" then
-        return pcall(fn, owner, ...)
-    end
-
-    local ok, result = pcall(fn, ...)
-    if ok then
-        chatUtilCallStyle[key] = "plain"
-        return true, result
-    end
-
-    local okMethod, methodResult = pcall(fn, owner, ...)
-    if okMethod then
-        chatUtilCallStyle[key] = "method"
-        return true, methodResult
-    end
-
-    return false
+    local fn = ns.GetChatAPI(legacyName, utilName)
+    if type(fn) ~= "function" then return false end
+    -- Never retry a failed call with an implicit self or through a deprecated
+    -- global. A function can have side effects before raising an error.
+    return pcall(fn, ...)
 end
 
 -- Operations owned by ChatFrameMixin are methods on the frame on current UI
@@ -1726,14 +1660,14 @@ function ns.CallChatFrameMethod(frame, methodName, legacyName, ...)
 end
 
 function ns.ResetChatAPICache()
-    chatApiRoute = {}
-    chatUtilCallStyle = {}
+    -- Kept for callers on older Chatify releases; routing is now uncached.
 end
 
 function ns.GetAddonMetadata(name, key)
     if C_AddOns and type(C_AddOns.GetAddOnMetadata) == "function" then
         local ok, value = pcall(C_AddOns.GetAddOnMetadata, name, key)
         if ok then return value end
+        return nil
     end
     if type(GetAddOnMetadata) == "function" then
         local ok, value = pcall(GetAddOnMetadata, name, key)
@@ -1746,6 +1680,7 @@ function ns.IsAddOnLoadedCompat(name)
     if C_AddOns and type(C_AddOns.IsAddOnLoaded) == "function" then
         local ok, loaded = pcall(C_AddOns.IsAddOnLoaded, name)
         if ok then return loaded and true or false end
+        return false
     end
     if type(IsAddOnLoaded) == "function" then
         local ok, loaded = pcall(IsAddOnLoaded, name)

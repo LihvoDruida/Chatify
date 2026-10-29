@@ -534,14 +534,6 @@ local function SendChunk(chunk)
         return false, FriendlySendReason(sendReason)
     end
 
-    if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then
-        local ok = pcall(C_ChatInfo.SendChatMessage, chunk.text, chunk.channel, nil, chunk.target)
-        if ok then return true end
-    end
-    if type(SendChatMessage) == "function" then
-        local ok = pcall(SendChatMessage, chunk.text, chunk.channel, nil, chunk.target)
-        if ok then return true end
-    end
     return false, T("No supported chat send API is available on this client.")
 end
 

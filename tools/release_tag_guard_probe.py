@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import os
@@ -13,7 +14,7 @@ from release_tag_guard import ReleaseTagError, check_event, check_no_existing_re
 
 workflow = Path('.github/workflows/package.yml').read_text(encoding='utf8')
 job = workflow.split('\n  release:\n', 1)[1]
-release_condition = job.split('\n    if:', 1)[1].split('\n', 1)[0]
+release_condition = re.search(r'^    if: (.+)$', job, re.M)[1]
 for required in ["github.event_name == 'push'", 'github.event.created == true',
                  "startsWith(github.ref, 'refs/tags/')"]:
     assert required in release_condition, f'Release job condition missing: {required}'

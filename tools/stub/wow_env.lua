@@ -1,3 +1,4 @@
+local unpack = table.unpack or unpack
 -- Minimal WoW / Ace3 stub so the addon can actually be loaded outside the game.
 --
 -- Static checks only see what the text says. This runs the files, which catches
@@ -36,6 +37,15 @@ end
 M.newFrame = newFrame
 
 local realFrameMethods = {
+    ContainsChannel = function(self, channelName)
+        if type(channelName) ~= "string" then return false end
+        local list = self.stubSubscribedChannels or self.channelList
+        if type(list) ~= "table" then return nil end
+        for _, name in ipairs(list) do
+            if name:lower() == channelName:lower() then return true end
+        end
+        return false
+    end,
     RegisterEvent = function(self, e) self.__events[e] = true end,
     UnregisterEvent = function(self, e) self.__events[e] = nil end,
     UnregisterAllEvents = function(self) self.__events = {} end,
@@ -362,30 +372,6 @@ function M.install(mode)
         G.WOW_PROJECT_ID = 1
         G.WOW_PROJECT_MAINLINE = 1
         G.ChatFrameUtil = {
-            -- The renamed membership test. Present here so the shim path in
-            -- ChatHistory is actually exercised; without it the history probe
-            -- passed entirely through the frame.channelList fallback and proved
-            -- nothing about the rename.
-            ContainsChannel = function(frame, channelName)
-                if type(frame) ~= "table" or type(channelName) ~= "string" then
-                    return false
-                end
-                -- Falls back to the legacy per-frame table so a test can describe a
-                -- frame's channels either way and get the same answer.
-                local list = frame.stubSubscribedChannels
-                if type(list) ~= "table" then
-                    list = frame.channelList
-                end
-                if type(list) ~= "table" then
-                    return false
-                end
-                for i = 1, #list do
-                    if list[i]:lower() == channelName:lower() then
-                        return true
-                    end
-                end
-                return false
-            end,
             AddMessageEventFilter = function() return true end,
             RemoveMessageEventFilter = function() return true end,
             OpenChat = noop,

@@ -21,6 +21,7 @@ generate_tocs.py --check.
 """
 
 import re
+from lua_source import mask_lua
 import sys
 from pathlib import Path
 
@@ -45,10 +46,7 @@ DECL_SELF_CACHE = re.compile(r"^\s*local\s+([A-Za-z_]\w*)\s*=\s*\1\s*$")
 
 
 def strip_comments(text):
-    """Blank out long comments and line comments, preserving line numbering."""
-    text = re.sub(r"--\[\[.*?\]\]", lambda m: "\n" * m.group(0).count("\n"),
-                  text, flags=re.S)
-    return "\n".join(re.sub(r"--.*$", "", line) for line in text.split("\n"))
+    return mask_lua(text, strings=True)
 
 
 def collect_ns_definitions():

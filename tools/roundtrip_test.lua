@@ -49,11 +49,14 @@ end
 -- The stub does not model them, so they are supplied here rather than bloating
 -- the shared environment for every other test.
 _G.UnitName = _G.UnitName or function() return "Tester" end
+_G.UnitNameUnmodified = _G.UnitNameUnmodified or _G.UnitName
 _G.UnitRace = function() return "Human", "Human" end
 _G.UnitClass = function() return "Warrior", "WARRIOR" end
 _G.UnitFactionGroup = function() return "Alliance" end
 _G.GetRealmName = function() return "TestRealm" end
 _G.GetCurrentRegion = _G.GetCurrentRegion or function() return 3 end
+_G.GetCurrentRegionName = _G.GetCurrentRegionName or function() return "EU" end
+_G.strlenutf8 = _G.strlenutf8 or function(value) return #(value:gsub("[\128-\191]", "")) end
 _G.geterrorhandler = _G.geterrorhandler or function() return function(e) error(e) end end
 
 -- The stub ships a simplified AceDB. Drop it so the real one registers instead.
@@ -188,7 +191,7 @@ local CHANGES = {
     { "shortChannels", false },
     { "enableTimestamps", false },
     { "historyLimit", 777 },
-    { "fontSize", 15 },
+    { "quickChatButtonFontScale", 1.25 },
 }
 
 for _, change in ipairs(CHANGES) do
@@ -201,7 +204,8 @@ addon.db.profile.channelLabels.PARTY = "Grp"
 local transfer = assert(ns.ExportProfileText(), "real AceDB export failed")
 assert(transfer:match("^CHATIFY_PROFILE\t2"), "real AceDB export schema mismatch")
 addon.db.profile.channelLabels.PARTY = "Changed"
-assert(ns.ImportProfileText(transfer), "real AceDB import failed")
+local imported, importReason = ns.ImportProfileText(transfer)
+assert(imported, "real AceDB import failed: " .. tostring(importReason))
 assert(addon.db.profile.channelLabels.PARTY == "Grp", "real AceDB import lost label")
 
 -- Chatify's own logout handlers, then AceDB's, in the order the client fires
@@ -229,7 +233,7 @@ if _G.ChatifyHistoryDB then
         (serialise(_G.ChatifyHistoryDB, nil, "\t", "ChatifyHistoryDB") or "nil") .. "\n"
 end
 
-local chunk, err = loadstring(text, "SavedVariables")
+local chunk, err = (loadstring or load)(text, "SavedVariables")
 if not chunk then
     print("roundtrip: the written file does not parse: " .. tostring(err))
     os.exit(1)

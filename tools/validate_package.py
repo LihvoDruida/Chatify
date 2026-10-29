@@ -12,6 +12,7 @@ import hashlib
 import json
 import posixpath
 import re
+import stat
 import sys
 import zipfile
 from pathlib import PurePosixPath
@@ -49,6 +50,12 @@ def validate(path: str, expected_version: str | None = None) -> dict:
             p = PurePosixPath(n)
             if n.startswith('/') or '\\' in n or '..' in p.parts or not n.startswith('Chatify/'):
                 errors.append('Unexpected/unsafe archive path: ' + n)
+        normalized = [n.casefold() for n in names]
+        if len(normalized) != len(set(normalized)):
+            errors.append('ZIP contains paths that collide on case-insensitive filesystems')
+        for info in z.infolist():
+            if stat.S_ISLNK(info.external_attr >> 16):
+                errors.append('ZIP contains symlink: ' + info.filename)
         files = set(n for n in names if not n.endswith('/'))
         tocs = sorted(n for n in files if re.fullmatch(r'Chatify/[^/]+\.toc', n))
         if len(tocs) != 8:
@@ -73,8 +80,8 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 errors.append(f'Malformed XML {filepath}: {exc}')
                 return
             for element in root.iter():
-                tag = element.tag.rsplit('}', 1)[-1]
-                if tag not in ('Script', 'Include'):
+                tag = element.tag.rsplit('}', 1)[-1].lower()
+                if tag not in ('script', 'include'):
                     continue
                 value = element.attrib.get('file')
                 if not value:
@@ -83,12 +90,21 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 file_ref = posixpath.normpath(posixpath.join(posixpath.dirname(filepath), value.replace('\\', '/')))
                 if not file_ref.startswith('Chatify/') or file_ref not in files:
                     errors.append(f'Unresolved {filepath} -> {file_ref}')
-                elif tag == 'Include':
+                elif tag == 'include':
                     inspect_xml(file_ref)
                 report['checked_includes'] += 1
 
+        interfaces_by_toc = {}
         for toc in tocs:
             data = z.read(toc).decode('utf-8-sig', 'replace')
+            interface_headers = re.findall(r'^## Interface:\s*(.*?)\s*$', data, re.M)
+            if len(interface_headers) != 1 or not re.fullmatch(r'[0-9]+(?:,\s*[0-9]+)*', interface_headers[0]):
+                errors.append(f'{toc}: invalid or missing Interface metadata')
+            else:
+                interfaces = [value.strip() for value in interface_headers[0].split(',')]
+                interfaces_by_toc[toc] = set(interfaces)
+                if len(interfaces) != len(set(interfaces)):
+                    errors.append(f'{toc}: duplicate Interface targets')
             versions = re.findall(r'^## Version:\s*(.*?)\s*$', data, re.M)
             if len(versions) != 1 or (expected_version and versions[0] != expected_version):
                 errors.append(f'{toc} Version={versions!r}, expected {expected_version}')
@@ -108,6 +124,25 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 report['checked_includes'] += 1
             if 'Chatify/libs/_manifest.xml' not in includes:
                 errors.append(toc + ' does not load libs/_manifest.xml')
+        generic = interfaces_by_toc.get('Chatify/Chatify.toc', set())
+        for toc, interfaces in interfaces_by_toc.items():
+            if not interfaces.issubset(generic):
+                errors.append(f'{toc}: interfaces missing from generic TOC')
+        required_assets = (
+            'assets/icon.blp', 'assets/icons/CopyChat.png', 'assets/icons/HistoryChat.png',
+            'assets/icons/SettingsCog.png', 'assets/alert/notification-0.ogg',
+            'assets/themes/gw2/chatframebackground.png', 'assets/themes/gw2/chatframeborder.png',
+            'assets/themes/gw2/channel_button_normal.png', 'assets/themes/gw2/channel_button_normal_highlight.png',
+            'assets/themes/gw2/channel_button_vc.png', 'assets/themes/gw2/channel_button_vc_highlight.png',
+        )
+        config_path = 'Chatify/Config.lua'
+        if config_path in files:
+            bound_fonts = re.findall(r'ADDON_FONT_ROOT\s*\.\.\s*"([^"]+)"', z.read(config_path).decode('utf-8-sig'))
+            required_assets += tuple('assets/Fonts/' + font for font in bound_fonts)
+        for asset in required_assets:
+            name = 'Chatify/' + asset
+            if name not in files or z.getinfo(name).file_size == 0:
+                errors.append('Missing/empty required asset: ' + name)
         for relative in CORE_LIBS:
             full = 'Chatify/libs/' + relative
             if full not in files or z.getinfo(full).file_size <= 0:
@@ -124,7 +159,7 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 digest.update(z.read(member))
             report['libraries_sha256'][libname] = digest.hexdigest()
         for name in files:
-            if name.startswith('Chatify/tools/') or name.startswith('Chatify/.git/'):
+            if name.startswith(('Chatify/tools/', 'Chatify/.git/', 'Chatify/.github/')):
                 errors.append('Source-only content leaked into installation: ' + name)
         # zipfile.testzip verifies each member's CRC and catches truncated files.
         corrupt = z.testzip()

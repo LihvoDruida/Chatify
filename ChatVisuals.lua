@@ -1174,8 +1174,6 @@ local function RegisterTimestampFilter(eventName)
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, TimestampFilter)
-    elseif type(ChatFrame_AddMessageEventFilter) == "function" then
-        ok = pcall(ChatFrame_AddMessageEventFilter, eventName, TimestampFilter) and true or false
     end
 
     if ok then
@@ -1187,8 +1185,6 @@ local function UnregisterTimestampFilters()
     for eventName in pairs(registeredTimestampFilters) do
         if type(ns.RemoveMessageEventFilterIfSupported) == "function" then
             ns.RemoveMessageEventFilterIfSupported(eventName, TimestampFilter)
-        elseif type(ChatFrame_RemoveMessageEventFilter) == "function" then
-            pcall(ChatFrame_RemoveMessageEventFilter, eventName, TimestampFilter)
         end
     end
 

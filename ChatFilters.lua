@@ -63,8 +63,6 @@ local function RegisterMessageFilter(eventName, callback)
     local ok = false
     if type(ns.AddMessageEventFilterIfSupported) == "function" then
         ok = ns.AddMessageEventFilterIfSupported(eventName, callback)
-    elseif type(ChatFrame_AddMessageEventFilter) == "function" then
-        ok = pcall(ChatFrame_AddMessageEventFilter, eventName, callback) and true or false
     end
 
     if ok then
@@ -80,8 +78,6 @@ local function UnregisterMessageFilters()
         for callback in pairs(callbacks) do
             if type(ns.RemoveMessageEventFilterIfSupported) == "function" then
                 ns.RemoveMessageEventFilterIfSupported(eventName, callback)
-            elseif type(ChatFrame_RemoveMessageEventFilter) == "function" then
-                pcall(ChatFrame_RemoveMessageEventFilter, eventName, callback)
             end
         end
     end

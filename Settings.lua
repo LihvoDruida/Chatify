@@ -41,14 +41,6 @@ local function GetAddonMetadataValue(key)
     if type(ns.GetAddonMetadata) == "function" then
         return ns.GetAddonMetadata(addonName, key)
     end
-    if C_AddOns and C_AddOns.GetAddOnMetadata then
-        local ok, value = pcall(C_AddOns.GetAddOnMetadata, addonName, key)
-        if ok then return value end
-    end
-    if GetAddOnMetadata then
-        local ok, value = pcall(GetAddOnMetadata, addonName, key)
-        if ok then return value end
-    end
     return nil
 end
 

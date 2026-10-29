@@ -21,3 +21,8 @@ desktop.ini
 
 # Lua bytecode from syntax checks (luac -p writes this on some builds)
 luac.out
+
+# Packaging outputs and Python audit caches
+.release/
+__pycache__/
+*.pyc

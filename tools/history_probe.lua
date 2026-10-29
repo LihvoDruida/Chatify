@@ -11,6 +11,12 @@ package.path = "tools/stub/?.lua;" .. package.path
 local env = require("wow_env")
 local mode = os.getenv("CHATIFY_STUB_MODE") or "retail"
 env.install(mode)
+-- This probe covers the event fallback, used only for frames that cannot be
+-- observed through AddMessage. Exact rendered capture has its own pipeline probe.
+for i = 1, NUM_CHAT_WINDOWS do
+    local frame = _G["ChatFrame" .. i]
+    if frame then frame.AddMessage = false end
+end
 
 local ns = {}
 for line in assert(io.open("Chatify.toc")):lines() do
@@ -83,12 +89,9 @@ check("guild line reaches frames registered for the event",
     entryCount(1) == before[1] + 1 and entryCount(3) == before[3] + 1)
 check("guild line skips the frame not registered", entryCount(2) == before[2])
 
--- The shape a current client actually presents: the FrameXML globals and the
--- per-frame channel tables are gone, and the only membership test left is the
--- renamed ChatFrameUtil.ContainsChannel. Routing has to survive that, because it is
--- where the reported bug lives - every test answering "no opinion" means every
--- frame is kept and the line lands in all history tabs.
-if _G.ChatFrameUtil and type(_G.ChatFrameUtil.ContainsChannel) == "function" then
+-- Current FrameXML owns membership on the chat frame itself. Exercise that
+-- method without legacy per-frame channel lists or a deprecated global helper.
+if mode == "retail" then
     ns.ResetChatAPICache()
     _G.ChatFrame_ContainsChannel = nil
     if type(ns.InvalidateChatifyHistoryFrameCache) == "function" then
@@ -102,6 +105,12 @@ if _G.ChatFrameUtil and type(_G.ChatFrameUtil.ContainsChannel) == "function" the
         frame.channelList = nil
         frame.zoneChannelList = nil
         frame.stubSubscribedChannels = {}
+        frame.ContainsChannel = function(self, channel)
+            for _, name in ipairs(self.stubSubscribedChannels or {}) do
+                if name == channel then return true end
+            end
+            return false
+        end
     end
     _G.ChatFrame3.stubSubscribedChannels = { "General" }
 
@@ -159,7 +168,7 @@ if mode == "retail" and env.secretString then
     -- The marker must not be the secret itself.
     local entries = ns.GetChatifyHistoryEntriesForFrame(_G.ChatFrame1, 250)
     local leaked = false
-    for i = 1, #entries do
+    for i = 1, #(entries or {}) do
         local e = entries[i]
         local text = type(e) == "table" and (e.text or e.raw) or e
         if text == env.secretString or (issecretvalue and pcall(issecretvalue, text)

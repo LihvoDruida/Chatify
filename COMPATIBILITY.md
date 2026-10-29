@@ -216,3 +216,26 @@ path and profile, preserved across redraws, and cleared on successful submission
 or window closure. Invalid drafts remain visible for correction while the window
 is open. Channel label limits count UTF-8 code points rather than bytes.
 See `CHANNEL_LABEL_FIX_2.18.3_UA.md` for reproduction and regression coverage.
+
+
+## 2.18.5 validation update
+
+Addon source is parsed and probed under Lua 5.1 and Lua 5.4. WoW still uses its
+own Lua dialect; Lua 5.4 passes are a portability check, not a claim that WoW runs
+Lua 5.4. ChatFrameUtil namespace functions use plain-call signatures and are
+resolved dynamically. Deprecated globals remain isolated in Config.lua and the
+small library/settings compatibility bridges for clients that lack the modern API.
+GetNumGroupMembers remains a valid global API and is not replaced with an invented namespace.
+
+The existing Retail targets 120100, 120105 and 120007 and all Classic/Forever
+interface values are preserved from the supplied source. Offline fixtures do not
+verify a client's published build, API availability, visual rendering or security context.
+Interface values belong in TOCs; libs/_manifest.xml controls library load order,
+and .pkgmeta controls packaging and externals. Neither needs a fabricated Interface field.
+
+Run `bash tools/check_all.sh`, then `CHATIFY_LUA_VERSION=5.4 bash tools/check_all.sh`.
+The legacy pre-postrender probes are retained under tools/legacy for reference;
+current history_probe.lua exercises fallback frames, and render_taint_probe.lua
+checks clean modern post-hook contracts. Release CI waits for both source gates,
+validates the installable ZIP and packaged AceDB persistence, then checks the ZIP
+digest again before publication. See docs/MODERNIZATION_REPORT.md for this audit's results.

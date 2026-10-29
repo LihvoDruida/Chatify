@@ -577,14 +577,8 @@ end
 local function SendChatMessageCompat(message, route)
     if type(message) ~= "string" or message == "" or not route then return false end
 
-    if type(_G.C_ChatInfo) == "table" and type(_G.C_ChatInfo.SendChatMessage) == "function" then
-        local ok = pcall(_G.C_ChatInfo.SendChatMessage, message, route.chatType, route.languageID, route.target)
-        if ok then return true end
-    end
-
-    if type(_G.SendChatMessage) == "function" then
-        local ok = pcall(_G.SendChatMessage, message, route.chatType, route.languageID, route.target)
-        if ok then return true end
+    if type(ns.SendChatMessageCompat) == "function" then
+        return ns.SendChatMessageCompat(message, route.chatType, route.languageID, route.target)
     end
     return false
 end

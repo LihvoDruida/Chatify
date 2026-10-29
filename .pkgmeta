@@ -8,6 +8,10 @@ manual-changelog:
 
 ignore:
   - README.md
+  - COMPATIBILITY.md
+  - .gitignore
+  - .release
+  - dist
   - .releaserc
   - .vscode
   - .git

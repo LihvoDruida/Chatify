@@ -1,3 +1,13 @@
+## 2.18.5 — API and validation modernization
+
+- Prefer current ChatFrameUtil APIs, including when they load after startup; preserve complete return tuples and never retry failed operations with a different signature.
+- Route composer, replies and the retained MultiPost module through guarded send adapters. Keep deprecated calls inside feature-detected compatibility adapters.
+- Fix addon theme detection so a negative modern query does not call a deprecated global.
+- Run source validation under Lua 5.1 and 5.4, including post-hook lifecycle, history fallback, responsive settings, asset integrity and Ukrainian font glyph checks.
+- Validate embedded libraries, assets, XML references, interfaces, archive paths and exact release ZIP bytes before publishing. Release versions come exclusively from the new triggering tag.
+- Repair stale smoke/history/render/persistence probes and improve Lua comment/string masking in static audits.
+- Preserve the supplied game interface targets; no unverified interface bump or downgrade. Live-client taint verification remains required.
+
 ## UI/UX stage R2-01–R2-03 — 2026-10-13 (source candidate, not a tagged release)
 
 - Commit numeric range edits on Enter or focus loss; accept comma or dot decimals, clamp to the option's min/max/step, preserve invalid drafts rather than silently reverting them.

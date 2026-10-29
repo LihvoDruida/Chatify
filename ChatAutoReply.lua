@@ -179,15 +179,8 @@ local function SendChatMessageCompat(message, chatType, languageID, target)
         return ok and true or false
     end
 
-    -- Legacy fallback for partial loads where Config.lua did not finish.
-    if C_ChatInfo and type(C_ChatInfo.SendChatMessage) == "function" then
-        local ok = pcall(C_ChatInfo.SendChatMessage, message, chatType, languageID, target)
-        if ok then return true end
-    end
-    if type(SendChatMessage) == "function" then
-        local ok = pcall(SendChatMessage, message, chatType, languageID, target)
-        return ok
-    end
+    -- Config.lua is loaded first by every TOC. If its guarded adapter is not
+    -- ready, do not bypass argument validation or retry a restricted operation.
     return false
 end
 
@@ -195,31 +188,6 @@ local function SendBNetMessage(accountID, message)
     if type(ns.SendBNetWhisperCompat) == "function" then
         return ns.SendBNetWhisperCompat(accountID, message)
     end
-    if not accountID or type(message) ~= "string" or message == "" then
-        return false
-    end
-
-    -- 12.0+ blocks addon-initiated whispers during chat messaging lockdown
-    -- (encounters/M+/PvP) with ADDON_ACTION_BLOCKED. Skip silently instead of
-    -- triggering the Blizzard error popup; the pending-return path still fires later.
-    if not CanSendAddonChat() then
-        return false
-    end
-
-    -- BNSendWhisper was deprecated in 12.0.0. Forever follows the modern
-    -- Battle.net API surface, so prefer C_BattleNet.SendWhisper when available.
-    if C_BattleNet and type(C_BattleNet.SendWhisper) == "function" then
-        local ok = pcall(C_BattleNet.SendWhisper, accountID, message)
-        return ok
-    end
-
-    if type(BNSendWhisper) == "function" then
-        local ok = pcall(BNSendWhisper, accountID, message)
-        if ok then
-            return true
-        end
-    end
-
     return false
 end
 

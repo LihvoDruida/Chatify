@@ -18,6 +18,7 @@ failed on, since both have legitimate exceptions.
 """
 
 import re
+from lua_source import mask_lua
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -27,21 +28,7 @@ LUA = sorted(ROOT.glob("*.lua")) + sorted(ROOT.glob("locale/*.lua"))
 
 
 def strip_comments(text):
-    text = re.sub(r"--\[\[.*?\]\]", lambda m: "\n" * m.group(0).count("\n"),
-                  text, flags=re.S)
-    out = []
-    for line in text.split("\n"):
-        # Leave --  inside string literals alone by refusing to strip when the
-        # marker sits after an odd number of unescaped quotes.
-        idx = line.find("--")
-        while idx != -1:
-            before = line[:idx]
-            if before.count('"') % 2 == 0 and before.count("'") % 2 == 0:
-                line = before
-                break
-            idx = line.find("--", idx + 2)
-        out.append(line)
-    return "\n".join(out)
+    return mask_lua(text)
 
 
 def table_blocks(lines):
@@ -254,11 +241,37 @@ def check_ns_references():
     return findings
 
 
+# Deprecated aliases are permitted only in the feature-detected adapter layer.
+# GetNumGroupMembers remains a documented global; it is intentionally not banned.
+LEGACY_APIS = {
+    "InterfaceOptionsFrame_OpenToCategory", "InterfaceOptions_AddCategory",
+    "SendChatMessage", "BNSendWhisper", "GetAddOnMetadata", "IsAddOnLoaded",
+    "LoadAddOn", "GetCVar", "SetCVar", "GetMouseFocus",
+    "ChatFrame_OpenChat", "ChatEdit_GetActiveWindow", "ChatEdit_ChooseBoxForSend",
+    "ChatFrame_AddMessageEventFilter", "ChatFrame_RemoveMessageEventFilter",
+}
+
+
+def check_legacy_api_isolation():
+    findings = []
+    pattern = re.compile(r"(?<![\w.])(?:_G\.)?(" + "|".join(sorted(LEGACY_APIS)) + r")\b")
+    for path in LUA:
+        allowed = LEGACY_APIS if path.name in {"Config.lua", "Compatibility.lua"} else set()
+        if path.name == "SettingsIntegration.lua":
+            allowed = {"InterfaceOptions_AddCategory"}
+        for line, text in enumerate(mask_lua(path.read_text(encoding="utf-8"), strings=True).splitlines(), 1):
+            for match in pattern.finditer(text):
+                if match[1] not in allowed:
+                    findings.append(f"{path.name}:{line}: legacy API {match[1]} outside compatibility adapter")
+    return findings
+
+
 def main():
     strict = "--strict" in sys.argv
     defaults = collect_defaults()
 
     fatal = {
+        "legacy API isolation": check_legacy_api_isolation(),
         "duplicate table keys": check_duplicate_table_keys(),
         "duplicate ns.* definitions": check_duplicate_ns_definitions(),
         "missing event handlers": check_event_handlers(),
