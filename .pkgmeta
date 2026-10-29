@@ -10,6 +10,7 @@ ignore:
   - README.md
   - COMPATIBILITY.md
   - .gitignore
+  - .forever-ui
   - .release
   - dist
   - .releaserc

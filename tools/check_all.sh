@@ -49,6 +49,8 @@ run() {
 # Python audits intentionally run outside the Lua fixture loop.
 run "Lua audit lexer controls" python3 tools/lua_source_probe.py
 run "asset integrity and Ukrainian fonts" python3 tools/assets_audit.py
+run "Forever documented API inventory" python3 tools/forever_schema_audit.py
+run "Forever schema negative controls" python3 tools/forever_schema_probe.py
 run "symbols" python3 tools/check_symbols.py
 run "static audit" python3 tools/audit.py
 run "legacy API audit negative controls" python3 tools/api_audit_probe.py
@@ -68,6 +70,7 @@ run "Lua $lua_version parser" "$luac_cmd" -p ./*.lua locale/*.lua
 
 run "TOC-driven smoke test" "$lua_cmd" tools/smoketest.lua
 run "modern namespace signatures and no retries" "$lua_cmd" tools/chat_api_probe.lua
+run "Forever API call and identity contracts" "$lua_cmd" tools/forever_api_probe.lua
 for mode in classic retail; do
     run "load/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/stub/load_test.lua
     run "history fallback/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/history_probe.lua

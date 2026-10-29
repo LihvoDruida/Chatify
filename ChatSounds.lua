@@ -13,8 +13,8 @@ local type = type
 local pcall = pcall
 local select = select
 
-local myName = UnitName("player")
-local myNameLower = myName and strlower(myName)
+local myName
+local myNameLower
 local ignoreSelf = true
 
 local lastNormalSound = 0
@@ -72,7 +72,12 @@ local function NormalizePlayerName(value)
         return nil, nil
     end
 
-    local short = safe:match("([^%-]+)") or safe
+    local short
+    if ns.IsForeverClient() then
+        short = ns.NormalizePlayerNameCompat(safe)
+    else
+        short = safe:match("([^%-]+)") or safe
+    end
     return safe, short
 end
 
@@ -86,7 +91,8 @@ local function IsSelfAuthor(author)
 end
 
 local function UpdatePlayerIdentity()
-    local name = UnitName("player")
+    local identity = ns.IsForeverClient() and ns.GetPlayerMentionIdentity() or nil
+    local _, name = NormalizePlayerName(identity and (identity.full or identity.first) or UnitName("player"))
     if type(name) == "string" and name ~= "" then
         myName = name
         myNameLower = strlower(name)

@@ -94,7 +94,11 @@ C_FriendList = {
 }
 check("indexed namespace friend lookup", ns.IsFriendCompat("Friend-Realm"))
 check("different realm is not whitelisted", not ns.IsFriendCompat("Friend-Other"))
-check("same-realm short record", ns.IsFriendCompat("Local-Realm"))
+if ns.IsForeverClient() then
+    check("Forever surname is never dropped for a short friend record", not ns.IsFriendCompat("Local-Realm"))
+else
+    check("same-realm short record", ns.IsFriendCompat("Local-Realm"))
+end
 C_FriendList = nil
 GetNumFriends = function() return 1 end
 GetFriendInfo = function() return "Legacy-Realm", 80, "Warrior", "City", true end

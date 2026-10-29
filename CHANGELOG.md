@@ -1,3 +1,13 @@
+## 2.18.6 — Forever 70532 API contracts
+
+- Audit API references against the generated Forever 1.60.1.70532 source contracts; keep Interface 16001.
+- Build proper PlayerLocation objects for C_PlayerInfo.GetName. Use Camelot NameUtil and the regional-name predicate to distinguish a surname from unitServer.
+- Use C_NameUtil for surname-preserving identity keys; prevent friend, self-sound and auto-reply collisions between characters with the same first name.
+- Prefer live chat edit-box getters and ParseText methods, reject protected/stale getter fallbacks, and stop cyclic frame-link traversal.
+- Respect explicit rejection from Battle.net SendWhisper and SetCVar; distinguish loaded from loading addons.
+- Use C_EventUtils.IsEventValid before event registration and extend /chatifycompat diagnostics.
+- Add 40 targeted Forever contract checks plus source integration probes for actual Blizzard Lua implementations. CI verifies a pinned source snapshot; live security testing remains manual.
+
 ## 2.18.5 — API and validation modernization
 
 - Prefer current ChatFrameUtil APIs, including when they load after startup; preserve complete return tuples and never retry failed operations with a different signature.

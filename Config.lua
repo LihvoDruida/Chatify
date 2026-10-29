@@ -1603,7 +1603,8 @@ function ns.SetCVarCompat(name, value)
     end
 
     if C_CVar and type(C_CVar.SetCVar) == "function" then
-        return pcall(C_CVar.SetCVar, name, value) and true or false
+        local ok, applied = pcall(C_CVar.SetCVar, name, value)
+        return ok and applied ~= false
     end
     if type(SetCVar) == "function" then
         return pcall(SetCVar, name, value) and true or false
@@ -1659,6 +1660,36 @@ function ns.CallChatFrameMethod(frame, methodName, legacyName, ...)
     return false
 end
 
+local chatEditBoxGetters = {
+    chatType = "GetChatType", tellTarget = "GetTellTarget", channelTarget = "GetChannelTarget",
+}
+
+function ns.GetChatEditBoxValue(editBox, key)
+    local getter = chatEditBoxGetters[key]
+    if not editBox or not getter then return nil end
+    local function safe(value)
+        if ns.IsProtectedChatValue(value) then return nil end
+        if type(value) == "string" and value ~= "" then return value end
+        if key == "channelTarget" and type(value) == "number" then return value end
+        return nil
+    end
+    local okRead, method = pcall(function() return editBox[getter] end)
+    if not okRead then return nil end
+    if type(method) == "function" then
+        local ok, value = pcall(method, editBox)
+        if ok then return safe(value) end
+        return nil
+    end
+    if type(editBox.GetAttribute) == "function" then
+        local ok, value = pcall(editBox.GetAttribute, editBox, key)
+        if not ok or ns.IsProtectedChatValue(value) then return nil end
+        if value ~= nil then return safe(value) end
+    end
+    local ok, value = pcall(function() return editBox[key] end)
+    if ok then return safe(value) end
+    return nil
+end
+
 function ns.ResetChatAPICache()
     -- Kept for callers on older Chatify releases; routing is now uncached.
 end
@@ -1678,8 +1709,11 @@ end
 
 function ns.IsAddOnLoadedCompat(name)
     if C_AddOns and type(C_AddOns.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(C_AddOns.IsAddOnLoaded, name)
-        if ok then return loaded and true or false end
+        local ok, loadedOrLoading, loaded = pcall(C_AddOns.IsAddOnLoaded, name)
+        if ok then
+            if type(loaded) == "boolean" then return loaded end
+            return loadedOrLoading and true or false
+        end
         return false
     end
     if type(IsAddOnLoaded) == "function" then
@@ -1710,6 +1744,11 @@ function ns.GetFriendInfoByNameCompat(name)
 
     local function Matches(friendName)
         if ns.IsProtectedChatValue(friendName) or type(friendName) ~= "string" then return false end
+        if ns.IsForeverClient() then
+            local wanted = ns.NormalizePlayerNameCompat(name)
+            local actual = ns.NormalizePlayerNameCompat(friendName)
+            return wanted ~= nil and actual ~= nil and wanted:lower() == actual:lower()
+        end
         local wanted, actual = name:lower(), friendName:lower()
         if actual == wanted then return true end
         -- When either name is realm-qualified, never compare only the player
@@ -2203,7 +2242,17 @@ function ns.GetClientCompatibilityReport()
         { label = "Timer API", value = type(C_Timer) == "table" and type(C_Timer.After) == "function"
             and "C_Timer" or "OnUpdate fallback" },
         { label = "Game settings", value = ns.SettingsIntegration and ns.SettingsIntegration.api or "not registered" },
+        { label = "Event validity API", value = type(_G.C_EventUtils) == "table" and type(_G.C_EventUtils.IsEventValid) == "function" and "C_EventUtils" or "registration probe" },
+        { label = "PlayerLocation factory", value = type(_G.PlayerLocation) == "table" and type(_G.PlayerLocation.CreateFromUnit) == "function" and "present" or "absent" },
+        { label = "Surname converter", value = type(_G.C_NameUtil) == "table" and type(_G.C_NameUtil.ReplaceSurnameSeparatorWithLinkSeparator) == "function" and "present" or "absent" },
+        { label = "Flavor full-name helper", value = type(_G.NameUtil) == "table" and type(_G.NameUtil.GetUnmodifiedUnitFullName) == "function" and "present" or "absent" },
+        { label = "Regional-name predicate", value = type(_G.RegionalUniqueNamesEnabled) == "function" and "present" or "absent" },
     }
+    if ns.IsForeverClient() then
+        local ok, version, build = pcall(GetBuildInfo)
+        report[#report + 1] = { label = "Forever runtime build", value = ok and (tostring(version) .. "." .. tostring(build)) or "unavailable" }
+        report[#report + 1] = { label = "Forever audited source", value = "1.60.1.70532 / ca8368f" }
+    end
     for _, feature in ipairs({ "channels", "sounds", "quickButtons", "composer", "composerAutomation",
         "spamFilters", "mentions", "history", "copy", "nativeCopy", "autoReplyWhisper", "autoReplyBNet",
         "autoReplyGuild", "chatTabs", "communities", "virtualChat" }) do
@@ -2398,6 +2447,10 @@ function ns.SendChatMessageCompat(message, chatType, languageID, target)
             return false, "invalid target"
         end
     end
+    if chatType == "WHISPER" and target ~= nil and ns.IsForeverClient() then
+        target = ns.NormalizePlayerNameCompat(target)
+        if not target then return false, "invalid target" end
+    end
     if type(ns.CanSendAddonChat) == "function" and not ns.CanSendAddonChat() then
         return false, "chat messaging lockdown"
     end
@@ -2431,9 +2484,10 @@ function ns.SendBNetWhisperCompat(accountID, message)
     local send = type(C_BattleNet) == "table" and C_BattleNet.SendWhisper or nil
     if type(send) ~= "function" then send = _G.BNSendWhisper end
     if type(send) ~= "function" then return false, "Battle.net send API unavailable" end
-    local ok, err = pcall(send, accountID, message)
-    if ok then return true end
-    return false, err
+    local ok, result = pcall(send, accountID, message)
+    if not ok then return false, result end
+    if result == false then return false, "Battle.net send rejected" end
+    return true
 end
 
 function ns.EnforceRetailSafeMode(db)
@@ -2476,8 +2530,8 @@ end
 --
 -- Forever uses a required two-part character name in a realmless namespace.
 -- The public addon API currently exposes a surname-display predicate but no
--- documented GetFirstName()/GetSurname() pair. Read the least-modified identity
--- string the client provides, then split only on the Forever flavor.
+-- documented C_* first-name/surname getter pair. Prefer the flavor's NameUtil
+-- full-name helper, then validated unit-name and PlayerLocation fallbacks.
 --
 -- UnitNameUnmodified is preferred because Blizzard's unit/name code uses it for
 -- the canonical player identity. C_PlayerInfo.GetName is kept as a modern API
@@ -2487,10 +2541,10 @@ local playerMentionIdentityCache
 local playerMentionIdentityCachedAt = 0
 
 local function TrimIdentityPart(value)
-    if type(value) ~= "string" or value == "" then
+    if type(ns.IsProtectedChatValue) == "function" and ns.IsProtectedChatValue(value) then
         return nil
     end
-    if type(ns.IsProtectedChatValue) == "function" and ns.IsProtectedChatValue(value) then
+    if type(value) ~= "string" or value == "" then
         return nil
     end
 
@@ -2500,6 +2554,26 @@ local function TrimIdentityPart(value)
         return nil
     end
     return value
+end
+
+function ns.NormalizePlayerNameCompat(value, ambiguity)
+    local safe = TrimIdentityPart(value)
+    if not safe then return nil end
+    if ns.IsForeverClient() then
+        local convert = type(_G.C_NameUtil) == "table" and _G.C_NameUtil.ReplaceSurnameSeparatorWithLinkSeparator
+        if type(convert) == "function" then
+            local ok, result = pcall(convert, safe)
+            if not ok then return nil end
+            return TrimIdentityPart(result)
+        end
+        -- Only for beta builds lacking the converter. Preserve both name parts.
+        return (safe:gsub("%s+", "-"))
+    end
+    if type(_G.Ambiguate) == "function" then
+        local ok, result = pcall(_G.Ambiguate, safe, ambiguity or "none")
+        if ok then return TrimIdentityPart(result) end
+    end
+    return safe:match("^[^-]+") or safe
 end
 
 local function CanonicalIdentityText(value)
@@ -2545,14 +2619,10 @@ local function SplitForeverIdentity(primary, secondary)
         first, surname = primary:match("^([^%-]+)%-(.+)$")
     end
 
-    if not first and secondary then
-        -- Some unit APIs traditionally return (name, realm). On Forever there is
-        -- no realm identity, so a second non-empty name component is a useful
-        -- compatibility fallback if a beta build chooses to expose the surname
-        -- there instead of joining it into the first return.
-        first = primary
-        surname = secondary
-    end
+    -- Camelot NameUtil treats the second UnitNameUnmodified/UnitName result
+    -- as a surname when RegionalUniqueNamesEnabled is true. Generic generated
+    -- Unit docs still label it unitServer, so never infer this from the TOC alone.
+    if not first and secondary then first, surname = primary, secondary end
 
     first = TrimIdentityPart(first or primary)
     surname = TrimIdentityPart(surname)
@@ -2602,20 +2672,27 @@ function ns.GetPlayerMentionIdentity(forceRefresh)
         shouldDisplaySurname = nil,
     }
 
+    if type(_G.RegionalUniqueNamesEnabled) == "function" then
+        local ok, enabled = pcall(_G.RegionalUniqueNamesEnabled)
+        if ok and type(enabled) == "boolean" then identity.regionalUniqueNames = enabled end
+    end
+
     if identity.hasSurnameDisplayAPI then
         local ok, value = pcall(C_PlayerInfo.ShouldDisplaySurname)
-        if not ok then
-            -- Keep this as a compatibility probe only. If the beta changes the
-            -- signature, trying the local player token is harmless and lets the
-            -- diagnostics reveal the result without making matching depend on it.
-            ok, value = pcall(C_PlayerInfo.ShouldDisplaySurname, "player")
-        end
         if ok and type(value) == "boolean" then
             identity.shouldDisplaySurname = value
         end
     end
 
     local candidates = {}
+
+    -- Prefer the flavor's own full-name assembly when its naming mode is active.
+    local nameUtil = _G.NameUtil
+    if identity.isForever and identity.regionalUniqueNames == true and type(nameUtil) == "table"
+        and type(nameUtil.GetUnmodifiedUnitFullName) == "function" then
+        local ok, value = pcall(nameUtil.GetUnmodifiedUnitFullName, "player")
+        if ok then AddIdentityCandidate(candidates, "NameUtil.GetUnmodifiedUnitFullName", value, nil) end
+    end
 
     if type(UnitNameUnmodified) == "function" then
         local ok, a, b = pcall(UnitNameUnmodified, "player")
@@ -2624,10 +2701,12 @@ function ns.GetPlayerMentionIdentity(forceRefresh)
         end
     end
 
-    if type(C_PlayerInfo) == "table" and type(C_PlayerInfo.GetName) == "function" then
-        local ok, value = pcall(C_PlayerInfo.GetName, { unit = "player" })
-        if ok then
-            AddIdentityCandidate(candidates, "C_PlayerInfo.GetName", value, nil)
+    if type(C_PlayerInfo) == "table" and type(C_PlayerInfo.GetName) == "function"
+        and type(_G.PlayerLocation) == "table" and type(_G.PlayerLocation.CreateFromUnit) == "function" then
+        local okLocation, location = pcall(_G.PlayerLocation.CreateFromUnit, _G.PlayerLocation, "player")
+        if okLocation and location then
+            local ok, value = pcall(C_PlayerInfo.GetName, location)
+            if ok then AddIdentityCandidate(candidates, "C_PlayerInfo.GetName", value, nil) end
         end
     end
 
@@ -2650,7 +2729,11 @@ function ns.GetPlayerMentionIdentity(forceRefresh)
         local candidate = candidates[i]
         local first, surname, full
         if identity.isForever then
-            first, surname, full = SplitForeverIdentity(candidate.primary, candidate.secondary)
+            local secondary
+            if identity.regionalUniqueNames == true and (candidate.source == "UnitNameUnmodified" or candidate.source == "UnitName") then
+                secondary = candidate.secondary
+            end
+            first, surname, full = SplitForeverIdentity(candidate.primary, secondary)
         else
             first = candidate.primary
             full = candidate.primary
@@ -2754,6 +2837,14 @@ function ns.IsEventSupported(eventName)
 
     if eventSupportCache[eventName] ~= nil then
         return eventSupportCache[eventName]
+    end
+
+    local validEvent = type(_G.C_EventUtils) == "table" and _G.C_EventUtils.IsEventValid
+    if type(validEvent) == "function" then
+        local ok, valid = pcall(validEvent, eventName)
+        if not ok or type(valid) ~= "boolean" then return false end
+        eventSupportCache[eventName] = valid
+        return valid
     end
 
     if type(CreateFrame) ~= "function" then

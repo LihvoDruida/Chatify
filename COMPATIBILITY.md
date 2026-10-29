@@ -83,7 +83,7 @@ For live chat-tab routing, modern/Forever clients use Blizzard's complete tab-se
 
 Secret-value restrictions are treated as active when the runtime reports them. Chatify checks secret/accessibility inspectors before converting, comparing, matching, storing, copying, or highlighting chat payloads.
 
-Forever character identity uses the least-modified readable name exposed by the client (`UnitNameUnmodified` first, then guarded fallbacks). Forever currently has a required two-part name and exposes `C_PlayerInfo.ShouldDisplaySurname`, but no documented first-name/surname getter pair. Chatify therefore splits the readable local full name only on the Forever flavor and treats `First Surname` / `First-Surname` as equivalent identity forms. The built-in player mention rule expands to first name, surname, and both full-name spellings; other clients retain single-name behavior.
+Forever character identity uses the least-modified readable name exposed by the client (`UnitNameUnmodified` first, then guarded fallbacks). Forever currently has a required two-part name and exposes `C_PlayerInfo.ShouldDisplaySurname`, but no documented first-name/surname getter pair. Camelot NameUtil treats the second unit-name result as a surname when RegionalUniqueNamesEnabled is active; generic unitServer semantics are retained otherwise. Chatify therefore splits the readable local full name only on the Forever flavor and treats `First Surname` / `First-Surname` as equivalent identity forms. The built-in player mention rule expands to first name, surname, and both full-name spellings; other clients retain single-name behavior.
 
 Chatify registers its native settings canvas with modern Blizzard Settings or legacy InterfaceOptions, depending on the available API. `/chatify`, `/cfy`, Composer shortcuts and the addon compartment open the native settings window directly. Settings registration supports APIs that become available after addon initialization and does not require AceConfigDialog.
 
@@ -239,3 +239,38 @@ current history_probe.lua exercises fallback frames, and render_taint_probe.lua
 checks clean modern post-hook contracts. Release CI waits for both source gates,
 validates the installable ZIP and packaged AceDB persistence, then checks the ZIP
 digest again before publication. See docs/MODERNIZATION_REPORT.md for this audit's results.
+
+
+## 2.18.6 — Forever source contract audit
+
+Audited mirror: `Gethe/wow-ui-source`, Forever **1.60.1.70532**, commit
+`ca8368f2f2380cbe696854f7f2646387c278a61b` (2026-10-22). This is the available
+source snapshot, not a live-client certification or a promise about later betas.
+The branch named classic_beta currently targets a different game version and
+must not be substituted for Forever based only on the historical product name.
+
+`tools/fixtures/forever-70532.json` indexes 6617 documented functions and 1814
+events from 642 hashed generated source files. `forever_schema_audit.py` checks
+all 25 C_* references in addon modules (including the dynamic channel hook) and
+records 64 referenced documented events. FrameXML functions and frame methods
+are separate Lua surfaces, not C_* functions; the source integration probe
+exercises actual PlayerLocation, ChatFrameEditBoxBaseMixin and
+ScrollingMessageFrameSecureMixin implementations.
+
+GetName requires a PlayerLocation object from PlayerLocation:CreateFromUnit.
+ShouldDisplaySurname takes no arguments. The generic UnitNameUnmodified docs call the second result unitServer, but
+Camelot NameUtil assembles it as a surname when RegionalUniqueNamesEnabled is
+active. The adapter follows that predicate and the flavor helper. C_NameUtil.ReplaceSurnameSeparatorWithLinkSeparator canonicalizes
+readable full-name forms while preserving the surname. Friend identity never
+matches a different surname or promotes a server name to a surname.
+
+Modern edit-box getters are authoritative. Secret values, errors and an empty
+modern target do not fall through to stale legacy fields. ParseText uses the live
+edit-box method. Battle.net SendWhisper and CVar SetCVar explicit false results
+are failures; addon loading state is distinct from fully loaded state.
+C_EventUtils.IsEventValid rejects unavailable events before registration, with
+the original registration probe kept for older clients.
+
+Use `/chatifycompat` in Forever to report the actual client build, source baseline,
+PlayerLocation factory, surname converter, event API and existing feature states.
+See `docs/FOREVER_API_AUDIT_2.18.6.md` for results, commands and live-test limits.

@@ -1304,7 +1304,7 @@ local function GetAnchorVisualFrame()
     return frame
 end
 
-local function NormalizeChatFrame(candidate)
+local function NormalizeChatFrame(candidate, seen)
     if not candidate then
         return nil
     end
@@ -1337,7 +1337,10 @@ local function NormalizeChatFrame(candidate)
     if okEditBox and editBox then
         local okOwner, owner = pcall(function() return editBox.chatFrame end)
         if okOwner and owner then
-            return NormalizeChatFrame(owner)
+            seen = seen or {}
+            if seen[owner] then return nil end
+            seen[candidate] = true
+            return NormalizeChatFrame(owner, seen)
         end
     end
 
@@ -1986,29 +1989,10 @@ end
 ns.SelectChatifyTabForChatType = SelectDockedChatFrameForType
 
 local function GetCurrentChatType()
-    local editBox = GetActiveEditBox()
-    if editBox then
-        local chatType
-        if editBox.GetAttribute then
-            local ok, value = pcall(editBox.GetAttribute, editBox, "chatType")
-            if ok and type(value) == "string" then
-                chatType = value
-            end
-        end
-
-        if type(chatType) ~= "string" and type(editBox.chatType) == "string" then
-            chatType = editBox.chatType
-        end
-
-        if type(chatType) == "string" then
-            return chatType
-        end
-    end
-    return nil
+    return ns.GetChatEditBoxValue(GetActiveEditBox(), "chatType")
 end
 
 local function GetSafeChatString(value)
-    if value == nil then return nil end
     if type(ns.IsProtectedChatValue) == "function" and ns.IsProtectedChatValue(value) then
         return nil
     end
@@ -2018,13 +2002,6 @@ local function GetSafeChatString(value)
     end
     if type(value) == "string" then return value end
     return nil
-end
-
-local function GetSafeEditBoxAttribute(editBox, key)
-    if not editBox or type(editBox.GetAttribute) ~= "function" then return nil end
-    local ok, value = pcall(editBox.GetAttribute, editBox, key)
-    if not ok then return nil end
-    return GetSafeChatString(value)
 end
 
 -- Shared with the long-message composer. This deliberately mirrors the old
@@ -2046,12 +2023,9 @@ function ns.GetActiveChatDraftContext()
         if ok then text = GetSafeChatString(value) or "" end
     end
 
-    local chatType = GetSafeEditBoxAttribute(editBox, "chatType")
-        or GetSafeChatString(editBox.chatType)
-    local tellTarget = GetSafeEditBoxAttribute(editBox, "tellTarget")
-        or GetSafeChatString(editBox.tellTarget)
-    local channelTarget = GetSafeEditBoxAttribute(editBox, "channelTarget")
-        or GetSafeChatString(editBox.channelTarget)
+    local chatType = ns.GetChatEditBoxValue(editBox, "chatType")
+    local tellTarget = ns.GetChatEditBoxValue(editBox, "tellTarget")
+    local channelTarget = ns.GetChatEditBoxValue(editBox, "channelTarget")
 
     return {
         text = text,
@@ -2215,23 +2189,6 @@ local function ActivateChatType(def, useAlt)
     -- current clients, and a direct global read returns nil there without saying so.
     local openChat = ns.GetChatAPI("ChatFrame_OpenChat", "OpenChat")
 
-    local parseText = _G.ChatEdit_ParseText
-    if type(parseText) ~= "function" then
-        if _G.ChatFrameEditBoxMixin and type(_G.ChatFrameEditBoxMixin.ParseText) == "function" then
-            parseText = function(editBox, send)
-                return _G.ChatFrameEditBoxMixin.ParseText(editBox, send)
-            end
-        elseif _G.ChatFrameEditBoxMixinBase and type(_G.ChatFrameEditBoxMixinBase.ParseText) == "function" then
-            parseText = function(editBox, send)
-                return _G.ChatFrameEditBoxMixinBase.ParseText(editBox, send)
-            end
-        elseif _G.ChatFrameEditBoxBaseMixin and type(_G.ChatFrameEditBoxBaseMixin.ParseText) == "function" then
-            parseText = function(editBox, send)
-                return _G.ChatFrameEditBoxBaseMixin.ParseText(editBox, send)
-            end
-        end
-    end
-
     local editBox = GetActiveEditBox()
     if not editBox then
         if type(ns.CallChatAPI) == "function" then
@@ -2287,11 +2244,11 @@ local function ActivateChatType(def, useAlt)
 
         -- OpenChat only fills the box; ChatEdit_ParseText is what consumes the
         -- slash and flips the edit box over to the new chat type.
-        if editBox and type(parseText) == "function" and slash ~= "" then
+        if editBox and slash ~= "" then
             if editBox.SetText then
                 pcall(editBox.SetText, editBox, parseBuffer)
             end
-            pcall(parseText, editBox, 0)
+            ns.CallChatFrameMethod(editBox, "ParseText", "ChatEdit_ParseText", 0)
             editBox = GetActiveEditBox() or editBox
         end
     end
@@ -3561,26 +3518,7 @@ end
 
 
 local function GetEditBoxChatType(editBox)
-    if not editBox then return nil end
-
-    if type(editBox.GetChatType) == "function" then
-        local ok, value = pcall(editBox.GetChatType, editBox)
-        if ok and type(value) == "string" and value ~= "" then
-            return value
-        end
-    end
-
-    if type(editBox.GetAttribute) == "function" then
-        local ok, value = pcall(editBox.GetAttribute, editBox, "chatType")
-        if ok and type(value) == "string" and value ~= "" then
-            return value
-        end
-    end
-
-    if type(editBox.chatType) == "string" and editBox.chatType ~= "" then
-        return editBox.chatType
-    end
-    return nil
+    return ns.GetChatEditBoxValue(editBox, "chatType")
 end
 
 local function HookGeneralRefreshSignals()

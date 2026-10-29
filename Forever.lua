@@ -16,6 +16,8 @@ ns.Client.addonName = addonName
 -- runtime API probes; they describe the expected Forever architecture so a
 -- missing API can be treated as a beta regression instead of as Classic Era.
 ns.Client.interface = 16001
+ns.Client.auditedSourceVersion = "1.60.1.70532"
+ns.Client.auditedSourceCommit = "ca8368f2f2380cbe696854f7f2646387c278a61b"
 ns.Client.usesMainlineUI = true
 ns.Client.usesModernChat = true
 ns.Client.usesSecretValues = true

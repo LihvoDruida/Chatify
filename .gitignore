@@ -26,3 +26,6 @@ luac.out
 .release/
 __pycache__/
 *.pyc
+
+# Pinned client source used only by validation
+.forever-ui/

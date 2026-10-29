@@ -18,7 +18,17 @@ Point ACE3_PATH at a checkout if the bundled libs are not populated:
 
 package.path = "tools/stub/?.lua;" .. package.path
 local env = require("wow_env")
-env.install(os.getenv("CHATIFY_STUB_MODE") or "retail")
+local testClient = os.getenv("CHATIFY_STUB_MODE") or "retail"
+env.install(testClient == "forever" and "retail" or testClient)
+if testClient == "forever" then
+    _G.WOW_PROJECT_ID, _G.WOW_PROJECT_CAMELOT = 18, 18
+    _G.GetBuildInfo = function() return "1.60.1", "70532", "Oct 22 2026", 16001 end
+    _G.RegionalUniqueNamesEnabled = function() return true end
+    _G.UnitNameUnmodified = function() return "Tester", "Surname" end
+    _G.C_GameRules = {IsGameRuleActive = function() return false end}
+    _G.Enum = _G.Enum or {}
+    _G.Enum.GameRule = {RPRuleset = 1, PvPRuleset = 2, HardcoreRuleset = 3}
+end
 
 -- ------------------------------------------------------------- real AceDB
 
@@ -138,7 +148,7 @@ local ns, addonName = {}, "Chatify"
 
 local function tocFiles()
     local files = {}
-    local fh = assert(io.open("Chatify.toc", "r"))
+    local fh = assert(io.open(testClient == "forever" and "Chatify_Camelot.toc" or "Chatify.toc", "r"))
     for line in fh:lines() do
         line = line:gsub("^\239\187\191", ""):gsub("%s+$", "")
         if line ~= "" and not line:match("^#") and line:match("%.lua$") then
@@ -157,6 +167,10 @@ end
 
 local addon = LibStub("AceAddon-3.0"):GetAddon(addonName)
 addon:OnInitialize()
+if testClient == "forever" then
+    assert(addon.db.keys.char == "Tester Surname", "Forever AceDB character key lost surname")
+    assert(addon.db.keys.realm == "PvE", "Forever AceDB did not select regional ruleset")
+end
 
 -- The rest of a real session, not just OnInitialize. Modules enable, the options
 -- table is built, and the deferred login migrations run. Any of these can write

@@ -1107,6 +1107,13 @@ local function IsSelfAuthorForMention(author)
         return false
     end
 
+    if ns.IsForeverClient() then
+        local identity = ns.GetPlayerMentionIdentity()
+        local authorKey = ns.NormalizePlayerNameCompat(safeAuthor)
+        local playerKey = ns.NormalizePlayerNameCompat(identity.full or identity.first)
+        return authorKey ~= nil and playerKey ~= nil and strlower(authorKey) == strlower(playerKey)
+    end
+
     local shortName = safeAuthor
     if type(Ambiguate) == "function" then
         local ok, result = pcall(Ambiguate, safeAuthor, "none")

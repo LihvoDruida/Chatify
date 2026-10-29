@@ -116,7 +116,11 @@ local function CanAccess(...)
 end
 
 local function PlayerName()
-    return UnitName("player")
+    if ns.IsForeverClient() then
+        local identity = ns.GetPlayerMentionIdentity()
+        return identity.full or identity.first
+    end
+    return SafeChatText(UnitName("player"))
 end
 
 local function NormalizePlayerName(name, ambiguity)
@@ -124,6 +128,8 @@ local function NormalizePlayerName(name, ambiguity)
     if type(safeName) ~= "string" or safeName == "" then
         return nil
     end
+
+    if ns.IsForeverClient() then return ns.NormalizePlayerNameCompat(safeName, ambiguity) end
 
     if type(Ambiguate) == "function" then
         local ok, result = pcall(Ambiguate, safeName, ambiguity or "none")

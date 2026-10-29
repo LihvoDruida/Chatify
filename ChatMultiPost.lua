@@ -354,52 +354,12 @@ function ns.SplitLongMessage(text, options)
 end
 
 local function GetEditBoxChatType(editBox)
-    if not editBox then return nil end
-
-    if type(editBox.GetChatType) == "function" then
-        local ok, value = pcall(editBox.GetChatType, editBox)
-        if ok and type(value) == "string" and value ~= "" then
-            return value
-        end
-    end
-
-    if type(editBox.GetAttribute) == "function" then
-        local ok, value = pcall(editBox.GetAttribute, editBox, "chatType")
-        if ok and type(value) == "string" and value ~= "" then
-            return value
-        end
-    end
-
-    if type(editBox.chatType) == "string" and editBox.chatType ~= "" then
-        return editBox.chatType
-    end
-    return nil
+    return ns.GetChatEditBoxValue(editBox, "chatType")
 end
 
 local function GetEditBoxTarget(editBox, chatType)
-    if not editBox then return nil end
-
-    if chatType == "WHISPER" then
-        if type(editBox.GetTellTarget) == "function" then
-            local ok, target = pcall(editBox.GetTellTarget, editBox)
-            if ok and target and target ~= "" then return target end
-        end
-        if type(editBox.GetAttribute) == "function" then
-            local ok, target = pcall(editBox.GetAttribute, editBox, "tellTarget")
-            if ok and target and target ~= "" then return target end
-        end
-        return editBox.tellTarget
-    elseif chatType == "CHANNEL" then
-        if type(editBox.GetChannelTarget) == "function" then
-            local ok, target = pcall(editBox.GetChannelTarget, editBox)
-            if ok and target then return target end
-        end
-        if type(editBox.GetAttribute) == "function" then
-            local ok, target = pcall(editBox.GetAttribute, editBox, "channelTarget")
-            if ok and target then return target end
-        end
-        return editBox.channelTarget
-    end
+    if chatType == "WHISPER" then return ns.GetChatEditBoxValue(editBox, "tellTarget") end
+    if chatType == "CHANNEL" then return ns.GetChatEditBoxValue(editBox, "channelTarget") end
     return nil
 end
 
