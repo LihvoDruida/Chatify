@@ -1,3 +1,13 @@
+## 2.18.7 — Client-aware UI/UX fixes
+
+- Fit Composer, help and Copy/History to the available UI viewport. Scroll the full Composer form and restore pooled AceGUI frame scale on release.
+- Fix Composer method argument handling during reopening, preview rebuilding, import and shutdown; remove callbacks that reference released widgets.
+- Measure wrapped Copy/History text with the active chat font; separate the translated History source label from its search field and preserve search focus.
+- Keep Settings/Copy/History sidebar navigation available without channel routing APIs, and refresh channel controls after late API availability.
+- Preserve uncommitted settings while moving between standalone and game settings hosts. Keep disabled rows hoverable for explanations and recheck profile/runtime restrictions before confirmed actions.
+- Refresh popup frame levels on host changes and size confirmation panels for their text.
+- Add six required UI regression runs using shipped AceGUI Lua under both Lua 5.1 and 5.4; live rendering and taint certification still require the game client.
+
 ## 2.18.6 — Forever 70532 API contracts
 
 - Audit API references against the generated Forever 1.60.1.70532 source contracts; keep Interface 16001.

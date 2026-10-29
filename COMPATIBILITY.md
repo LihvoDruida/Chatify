@@ -1,6 +1,6 @@
 # Chatify client/API compatibility
 
-Audit date: **2026-10-12** — Chatify **2.18.3**
+Audit date: **2026-10-29** — Chatify **2.18.7**
 
 Client identity and feature capability are evaluated separately. Forever is detected
 by its TOC marker, guarded Camelot project constant or 1.60.x interface range.
@@ -274,3 +274,17 @@ the original registration probe kept for older clients.
 Use `/chatifycompat` in Forever to report the actual client build, source baseline,
 PlayerLocation factory, surname converter, event API and existing feature states.
 See `docs/FOREVER_API_AUDIT_2.18.6.md` for results, commands and live-test limits.
+
+## UI/UX validation in 2.18.7
+
+The shared frame APIs are exercised with real shipped AceGUI Lua on Retail,
+Forever, Era, TBC, Mists and Titan fixtures. UIParent dimensions are logical UI
+units: windows shrink their scroll viewport before scaling typography. Only
+addon-owned windows are resized; Blizzard chat frame hierarchy and protected
+selection rules retain their existing capability guards.
+
+Settings, Copy and History navigation does not require chat routing. Unavailable
+channel controls remain hidden until the runtime capability becomes available.
+See `docs/UI_UX_AUDIT_2.18.7.md` for evidence and live-client limits. Interface
+numbers remain the supplied verified targets; this UI update does not assert
+support for an unobserved future client schema.

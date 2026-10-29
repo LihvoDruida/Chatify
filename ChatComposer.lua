@@ -582,6 +582,8 @@ function Composer:OpenHelp()
     text:SetFullWidth(true)
     text:SetText(T("LONG_MESSAGE_COMPOSER_HELP"))
     scroll:AddChild(text)
+    frame:EnableResize(false)
+    ns.WindowLayout:Attach(frame.frame, { widget = frame, width = 680, height = 560, minWidth = 520, minHeight = 300 })
 end
 
 function Composer:OpenSettings()
@@ -705,7 +707,7 @@ function Composer:Open(options)
     self.window = frame
     frame:SetTitle(T("Chatify - Long Message Composer"))
     frame:SetStatusText(T("Manual sending is always available. Queue automation sends only supported channels and pauses when WoW requires a hardware click."))
-    frame:SetLayout("Flow")
+    frame:SetLayout("Fill")
     frame:SetWidth(800)
     frame:SetHeight(880)
     frame:SetCallback("OnClose", function(widget)
@@ -716,18 +718,23 @@ function Composer:Open(options)
         if widget.frame and widget.frame.Hide then widget.frame:Hide() end
     end)
 
+    frame:EnableResize(false)
+    local body = AceGUI:Create("ScrollFrame")
+    body:SetLayout("Flow")
+    frame:AddChild(body)
+
     local channelDrop = AceGUI:Create("Dropdown")
     channelDrop:SetLabel(T("Channel"))
     channelDrop:SetList(channelValues, channelOrder)
     channelDrop:SetValue(state.channel)
     channelDrop:SetRelativeWidth(0.34)
-    frame:AddChild(channelDrop)
+    body:AddChild(channelDrop)
 
     local targetBox = AceGUI:Create("EditBox")
     targetBox:SetLabel(T("Whisper Target"))
     targetBox:SetRelativeWidth(0.33)
     targetBox:SetText(state.whisperTarget or "")
-    frame:AddChild(targetBox)
+    body:AddChild(targetBox)
 
     local markerDrop = AceGUI:Create("Dropdown")
     local markerValues, markerOrder = {}, {}
@@ -738,7 +745,7 @@ function Composer:Open(options)
     markerDrop:SetLabel(T("Insert Raid Marker"))
     markerDrop:SetList(markerValues, markerOrder)
     markerDrop:SetRelativeWidth(0.33)
-    frame:AddChild(markerDrop)
+    body:AddChild(markerDrop)
 
     -- Composer-local settings mirror the main Chatify settings and rebuild the
     -- loaded preview immediately, matching the original long-message workflow.
@@ -747,32 +754,32 @@ function Composer:Open(options)
     limitSlider:SetSliderValues(MIN_LIMIT, MAX_LIMIT, 1)
     limitSlider:SetValue(ClampLimit(profile.chunkLimit))
     limitSlider:SetRelativeWidth(0.34)
-    frame:AddChild(limitSlider)
+    body:AddChild(limitSlider)
 
     local counterCheck = AceGUI:Create("CheckBox")
     counterCheck:SetLabel(T("Show Chunk Counter"))
     counterCheck:SetValue(profile.showCounter ~= false)
     counterCheck:SetRelativeWidth(0.28)
-    frame:AddChild(counterCheck)
+    body:AddChild(counterCheck)
 
     local continuationDrop = AceGUI:Create("Dropdown")
     continuationDrop:SetLabel(T("Continuation Markers"))
     continuationDrop:SetList(ns.GetComposerContinuationValues and ns.GetComposerContinuationValues() or CONTINUATION_MODES, { "BOTH", "START", "END", "NONE" })
     continuationDrop:SetValue(profile.continuation or "BOTH")
     continuationDrop:SetRelativeWidth(0.38)
-    frame:AddChild(continuationDrop)
+    body:AddChild(continuationDrop)
 
     local importDraftCheck = AceGUI:Create("CheckBox")
     importDraftCheck:SetLabel(T("Use Current Chat Draft"))
     importDraftCheck:SetValue(profile.importCurrentDraft ~= false)
     importDraftCheck:SetRelativeWidth(0.33)
-    frame:AddChild(importDraftCheck)
+    body:AddChild(importDraftCheck)
 
     local rememberWhisperCheck = AceGUI:Create("CheckBox")
     rememberWhisperCheck:SetLabel(T("Remember Whisper Target"))
     rememberWhisperCheck:SetValue(profile.rememberWhisperTarget ~= false)
     rememberWhisperCheck:SetRelativeWidth(0.33)
-    frame:AddChild(rememberWhisperCheck)
+    body:AddChild(rememberWhisperCheck)
 
     local spellcheckCheck = AceGUI:Create("CheckBox")
     spellcheckCheck:SetLabel(T("Spell Check Integration"))
@@ -781,31 +788,31 @@ function Composer:Open(options)
     if not (_G.Misspelled and type(_G.Misspelled.WireUpEditBox) == "function") then
         spellcheckCheck:SetDisabled(true)
     end
-    frame:AddChild(spellcheckCheck)
+    body:AddChild(spellcheckCheck)
 
     local autoPreviewCheck = AceGUI:Create("CheckBox")
     autoPreviewCheck:SetLabel(T("Auto-build Preview"))
     autoPreviewCheck:SetValue(profile.autoPreview ~= false)
     autoPreviewCheck:SetRelativeWidth(0.33)
-    frame:AddChild(autoPreviewCheck)
+    body:AddChild(autoPreviewCheck)
 
     local autoAdvanceCheck = AceGUI:Create("CheckBox")
     autoAdvanceCheck:SetLabel(T("Advance After Send"))
     autoAdvanceCheck:SetValue(profile.autoAdvance ~= false)
     autoAdvanceCheck:SetRelativeWidth(0.33)
-    frame:AddChild(autoAdvanceCheck)
+    body:AddChild(autoAdvanceCheck)
 
     local finalLockCheck = AceGUI:Create("CheckBox")
     finalLockCheck:SetLabel(T("Protect Final Chunk"))
     finalLockCheck:SetValue(profile.lockFinalChunk ~= false)
     finalLockCheck:SetRelativeWidth(0.34)
-    frame:AddChild(finalLockCheck)
+    body:AddChild(finalLockCheck)
 
     local automationCheck = AceGUI:Create("CheckBox")
     automationCheck:SetLabel(T("Enable Queue Automation"))
     automationCheck:SetValue(profile.automationEnabled == true)
     automationCheck:SetRelativeWidth(0.33)
-    frame:AddChild(automationCheck)
+    body:AddChild(automationCheck)
 
     local automationDelaySlider = AceGUI:Create("Slider")
     automationDelaySlider:SetLabel(T("Automation Delay"))
@@ -813,28 +820,28 @@ function Composer:Open(options)
     automationDelaySlider:SetValue(ClampAutomationDelay(profile.automationDelay))
     automationDelaySlider:SetRelativeWidth(0.33)
     automationDelaySlider:SetDisabled(profile.automationEnabled ~= true)
-    frame:AddChild(automationDelaySlider)
+    body:AddChild(automationDelaySlider)
 
     local automationAutoStartCheck = AceGUI:Create("CheckBox")
     automationAutoStartCheck:SetLabel(T("Auto-start After Split"))
     automationAutoStartCheck:SetValue(profile.automationAutoStart == true)
     automationAutoStartCheck:SetRelativeWidth(0.34)
     automationAutoStartCheck:SetDisabled(profile.automationEnabled ~= true)
-    frame:AddChild(automationAutoStartCheck)
+    body:AddChild(automationAutoStartCheck)
 
     local automationResumeManualCheck = AceGUI:Create("CheckBox")
     automationResumeManualCheck:SetLabel(T("Resume After Manual Chunk"))
     automationResumeManualCheck:SetValue(profile.automationResumeAfterManual ~= false)
     automationResumeManualCheck:SetRelativeWidth(0.50)
     automationResumeManualCheck:SetDisabled(profile.automationEnabled ~= true)
-    frame:AddChild(automationResumeManualCheck)
+    body:AddChild(automationResumeManualCheck)
 
     local automationResumeLockdownCheck = AceGUI:Create("CheckBox")
     automationResumeLockdownCheck:SetLabel(T("Resume After Chat Lockdown"))
     automationResumeLockdownCheck:SetValue(profile.automationResumeAfterLockdown == true)
     automationResumeLockdownCheck:SetRelativeWidth(0.50)
     automationResumeLockdownCheck:SetDisabled(profile.automationEnabled ~= true)
-    frame:AddChild(automationResumeLockdownCheck)
+    body:AddChild(automationResumeLockdownCheck)
 
     local automationHint = AceGUI:Create("Label")
     automationHint:SetFullWidth(true)
@@ -846,7 +853,7 @@ function Composer:Open(options)
         end
     end
     automationHint:SetText(automationHintText)
-    frame:AddChild(automationHint)
+    body:AddChild(automationHint)
 
     local input = AceGUI:Create("MultiLineEditBox")
     self.inputWidget = input
@@ -855,42 +862,42 @@ function Composer:Open(options)
     input:SetFullWidth(true)
     input:DisableButton(true)
     input:SetText(state.inputText or "")
-    frame:AddChild(input)
+    body:AddChild(input)
 
     local hint = AceGUI:Create("Label")
     hint:SetFullWidth(true)
     hint:SetText(T("Per Line mode supports /s, /e, /y, /p, /raid, /rw, /i, /g, /o and /w Name. Each non-empty line is parsed separately."))
-    frame:AddChild(hint)
+    body:AddChild(hint)
 
     local importButton = AceGUI:Create("Button")
     importButton:SetText(T("Use Current Chat"))
     importButton:SetRelativeWidth(0.20)
-    frame:AddChild(importButton)
+    body:AddChild(importButton)
 
     local splitButton = AceGUI:Create("Button")
     splitButton:SetText(T("Split / Refresh Preview"))
     splitButton:SetRelativeWidth(0.25)
-    frame:AddChild(splitButton)
+    body:AddChild(splitButton)
 
     local clearButton = AceGUI:Create("Button")
     clearButton:SetText(T("Clear"))
     clearButton:SetRelativeWidth(0.13)
-    frame:AddChild(clearButton)
+    body:AddChild(clearButton)
 
     local helpButton = AceGUI:Create("Button")
     helpButton:SetText(T("Help"))
     helpButton:SetRelativeWidth(0.13)
-    frame:AddChild(helpButton)
+    body:AddChild(helpButton)
 
     local settingsButton = AceGUI:Create("Button")
     settingsButton:SetText(T("Settings"))
     settingsButton:SetRelativeWidth(0.13)
-    frame:AddChild(settingsButton)
+    body:AddChild(settingsButton)
 
     local status = AceGUI:Create("Label")
     status:SetFullWidth(true)
     status:SetText(T("No chunks yet."))
-    frame:AddChild(status)
+    body:AddChild(status)
 
     local preview = AceGUI:Create("MultiLineEditBox")
     preview:SetLabel(T("Current Chunk Preview"))
@@ -898,37 +905,39 @@ function Composer:Open(options)
     preview:SetFullWidth(true)
     preview:DisableButton(true)
     preview:SetDisabled(true)
-    frame:AddChild(preview)
+    body:AddChild(preview)
 
     local prevButton = AceGUI:Create("Button")
     prevButton:SetText(T("Previous Chunk"))
     prevButton:SetRelativeWidth(0.20)
-    frame:AddChild(prevButton)
+    body:AddChild(prevButton)
 
     local nextButton = AceGUI:Create("Button")
     nextButton:SetText(T("Next Chunk"))
     nextButton:SetRelativeWidth(0.20)
-    frame:AddChild(nextButton)
+    body:AddChild(nextButton)
 
     local sendButton = AceGUI:Create("Button")
     sendButton:SetText(T("Send This Chunk"))
     sendButton:SetRelativeWidth(0.24)
-    frame:AddChild(sendButton)
+    body:AddChild(sendButton)
 
     local automationStartButton = AceGUI:Create("Button")
     automationStartButton:SetText(T("Start Auto Send"))
     automationStartButton:SetRelativeWidth(0.20)
-    frame:AddChild(automationStartButton)
+    body:AddChild(automationStartButton)
 
     local automationStopButton = AceGUI:Create("Button")
     automationStopButton:SetText(T("Stop Auto Send"))
     automationStopButton:SetRelativeWidth(0.20)
-    frame:AddChild(automationStopButton)
+    body:AddChild(automationStopButton)
 
     local info = AceGUI:Create("Label")
     info:SetRelativeWidth(0.36)
     info:SetText("")
-    frame:AddChild(info)
+    body:AddChild(info)
+
+    ns.WindowLayout:Attach(frame.frame, { widget = frame, width = 800, height = 880, minWidth = 680, minHeight = 420 })
 
     self.ui = {
         frame = frame,
@@ -1005,7 +1014,7 @@ function Composer:Open(options)
         state.automationMessage = message
         if not silent and UpdatePreview then UpdatePreview(message or T("Automation stopped.")) end
     end
-    self.StopAutomation = StopAutomation
+    self.StopAutomation = function(_, message, silent) return StopAutomation(message, silent) end
 
     local function FinishAutomation(message)
         InvalidateAutomationRun()
@@ -1113,7 +1122,7 @@ function Composer:Open(options)
         Step(fromHardwareEvent == true)
         return true
     end
-    self.StartAutomation = StartAutomation
+    self.StartAutomation = function(_, fromHardwareEvent) return StartAutomation(fromHardwareEvent) end
 
     UpdatePreview = function(message)
         local count = #state.chunks
@@ -1192,7 +1201,7 @@ function Composer:Open(options)
         UpdatePreview(message)
         return true
     end
-    self.RebuildPreview = Rebuild
+    self.RebuildPreview = function(_, message) return Rebuild(message) end
 
     local function ImportCurrentChat(autoBuild)
         if state.automationRunning or state.automationPaused then StopAutomation(nil, true) end
@@ -1233,7 +1242,7 @@ function Composer:Open(options)
         end
         return true
     end
-    self.ImportCurrentChat = ImportCurrentChat
+    self.ImportCurrentChat = function(_, autoSplit) return ImportCurrentChat(autoSplit) end
 
     local function AutoRebuildSettings()
         if #state.chunks > 0 then
@@ -1534,8 +1543,7 @@ function Composer:OnEnable()
         end
         local module = Chatify:GetModule("Composer", true)
         if module and type(module.Open) == "function" then
-            module:Open(options)
-            return true
+            return module:Open(options)
         end
         return false
     end
@@ -1557,15 +1565,22 @@ function Composer:OnDisable()
     ns.OpenChatComposer = nil
     ns.NotifyComposerSettingsChanged = nil
     if self.window then
+        ns.WindowLayout:Detach(self.window.frame)
         if AceGUI and type(AceGUI.Release) == "function" then AceGUI:Release(self.window) end
         self.window = nil
     end
     if self.helpWindow then
+        ns.WindowLayout:Detach(self.helpWindow.frame)
         if AceGUI and type(AceGUI.Release) == "function" then AceGUI:Release(self.helpWindow) end
         self.helpWindow = nil
     end
     self.ui = nil
     self.inputWidget = nil
+    self.StopAutomation = nil
+    self.StartAutomation = nil
+    self.RebuildPreview = nil
+    self.ImportCurrentChat = nil
+    self.UpdateComposerUI = nil
 end
 
 ns.GetComposerChannelValues = function()

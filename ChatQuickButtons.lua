@@ -1092,7 +1092,7 @@ local function GetOrderedButtons()
     local ordered = {}
     local db = GetDB() or {}
 
-    if db.quickChatButtons ~= false then
+    if db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons")) then
         if composerButton and IsComposerQuickButtonEnabled() then
             table.insert(ordered, composerButton)
         end
@@ -1655,7 +1655,7 @@ local function GetLayoutSignature()
     local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
     local yOffset = GetConfiguredButtonYOffset()
     local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
-    local showQuickButtons = db.quickChatButtons ~= false
+    local showQuickButtons = db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons"))
     local showSettingsButton = ShouldShowSettingsButton()
     local showComposerButton = IsComposerQuickButtonEnabled()
     local sidebarFrame, sidebarHostFrame = GetMainSidebarButtonFrame()
@@ -3737,7 +3737,7 @@ end
 
 function ns.RefreshQuickChatButtons()
     local db = GetDB()
-    local showQuickButtons = db and db.quickChatButtons ~= false
+    local showQuickButtons = db and db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons"))
     local showSettingsButton = ShouldShowSettingsButton()
     local showSidebarMenu = ShouldShowSidebarMenu()
 
@@ -3801,10 +3801,8 @@ function QuickButtonsModule:Refresh()
 end
 
 function QuickButtonsModule:OnEnable()
-    if type(ns.IsFeatureAvailable) == "function" and not ns.IsFeatureAvailable("quickButtons") then
-        return
-    end
-
+    -- Settings, Copy and History do not require channel-routing APIs. Keep
+    -- listening for late API loads even when channel buttons are unavailable.
     local function register(eventName, method)
         if type(ns.RegisterEventIfSupported) == "function" then
             return ns.RegisterEventIfSupported(self, eventName, method)

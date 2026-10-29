@@ -76,6 +76,12 @@ Chatify is checked as a release product, not only as separate Lua files. The rel
 
 The Ukrainian QA notes and terminology are kept in [`docs/QUALITY_AND_TESTING.md`](docs/QUALITY_AND_TESTING.md).
 
+## UI/UX 2.18.7
+
+Composer and its help window fit the current UI viewport; the full Composer form scrolls on short displays. Copy/History uses wrapped chat-font measurements, and History search stays inside the window on long translated tab names. Settings drafts survive moving between standalone and Blizzard settings hosts. Settings, Copy and History remain accessible when channel-routing APIs are unavailable.
+
+See [`docs/UI_UX_AUDIT_2.18.7.md`](docs/UI_UX_AUDIT_2.18.7.md) for findings, client fixtures, validation evidence and the in-game verification steps.
+
 ## 📝 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

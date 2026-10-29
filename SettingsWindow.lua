@@ -8,7 +8,7 @@ local Compat = {
         return type(ns.HasSecretChatValue) == "function" and ns.HasSecretChatValue(value) or false
     end,
     GetAddonVersion = function()
-        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "2.18.3"
+        return type(ns.GetAddonMetadata) == "function" and ns.GetAddonMetadata(addonName, "Version") or "?"
     end,
 }
 local unpack = unpack or table.unpack
@@ -432,7 +432,13 @@ function UI:Apply(row, ...)
             return false
         end
     end
+    local profile = ns.Chatify.db and ns.Chatify.db.profile
     local function commit()
+        -- A confirmation can outlive the profile or combat state that opened it.
+        if profile ~= (ns.Chatify.db and ns.Chatify.db.profile) or UI:IsRowUnavailable(row) then
+            UI:RequestRefresh()
+            return false
+        end
         local ok, err = pcall(handler, row.info, unpack(values))
         if not ok then
             UI.lastError = tostring(err)
@@ -462,7 +468,9 @@ end
 function UI:ConfirmProfileReset()
     if not ns.Chatify or not ns.Chatify.db then return false end
     if not self.window or not self.window:IsShown() then self:Open() end
+    local profile = ns.Chatify.db.profile
     self:Confirm(L.UI_RESET_PROFILE_CONFIRM, function()
+        if profile ~= ns.Chatify.db.profile then self:RequestRefresh(); return end
         if type(ns.Chatify.ResetChatifyProfile) == "function" then
             ns.Chatify:ResetChatifyProfile()
             self.inputDraftProfile, self.inputDrafts, self.fieldErrors, self.fieldSuccess = nil, {}, {}, {}
@@ -492,9 +500,12 @@ function UI:Confirm(text, callback)
         local no = button(panel, L.UI_CANCEL, 180)
         no:SetPoint("BOTTOMRIGHT", -23, 22)
         no:SetScript("OnClick", function() overlay.callback = nil; overlay:Hide() end)
+        overlay.panel = panel
         self.confirm = overlay
     end
     self.confirm.text:SetText(clean(text) .. "\n\n" .. L.UI_CONFIRM_DESC)
+    self.confirm:SetFrameLevel(self.window:GetFrameLevel() + 40)
+    self.confirm.panel:SetHeight(max(155, self.confirm.text:GetStringHeight() + 100))
     self.confirm.callback = callback
     self.confirm:Show()
 end
@@ -541,6 +552,7 @@ function UI:ShowChoices(row, anchor)
         self.choices = popup
     end
     local popup = self.choices
+    popup:SetFrameLevel(self.window:GetFrameLevel() + 30)
     popup.row = row
     popup:SetHeight(min(320, max(150, self.body:GetHeight() - 64)))
     popup:ClearAllPoints()
@@ -584,7 +596,8 @@ end
 function UI:CreateRow(kind)
     local f = frame("Frame", nil, self.content)
     f.kind = kind
-    f:EnableMouse(false)
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function() UI:ShowDetails(f.row) end)
     f.title = label(f, "", 13)
     f.title:SetPoint("TOPLEFT", 12, -11)
     f.title:SetWidth(485)
@@ -623,7 +636,7 @@ function UI:CreateRow(kind)
             end
         end)
         number:SetScript("OnEditFocusLost", function()
-            if not f.canceling and not f.syncing and f.row and UI:InputDrafts()[UI:FieldKey(f.row)] then
+            if not UI.rehosting and not f.canceling and not f.syncing and f.row and UI:InputDrafts()[UI:FieldKey(f.row)] then
                 UI:CommitNumber(f)
             end
             UI.interacting = false; UI:RequestRefresh()
@@ -697,7 +710,7 @@ function UI:CreateRow(kind)
             UI:UpdateFieldFeedback(f)
         end)
         f.input:SetScript("OnEditFocusLost", function()
-            if not f.syncing and not f.canceling and f.row and f.row.option.chatifyCommitOnFocusLost then
+            if not UI.rehosting and not f.syncing and not f.canceling and f.row and f.row.option.chatifyCommitOnFocusLost then
                 UI:CommitInput(f, true)
             end
             UI.interacting = false
@@ -753,7 +766,7 @@ function UI:BindRow(f, row)
     f.row, f.syncing, f.pendingValue = row, true, nil
     f.title:SetText(row.displayName or row.name)
     f:SetAlpha(row.disabled and 0.45 or 1)
-    f:EnableMouse(false)
+    f:EnableMouse(true)
     local o = row.option
     if f.check then
         f.check:SetChecked(self:Evaluate(o, "get", row.info, false, row.choice))
@@ -805,7 +818,7 @@ function UI:ClipControl(control, scroll, enabled)
         control:SetHitRectInsets(0, 0, max(0, top - viewTop), max(0, viewBottom - bottom))
         enabled = enabled and bottom < viewTop and top > viewBottom
     end
-    if type(control.IsEnabled) == "function" then enabled = enabled and control:IsEnabled() end
+    if type(control.IsEnabled) == "function" then enabled = enabled and control:IsEnabled() ~= false end
     control:EnableMouse(enabled and true or false)
 end
 
@@ -825,6 +838,7 @@ function UI:RenderVisible()
             if not f then f = self:CreateRow(kind); pool[counts[kind]] = f end
             f:ClearAllPoints(); f:SetPoint("TOPLEFT", 0, -row.y); f:SetSize(507, row.height - 3)
             self:BindRow(f, row); f:Show()
+            self:ClipControl(f, self.scroll, true)
             for _, key in ipairs({ "check", "slider", "number", "control", "input", "soundPreview" }) do
                 self:ClipControl(f[key], self.scroll, not row.disabled)
             end
@@ -1130,9 +1144,11 @@ function UI:Create()
                 if f.input then f.input:ClearFocus() end
             end
         end
-        self.inputDrafts = {}
-        self.fieldErrors = {}
-        self.fieldSuccess = {}
+        if not self.rehosting then
+            self.inputDrafts = {}
+            self.fieldErrors = {}
+            self.fieldSuccess = {}
+        end
     end)
     local tick, statusTick = 0, 0
     w:SetScript("OnUpdate", function(_, elapsed)
@@ -1175,6 +1191,7 @@ end
 
 function UI:OpenEmbedded(host)
     if not self.window then self:Create() end
+    self.rehosting = true
     self.window:Hide()
     self.embeddedHost = host
     self.window:SetParent(host); self.window:ClearAllPoints(); self.window:SetPoint("CENTER", host, "CENTER")
@@ -1182,6 +1199,7 @@ function UI:OpenEmbedded(host)
     self.window:SetFrameLevel(host:GetFrameLevel() + 1)
     self:SetStandaloneEscape(false); self.layoutSignature = nil
     self:FitScreen(); self.window:Show()
+    self.rehosting = nil
     self.pageKey = self.pageKey or "overview"
     self:Rebuild(false); self:UpdateStatus()
     return true
@@ -1189,12 +1207,15 @@ end
 
 function UI:Open()
     if not self.window then self:Create() end
+    self.rehosting = true
     self.window:Hide()
     self.embeddedHost = nil
     self.window:SetParent(UIParent); self.window:ClearAllPoints(); self.window:SetPoint("CENTER")
     self.window:SetFrameStrata("DIALOG")
+    self.window:SetFrameLevel(20)
     self:SetStandaloneEscape(true); self.layoutSignature = nil
     self:FitScreen(); self.window:Show()
+    self.rehosting = nil
     self.pageKey = self.pageKey or "overview"
     self:Rebuild(false); self:UpdateStatus()
     return true

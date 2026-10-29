@@ -1,0 +1,18 @@
+Chatify 2.18.7 — діагностика та виправлення UI/UX
+
+Встановлення: розпакуйте dist/Chatify-2.18.7.zip у Interface/AddOns.
+Цей зовнішній архів містить повні джерела, бібліотеки, тести та звіти.
+Звіт: docs/UI_UX_AUDIT_2.18.7.md
+Докази: docs/validation/uiux-2.18.7/
+Коміт: a20045b36b1ce0491495c000c44a311271d5abda
+Патч від 2.18.6: CHANGESET.patch
+Перевірки: 193 source checks на кожній Lua 5.1/5.4; 984 UI-сценарії; 6 реальних AceDB roundtrip.
+Реальний вигляд і taint потребують перевірки у WoW; офлайн-тести цього не сертифікують.
+Interface Forever: 16001; інші перевірені targets збережено.
+
+Повторення перевірок з кореня Chatify:
+CHATIFY_LUA_VERSION=5.1 bash tools/check_all.sh
+CHATIFY_LUA_VERSION=5.4 bash tools/check_all.sh
+python3 tools/validate_package.py dist/Chatify-2.18.7.zip --expected-version 2.18.7
+
+SHA-256 встановлюваного ZIP: 56525024ad5eeba5084df5f3d1285bf7b0cc5bb659b47846b6e79efc182983e5

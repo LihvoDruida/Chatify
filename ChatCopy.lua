@@ -569,6 +569,8 @@ local copyPreviewLayoutText = ""
 -- Defined further down, next to the layout helpers, but needed by the window
 -- construction above it.
 local RefreshCopyScrollRect
+local ApplyCopyPreviewLayout
+local copyMeasure
 local copySettingText = false
 local nativeCopySessions = setmetatable({}, { __mode = "k" })
 local nativeCopySessionId = 0
@@ -1469,13 +1471,17 @@ local function CreateCopyWindow()
     end)
 
     local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("TOPLEFT", 18, -84)
+    searchLabel:SetPoint("TOPLEFT", 18, -80)
+    searchLabel:SetPoint("TOPRIGHT", -36, -80)
+    searchLabel:SetJustifyH("LEFT")
+    searchLabel:SetWordWrap(false)
     searchLabel:SetText(L("Search"))
     searchLabel:Hide()
 
     local searchBox = CreateFrame("EditBox", "ChatifyHistorySearchBox", f, "InputBoxTemplate")
-    searchBox:SetSize(360, 24)
-    searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 10, 0)
+    searchBox:SetHeight(24)
+    searchBox:SetPoint("TOPLEFT", f, "TOPLEFT", 22, -103)
+    searchBox:SetPoint("TOPRIGHT", f, "TOPRIGHT", -154, -103)
     searchBox:SetAutoFocus(false)
     searchBox:SetMaxLetters(120)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -1486,7 +1492,7 @@ local function CreateCopyWindow()
 
     local searchStatus = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     searchStatus:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
-    searchStatus:SetPoint("RIGHT", f, "RIGHT", -36, 0)
+    searchStatus:SetWidth(106)
     searchStatus:SetJustifyH("RIGHT")
     searchStatus:SetText("")
     searchStatus:Hide()
@@ -1683,6 +1689,19 @@ local function CreateCopyWindow()
     copyTabs = tabs
     copyTabPrevButton = prevTab
     copyTabNextButton = nextTab
+    copyMeasure = f:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
+    copyMeasure:SetSpacing(2)
+    copyMeasure:SetWordWrap(true)
+    copyMeasure:SetNonSpaceWrap(true)
+    copyMeasure:Hide()
+    ns.WindowLayout:Attach(f, {
+        width = 660, height = 486, minWidth = 560, minHeight = 400,
+        onFit = function()
+            ApplyCopyPreviewLayout(copyPreviewLayoutText)
+            RefreshCopyScrollRect()
+            RefreshCopyTabs(true)
+        end,
+    })
 end
 
 local BuildTextFromEntries
@@ -1718,7 +1737,7 @@ RefreshCopyScrollRect = function()
     end
 end
 
-local function ApplyCopyPreviewLayout(text)
+ApplyCopyPreviewLayout = function(text)
     if not copyContent then
         return
     end
@@ -1736,7 +1755,13 @@ local function ApplyCopyPreviewLayout(text)
     for _ in string.gmatch(text or "", "\n") do
         lineCount = lineCount + 1
     end
-    copyContent:SetHeight(math.max(1, lineCount * 16 + 24))
+    local height = lineCount * 16
+    if copyMeasure then
+        copyMeasure:SetWidth(math.max(1, copyContent:GetWidth() - 8))
+        copyMeasure:SetText(text or "")
+        height = math.max(height, copyMeasure:GetStringHeight() or 0)
+    end
+    copyContent:SetHeight(math.max(1, math.ceil(height) + 24))
 end
 
 local function RenderCopyPreview(entries)
@@ -1923,7 +1948,7 @@ local function ApplyCopyWindowModeStyle(mode)
     SetVisible(copySearchStatus, isHistory)
     if copyPreviewBg then
         copyPreviewBg:ClearAllPoints()
-        copyPreviewBg:SetPoint("TOPLEFT", 16, isHistory and -112 or -78)
+        copyPreviewBg:SetPoint("TOPLEFT", 16, isHistory and -140 or -78)
         copyPreviewBg:SetPoint("BOTTOMRIGHT", -34, 58)
     end
     if copyPreviewBg and copyPreviewBg.SetBackdropBorderColor then
@@ -2007,7 +2032,7 @@ local function ShowCopyWindow(entries, title, chatFrame, maxLines, mode)
     -- /chatcopy diag exists to settle that.
     if type(ns.ScheduleUnique) == "function" then
         ns.ScheduleUnique("ChatifyCopyFocus", 0, function()
-            if copyEditBox and copyFrame and copyFrame:IsShown() then
+            if copyEditBox and copyFrame and copyFrame:IsShown() and not (copySearchBox and copySearchBox:HasFocus()) then
                 copyEditBox:SetCursorPosition(0)
                 copyEditBox:HighlightText(0, 0)
                 copyEditBox:SetFocus()

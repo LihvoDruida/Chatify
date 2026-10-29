@@ -92,6 +92,7 @@ run "R1-07 PvP/BG/LFG queues and pending returns" "$lua_cmd" tools/auto_reply_qu
 for config in "retail modern" "forever modern" "era legacy" "tbc legacy" "mists modern" "titan modern"; do
     read -r client api <<< "$config"
     run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/settings_responsive_probe.lua
+    run "UI/UX viewport and interaction / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/uiux_probe.lua
 done
 run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
 run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
