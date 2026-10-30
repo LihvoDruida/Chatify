@@ -719,4 +719,12 @@ Closing Composer hides it instead of discarding the current draft and preview. C
     ["Required client capability is unavailable."] = "Required client capability is unavailable.",
     ["Whisper auto-reply settings are unavailable on this client; guild replies may still work."] = "Whisper auto-reply settings are unavailable on this client; guild replies may still work.",
     ["Choose a section or search settings. Use Apply/Enter for text; number fields save with Enter or when you leave them. Channel labels also save on blur. Esc cancels edits. Reset requires confirmation."] = "Choose a section or search settings. Use Apply/Enter for text; number fields save with Enter or when you leave them. Channel labels also save on blur. Esc cancels edits. Reset requires confirmation.",
+    ["Hide Channel Notices"] = "Hide Channel Notices",
+    ["Hide channel changes and channel join/leave notices. Player chat stays visible."] = "Hide channel changes and channel join/leave notices. Player chat stays visible.",
+    ["Hide Online/Offline Notices"] = "Hide Online/Offline Notices",
+    ["Hide friend, Battle.net and guild login/logout notices. Other system messages stay visible."] = "Hide friend, Battle.net and guild login/logout notices. Other system messages stay visible.",
+    ["Hide Group Join/Leave Notices"] = "Hide Group Join/Leave Notices",
+    ["Hide party and raid membership notices. Party, raid and instance player messages stay visible."] = "Hide party and raid membership notices. Party, raid and instance player messages stay visible.",
+    ["Hide Battle Join/Leave Notices"] = "Hide Battle Join/Leave Notices",
+    ["Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible."] = "Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible.",
 })

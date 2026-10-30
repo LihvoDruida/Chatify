@@ -93,6 +93,7 @@ for config in "retail modern" "forever modern" "era legacy" "tbc legacy" "mists 
     read -r client api <<< "$config"
     run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/settings_responsive_probe.lua
     run "UI/UX viewport and interaction / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/uiux_probe.lua
+    run "localized system notice filters / $client" env CHATIFY_SETTINGS_CLIENT="$client" "$lua_cmd" tools/system_notice_probe.lua
 done
 run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
 run "R2 native editor/defaults / Forever" env CHATIFY_SETTINGS_CLIENT=forever CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua

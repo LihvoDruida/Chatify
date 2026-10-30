@@ -79,7 +79,25 @@ function Layout:Apply(options)
     local spam = root.filters.args
     spam.spamCore.order, spam.spamKeywordList.order, spam.spamThrottle.order = 1, 2, 3
     spam.spamWhitelist.order, spam.spamChannels.order = 4, 5
-    move(spam.spamCore.args, group(spam, "systemMessages", "System Messages", 6), { "hideSystemSpam" })
+    local system = group(spam, "systemMessages", "System Messages", 6)
+    move(spam.spamCore.args, system, { "hideSystemSpam" })
+    system.hideSystemSpam.name = T("Hide Channel Notices")
+    system.hideSystemSpam.desc = T("Hide channel changes and channel join/leave notices. Player chat stays visible.")
+    local function setNotice(key, value)
+        ns.Chatify.db.profile[key] = value
+        if type(ns.RefreshChannelLabelHook) == "function" then ns.RefreshChannelLabelHook() end
+    end
+    local function noticeToggle(key, name, desc, order)
+        system[key] = { type = "toggle", order = order, name = T(name), desc = T(desc),
+            get = function() return ns.Chatify.db.profile[key] end,
+            set = function(_, value) setNotice(key, value) end }
+    end
+    noticeToggle("hidePlayerStatusMessages", "Hide Online/Offline Notices",
+        "Hide friend, Battle.net and guild login/logout notices. Other system messages stay visible.", 2)
+    noticeToggle("hideGroupRosterMessages", "Hide Group Join/Leave Notices",
+        "Hide party and raid membership notices. Party, raid and instance player messages stay visible.", 3)
+    noticeToggle("hideBattleRosterMessages", "Hide Battle Join/Leave Notices",
+        "Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible.", 4)
     spam.spamCore.args.spamFilterMode.disabled = function() return not ns.Chatify.db.profile.enableSpamFilter end
     -- Scan choices remain editable before enabling the filter. Guild scanning,
     -- however, is bypassed by the whitelist and must not look active then.

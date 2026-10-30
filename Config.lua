@@ -945,6 +945,9 @@ ns.defaults = {
         
         -- System Cleaner
         hideSystemSpam = true,      -- Приховувати вхід/вихід з каналів
+        hidePlayerStatusMessages = false,
+        hideGroupRosterMessages = false,
+        hideBattleRosterMessages = true,
 
         -- Базовий список слів для блокування
         spamKeywords = { 
@@ -2988,7 +2991,8 @@ function ns.NeedsForeverRenderSpamFallback()
         return false
     end
 
-    if not db.enableSpamFilter and not db.enableThrottle and not db.hideSystemSpam then
+    if not db.enableSpamFilter and not db.enableThrottle
+        and not (type(ns.SystemNoticeFiltersEnabled) == "function" and ns.SystemNoticeFiltersEnabled()) then
         return false
     end
 

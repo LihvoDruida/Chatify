@@ -719,4 +719,12 @@ Locale:RegisterLocale("ukUA", {
     ["Required client capability is unavailable."] = "Необхідний API недоступний у цьому клієнті.",
     ["Whisper auto-reply settings are unavailable on this client; guild replies may still work."] = "Автовідповіді в приватних повідомленнях тут недоступні; відповіді в гільдії можуть працювати.",
     ["Choose a section or search settings. Use Apply/Enter for text; number fields save with Enter or when you leave them. Channel labels also save on blur. Esc cancels edits. Reset requires confirmation."] = "Виберіть розділ або скористайтеся пошуком. Текст зберігайте кнопкою «Застосувати» або Enter; числа — Enter або вихід із поля. Назви каналів теж зберігаються при виході. Esc скасовує введення. Скидання потребує підтвердження.",
+    ["Hide Channel Notices"] = "Приховувати повідомлення про канали",
+    ["Hide channel changes and channel join/leave notices. Player chat stays visible."] = "Приховує зміну каналів і повідомлення про вхід або вихід із них. Повідомлення гравців залишаються видимими.",
+    ["Hide Online/Offline Notices"] = "Приховувати повідомлення про вхід/вихід із гри",
+    ["Hide friend, Battle.net and guild login/logout notices. Other system messages stay visible."] = "Приховує повідомлення про вхід/вихід друзів, Battle.net і вхід учасників гільдії. Інші системні повідомлення залишаються видимими.",
+    ["Hide Group Join/Leave Notices"] = "Приховувати вхід/вихід із групи",
+    ["Hide party and raid membership notices. Party, raid and instance player messages stay visible."] = "Приховує повідомлення про зміни складу групи та рейду. Спілкування гравців у групі, рейді та підземеллі залишається видимим.",
+    ["Hide Battle Join/Leave Notices"] = "Приховувати вхід/вихід учасників бою",
+    ["Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible."] = "Приховує вхід/вихід гравців на полях бою й аренах, зокрема зведення «joined the battle». Захищені повідомлення можуть залишатися видимими.",
 })

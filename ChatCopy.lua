@@ -2906,6 +2906,7 @@ local function GetCaptureEventsForClient()
 end
 
 local function OnCaptureEvent(_, event, msg, author, ...)
+    if type(ns.ShouldHideSystemChatEvent) == "function" and ns.ShouldHideSystemChatEvent(event, msg) then return end
     if type(ns.NoteChatEntryPoint) == "function" then
         ns.NoteChatEntryPoint("copy capture", event)
     end

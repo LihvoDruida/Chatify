@@ -33,13 +33,6 @@ local function IsSecretValue(value)
     return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
 end
 
-local SystemEvents = {
-    CHAT_MSG_CHANNEL_JOIN = true,
-    CHAT_MSG_CHANNEL_LEAVE = true,
-    CHAT_MSG_CHANNEL_NOTICE = true,
-    CHAT_MSG_CHANNEL_NOTICE_USER = true,
-}
-
 local filtersInstalled = false
 local registeredFilters = {}
 local communitiesHooked = false
@@ -174,11 +167,6 @@ local function DB()
         return Chatify.db.profile
     end
     return ns.db
-end
-
-function ns.ShouldHideSystemChatEvent(eventName)
-    local db = DB()
-    return db and db.hideSystemSpam and SystemEvents[eventName] and true or false
 end
 
 local function IsVirtualMode()
@@ -2163,12 +2151,8 @@ function ns.FormatMessage(msg, eventName, author, ...)
 end
 
 local function SystemOnlyFilter(self, event, msg, author, ...)
-    local db = DB()
-    if db and db.hideSystemSpam and SystemEvents[event] then
-        return true
-    end
-
-    return false, msg, author, ...
+    if ns.ShouldHideSystemChatEvent(event, msg) then return true end
+    -- Returning nothing preserves Blizzard's original, potentially secret args.
 end
 
 local function LegacyMessageProcessor(self, event, msg, author, ...)
@@ -2177,7 +2161,7 @@ local function LegacyMessageProcessor(self, event, msg, author, ...)
         return false, msg, author, ...
     end
 
-    if db.hideSystemSpam and SystemEvents[event] then
+    if ns.ShouldHideSystemChatEvent(event, msg) then
         return true
     end
 
@@ -2219,7 +2203,7 @@ local function RetailRestrictedProcessor(self, event, msg, author, ...)
         return
     end
 
-    if db.hideSystemSpam and SystemEvents[event] then
+    if ns.ShouldHideSystemChatEvent(event, msg) then
         return true
     end
 
@@ -2285,12 +2269,18 @@ local function InstallMessageFilters()
                 installedAny = true
             end
         end
+        if RegisterMessageFilter("CHAT_MSG_SYSTEM", SystemOnlyFilter) then installedAny = true end
     else
         for i = 1, #BaseEvents do
             if RegisterMessageFilter(BaseEvents[i], LegacyMessageProcessor) then
                 installedAny = true
             end
         end
+    end
+
+    for _, event in ipairs({ "CHAT_MSG_CHANNEL_JOIN", "CHAT_MSG_CHANNEL_LEAVE",
+        "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_NOTICE_USER", "CHAT_MSG_BN_INLINE_TOAST_ALERT" }) do
+        if RegisterMessageFilter(event, SystemOnlyFilter) then installedAny = true end
     end
 
     filtersInstalled = installedAny

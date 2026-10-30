@@ -102,4 +102,15 @@ frame:AddMessage("block-me", 1,1,1, nil,0,0, "CHAT_MSG_GUILD", {"block-me", "Sel
 assert(frame:GetNumMessages() == 1, "real void-return removal failed")
 assert(#history() == before + 1, "removed line leaked into history")
 assert(ns.GetChatTransformStats().errors == 0, "transform runtime errors")
-print("Forever source integration: PASS (actual Camelot NameUtil, PlayerLocation, edit-box getters and secure message-frame Lua methods; modeled C/security)")
+-- Direct system lines have no eventArgs; exercise real PackageEntry/UnpackageEntry
+-- and RemoveMessagesByPredicate rather than just a test buffer's argument order.
+ChatTypeInfo = { SYSTEM = { id = 1 }, PARTY = { id = 2 } }
+ERR_PLAYERLIST_JOINED_BATTLE = "%d players have joined the battle: %s."
+addon.db.profile.hideBattleRosterMessages = true
+local systemLine = "2 players have joined the battle: One, Two."
+local count, saved = #entries, #history()
+frame:AddMessage(systemLine, 1, 1, 0, 1)
+assert(#entries == count and #history() == saved, "direct system notice survived real removal/history")
+frame:AddMessage(systemLine, 1, 1, 0, 2)
+assert(#entries == count + 1 and #history() == saved + 1, "party quote was removed as system")
+print("Forever source integration: PASS (actual Camelot NameUtil, PlayerLocation, edit-box getters and secure message-frame Lua methods, including direct system notice removal; modeled C/security)")

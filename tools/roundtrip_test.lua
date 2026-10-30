@@ -206,6 +206,10 @@ local CHANGES = {
     { "enableTimestamps", false },
     { "historyLimit", 777 },
     { "quickChatButtonFontScale", 1.25 },
+    { "hideSystemSpam", false },
+    { "hidePlayerStatusMessages", true },
+    { "hideGroupRosterMessages", true },
+    { "hideBattleRosterMessages", false },
 }
 
 for _, change in ipairs(CHANGES) do
@@ -218,9 +222,15 @@ addon.db.profile.channelLabels.PARTY = "Grp"
 local transfer = assert(ns.ExportProfileText(), "real AceDB export failed")
 assert(transfer:match("^CHATIFY_PROFILE\t2"), "real AceDB export schema mismatch")
 addon.db.profile.channelLabels.PARTY = "Changed"
+for _, key in ipairs({ "hideSystemSpam", "hidePlayerStatusMessages", "hideGroupRosterMessages", "hideBattleRosterMessages" }) do
+    addon.db.profile[key] = not addon.db.profile[key]
+end
 local imported, importReason = ns.ImportProfileText(transfer)
 assert(imported, "real AceDB import failed: " .. tostring(importReason))
 assert(addon.db.profile.channelLabels.PARTY == "Grp", "real AceDB import lost label")
+for _, change in ipairs(CHANGES) do
+    assert(addon.db.profile[change[1]] == change[2], "real AceDB import lost " .. change[1])
+end
 
 -- Chatify's own logout handlers, then AceDB's, in the order the client fires
 -- them. AceDB's removeDefaults is what strips values back down before the file

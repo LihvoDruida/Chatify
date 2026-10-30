@@ -76,6 +76,20 @@ Chatify is checked as a release product, not only as separate Lua files. The rel
 
 The Ukrainian QA notes and terminology are kept in [`docs/QUALITY_AND_TESTING.md`](docs/QUALITY_AND_TESTING.md).
 
+## System messages 2.18.8
+
+Open **Chatify → Spam & System Filters → System Messages** to control channel
+notices, online/offline status, group membership and battle join/leave summaries
+separately. Battle summaries and channel notices are hidden by default; status
+and group membership notices are opt-in. Player chat, countdowns and unrelated
+system notices remain visible. The filters follow the client's localized formats
+and leave protected messages untouched.
+
+The reported "players have joined the battle" summary is produced by Blizzard's
+BattlegroundChatFilters Lua; its wording alone does not identify which addon may
+be provoking repeated roster changes. See [`docs/SYSTEM_NOTICES_2.18.8.md`](docs/SYSTEM_NOTICES_2.18.8.md)
+for the reproduction, fixes and limits.
+
 ## UI/UX 2.18.7
 
 Composer and its help window fit the current UI viewport; the full Composer form scrolls on short displays. Copy/History uses wrapped chat-font measurements, and History search stays inside the window on long translated tab names. Settings drafts survive moving between standalone and Blizzard settings hosts. Settings, Copy and History remain accessible when channel-routing APIs are unavailable.

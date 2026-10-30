@@ -475,13 +475,13 @@ local function StoreRenderedHistoryLine(frame, rawText, ...)
         local ok, resolvedEvent, resolvedArgs = pcall(ns.ResolveRenderedChatMetadata, ...)
         if ok then event, eventArgs = resolvedEvent, resolvedArgs end
     end
+    local outcome
+    if type(ns.GetChatRenderedLineOutcome) == "function" then
+        local ok, result = pcall(ns.GetChatRenderedLineOutcome, frame, safeText, event, eventArgs)
+        if ok then outcome = result end
+    end
+    if outcome and outcome.removed then return end
     if type(event) == "string" then
-        local outcome
-        if type(ns.GetChatRenderedLineOutcome) == "function" then
-            local ok, result = pcall(ns.GetChatRenderedLineOutcome, frame, safeText, event, eventArgs)
-            if ok then outcome = result end
-        end
-        if outcome and outcome.removed then return end
         if outcome and type(outcome.rendered) == "string" then
             safeText = outcome.rendered
         elseif not outcome and type(ns.TransformRenderedChatLine) == "function" then
@@ -740,6 +740,7 @@ function History:OnChatEvent(event, message, author, ...)
     local db = GetHistoryDB()
     if not db or db.enableHistory == false then return end
     if not IsHistoryEventAllowed(event) then return end
+    if type(ns.ShouldHideSystemChatEvent) == "function" and ns.ShouldHideSystemChatEvent(event, message) then return end
 
     if type(ns.ShouldBypassChatCaptureEvent) == "function" and ns.ShouldBypassChatCaptureEvent(event) then
         return

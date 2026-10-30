@@ -981,7 +981,9 @@ local function RenderHookWanted()
         return false
     end
 
-    return renderSpamFallbackActive or ChannelLabelsWanted() or MentionHighlightWanted()
+    return renderSpamFallbackActive
+        or (type(ns.SystemNoticeFiltersEnabled) == "function" and ns.SystemNoticeFiltersEnabled())
+        or ChannelLabelsWanted() or MentionHighlightWanted()
 end
 
 -- The combat log window carries no player chat, so neither channel labels nor mention
@@ -1082,6 +1084,10 @@ local function InstallChannelLabelHook(frame)
                 -- chat filter is intentionally detached and the only safe readable
                 -- blocking point is this guarded pre-render wrapper. Secret payloads
                 -- never reach this branch because `safe` was checked above.
+                if type(ns.ShouldHideRenderedSystemMessage) == "function"
+                    and ns.ShouldHideRenderedSystemMessage(output, select(4, ...), event) then
+                    return
+                end
                 if renderSpamFallbackActive and event and type(ns.ShouldSuppressRenderedChatLine) == "function" then
                     local okSpam, blocked = pcall(ns.ShouldSuppressRenderedChatLine, event, eventArgs, output)
                     if okSpam and blocked then

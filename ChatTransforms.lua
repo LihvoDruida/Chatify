@@ -281,6 +281,10 @@ local function ReadSpamPayload(eventArgs, renderedText)
 end
 
 local function ShouldRemoveSpam(event, eventArgs, renderedText)
+    if Safe(event) and CanReadEventArgs(eventArgs) and type(ns.ShouldHideSystemChatEvent) == "function" then
+        local ok, message = pcall(function() return eventArgs[1] end)
+        if ok and ns.ShouldHideSystemChatEvent(event, message) then return true end
+    end
     if type(ns.AreMessageFiltersInstalled) == "function" and ns.AreMessageFiltersInstalled() then
         return false
     end
@@ -291,11 +295,6 @@ local function ShouldRemoveSpam(event, eventArgs, renderedText)
 
     local cached = spamDecisionByArgs[eventArgs]
     if cached ~= nil then return cached == 1 end
-
-    if type(ns.ShouldHideSystemChatEvent) == "function" and ns.ShouldHideSystemChatEvent(event) then
-        spamDecisionByArgs[eventArgs] = 1
-        return true
-    end
 
     local message, author, channel = ReadSpamPayload(eventArgs, renderedText)
     if not message then
@@ -326,6 +325,25 @@ local function RemoveExactEntry(frame, text, event, eventArgs)
             if type(ns.CanAccessChatValue) == "function" and not ns.CanAccessChatValue(text, event, message, storedEvent) then return false end
             if not Safe(message) or not storedEvent or not CanReadEventArgs(storedArgs) then return false end
             local exact = message == text and storedEvent == event and storedArgs == eventArgs
+            if exact then matched = true end
+            return exact
+        end)
+    local removed = ok and result ~= false and matched
+    if removed then stats.removedSpam = stats.removedSpam + 1 end
+    if not ok then stats.errors = stats.errors + 1 end
+    return removed
+end
+
+local function RemoveTypedSystemEntry(frame, text, chatTypeID)
+    if not FrameSupportsRemoval(frame) or not Safe(text) or not Safe(chatTypeID) then return false end
+    local matched = false
+    local ok, result = pcall(frame.RemoveMessagesByPredicate, frame,
+        function(message, r, g, b, storedType, ...)
+            if not Safe(message) or not Safe(storedType) then return false end
+            if message ~= text or storedType ~= chatTypeID then return false end
+            local storedEvent = ns.ResolveRenderedChatMetadata(storedType, ...)
+            if not ns.ShouldHideRenderedSystemMessage(message, storedType, storedEvent) then return false end
+            local exact = message == text and storedType == chatTypeID
             if exact then matched = true end
             return exact
         end)
@@ -384,6 +402,14 @@ local function ObserveAddMessage(self, text, ...)
     renderedOutcomeByFrame[self] = nil
     if not Safe(text) or type(text) ~= "string" then stats.skipped = stats.skipped + 1; return end
     local event, eventArgs = ns.ResolveRenderedChatMetadata(...)
+    local chatTypeID = select(4, ...)
+    if type(ns.ShouldHideRenderedSystemMessage) == "function"
+        and ns.ShouldHideRenderedSystemMessage(text, chatTypeID, event) then
+        local outcome = { text = text, event = event, args = eventArgs, removed = false }
+        renderedOutcomeByFrame[self] = outcome
+        outcome.removed = RemoveTypedSystemEntry(self, text, chatTypeID)
+        if outcome.removed then return end
+    end
     if not event or not CanReadEventArgs(eventArgs) then stats.skipped = stats.skipped + 1; return end
 
     local outcome = { text = text, event = event, args = eventArgs, removed = false }

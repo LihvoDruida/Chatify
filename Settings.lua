@@ -1913,7 +1913,10 @@ function Chatify:GetOptions()
                                             name = T("Hide Join/Leave Messages"),
                                             desc = T("Hides yellow system messages when players join or leave channels. Chatify chooses the safe filter path automatically."),
                                             type = "toggle",
-                                            set = function(info, val) self.db.profile.hideSystemSpam = val end,
+                                            set = function(info, val)
+                                                self.db.profile.hideSystemSpam = val
+                                                if type(ns.RefreshChannelLabelHook) == "function" then ns.RefreshChannelLabelHook() end
+                                            end,
                                             get = function(info) return self.db.profile.hideSystemSpam end,
                                         },
                                     },
