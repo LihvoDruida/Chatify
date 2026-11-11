@@ -50,7 +50,9 @@ function Layout:Apply(options)
 
     local windows = page("windows", "Chat Windows & Tabs", 20)
     windows.groupWindow, windows.groupTabSetup = general.groupWindow, setup.groupTabSetup
+    windows.groupOwnChannelEcho = general.groupOwnChannelEcho
     windows.groupWindow.order, windows.groupTabSetup.order = 1, 4
+    if windows.groupOwnChannelEcho then windows.groupOwnChannelEcho.order = 5 end
     for _, key in ipairs({ "btnSetup", "btnRestoreDefaultTabs" }) do
         windows.groupTabSetup.args[key].disabled = function()
             return type(InCombatLockdown) == "function" and InCombatLockdown()

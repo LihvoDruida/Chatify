@@ -42,6 +42,7 @@ ChatVisuals.lua
 ChatQuickButtons.lua
 ChatComposer.lua
 ChatFilters.lua
+ChatOwnEcho.lua
 ChatTransforms.lua
 ChatHistory.lua
 ChatSounds.lua

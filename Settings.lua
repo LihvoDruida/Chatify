@@ -553,6 +553,25 @@ function Chatify:GetOptions()
                         },
                     },
 
+                    groupOwnChannelEcho = {
+                        name = T("Forever outgoing channel messages"),
+                        type = "group",
+                        inline = true,
+                        order = 2.5,
+                        hidden = function() return not (type(ns.IsForeverClient) == "function" and ns.IsForeverClient()) end,
+                        args = {
+                            echoOwnPublicChannels = {
+                                order = 1,
+                                name = T("Show local copies of my General and Trade messages"),
+                                desc = T("Only if the client does not echo your message within a short delay. A local copy does not confirm that the server received or delivered it."),
+                                type = "toggle",
+                                width = "full",
+                                get = function() return self.db.profile.echoOwnPublicChannels == true end,
+                                set = function(_, value) self.db.profile.echoOwnPublicChannels = value == true end,
+                            },
+                        },
+                    },
+
                     groupText = {
                         name = T("Text & Appearance"),
                         type = "group",

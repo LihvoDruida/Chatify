@@ -3,6 +3,9 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("ukUA", {
+    ["Forever outgoing channel messages"] = "Вихідні повідомлення каналів Forever",
+    ["Show local copies of my General and Trade messages"] = "Показувати локальні копії моїх повідомлень у General і Trade",
+    ["Only if the client does not echo your message within a short delay. A local copy does not confirm that the server received or delivered it."] = "Лише якщо клієнт не показав повідомлення протягом короткої затримки. Локальна копія не підтверджує отримання чи доставку повідомлення сервером.",
     ["Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy."] = "Автоматично відповідати, коли ви AFK, у черзі, в інстансі або вручну позначили себе зайнятими.",
     ["Never modify protected whispers"] = "Не змінювати захищені шепоти",
     ["Warning:"] = "Увага:",

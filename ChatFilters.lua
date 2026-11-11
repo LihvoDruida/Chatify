@@ -1098,22 +1098,23 @@ local function IsSelfAuthorForMention(author)
     if ns.IsForeverClient() then
         local identity = ns.GetPlayerMentionIdentity()
         local authorKey = ns.NormalizePlayerNameCompat(safeAuthor)
-        local playerKey = ns.NormalizePlayerNameCompat(identity.full or identity.first)
+        local playerKey = identity and ns.NormalizePlayerNameCompat(identity.full or identity.first)
         return authorKey ~= nil and playerKey ~= nil and strlower(authorKey) == strlower(playerKey)
     end
 
-    local shortName = safeAuthor
-    if type(Ambiguate) == "function" then
-        local ok, result = pcall(Ambiguate, safeAuthor, "none")
-        if ok and type(result) == "string" and result ~= "" then
-            -- Even if a client unexpectedly abbreviates "none", preserve a
-            -- realm-qualified sender rather than broadening the whitelist.
-            if not safeAuthor:find("-", 1, true) or result:find("-", 1, true) then
-                shortName = result
-            end
+    -- A foreign-realm player can have the same short name. Never whitelist
+    -- that player by stripping the realm; chat filters must remain effective.
+    local shortName, authorRealm = safeAuthor:match("^([^%-]+)%-(.+)$")
+    if authorRealm then
+        local localRealm = type(GetRealmName) == "function" and GetRealmName() or nil
+        if type(localRealm) ~= "string" or localRealm == "" then return false end
+        local function realmKey(value)
+            return strlower((value:gsub("[%s%-]", "")))
         end
+        if realmKey(authorRealm) ~= realmKey(localRealm) then return false end
+    else
+        shortName = safeAuthor
     end
-    shortName = shortName:match("([^%-]+)") or shortName
 
     return strlower(shortName) == strlower(PLAYER_NAME)
 end
@@ -1380,6 +1381,16 @@ function ns.ProcessSpamMessage(eventName, msg, author, ...)
     end
 
     if not db.enableSpamFilter and not db.enableThrottle then
+        return false
+    end
+
+    -- Never suppress the player's own channel messages. Forever can render a
+    -- readable self echo via CHAT_MSG_CHANNEL even when the message contains a
+    -- spam keyword (e.g. WTS) or repeats within the throttle window. If the
+    -- client emits the event, it should remain visible regardless of filter
+    -- rules. Reuse the surname-aware identity check to avoid mistaking a
+    -- different Forever character with the same first name for the player.
+    if IsSelfAuthorForMention(author) then
         return false
     end
 

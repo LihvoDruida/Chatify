@@ -3,6 +3,9 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("enUS", {
+    ["Forever outgoing channel messages"] = "Forever outgoing channel messages",
+    ["Show local copies of my General and Trade messages"] = "Show local copies of my General and Trade messages",
+    ["Only if the client does not echo your message within a short delay. A local copy does not confirm that the server received or delivered it."] = "Only if the client does not echo your message within a short delay. A local copy does not confirm that the server received or delivered it.",
     ["Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy."] = "Automatically reply when you are AFK, in queue, inside an instance, or manually marked as busy.",
     ["Never modify protected whispers"] = "Never modify protected whispers",
     ["%s unavailable"] = "%s unavailable",

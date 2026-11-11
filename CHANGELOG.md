@@ -1,3 +1,9 @@
+## Unreleased — Forever self-message visibility (development build)
+
+- Keep the player's own General/Trade messages out of Chatify's keyword and repeat-message spam filters, including the render fallback. Respect Forever surname identity and non-Forever realm qualifiers.
+- Add an opt-in **Show local copies of my General and Trade messages** setting on Forever. If a native chat echo is observed within 1.25 seconds, do not show a second line. Otherwise show an explicitly unverified local preview in subscribed chat windows.
+- Do not intercept or modify `SendChatMessage`, tamper with secure chat frames, claim delivery, or enable this feature on other WoW clients. Test with Forever's live chat event stream before shipping as a tagged release.
+
 ## 2.18.7 — Client-aware UI/UX fixes
 
 - Fit Composer, help and Copy/History to the available UI viewport. Scroll the full Composer form and restore pooled AceGUI frame scale on release.

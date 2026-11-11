@@ -910,6 +910,9 @@ ns.defaults = {
         -- rather than a rewrite of Blizzard's. Shown only when neither in-line route
         -- is live, so a mention is never announced twice. See ns.AnnounceMentionAlert.
         mentionEcho = true,
+        -- Forever only. Optional local preview when Blizzard does not echo the
+        -- player's own General/Trade messages; NOT a delivery receipt.
+        echoOwnPublicChannels = false,
         historyAlpha = true,        -- Legacy SavedVariables key; history is no longer replayed into chat frames
 
         -- === SPAM FILTERS (Updated) ===
