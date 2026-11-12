@@ -752,4 +752,7 @@ Closing Composer hides it instead of discarding the current draft and preview. C
     ["Hide party and raid membership notices. Party, raid and instance player messages stay visible."] = "Hide party and raid membership notices. Party, raid and instance player messages stay visible.",
     ["Hide Battle Join/Leave Notices"] = "Hide Battle Join/Leave Notices",
     ["Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible."] = "Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible.",
+    ["Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile."] = "Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile.",
+    ['The full settings window opens at readable size, without changing your game chat layout.'] = 'The full settings window opens at readable size, without changing your game chat layout.',
+    ['Open Complete Chatify Settings'] = 'Open Complete Chatify Settings',
 })

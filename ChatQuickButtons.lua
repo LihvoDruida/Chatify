@@ -17,6 +17,7 @@ local hookedEditBox
 local hookedAnchorFrame
 local lastPlacedSide = "RIGHT"
 local GetQuickChatAnchorPlacement
+local GetNativeSidebarSignature
 local GetConfiguredAlpha
 local GetConfiguredPanelAlpha
 local GetConfiguredTheme
@@ -1660,10 +1661,12 @@ local function GetLayoutSignature()
     local sidebarMode = IsDetachedClassicSidebarLayout() and "classic-detached" or "native-stack"
     local sidebarSide = sidebarFrame and GetClassicSidebarSide(sidebarFrame, sidebarHostFrame) or "none"
     local compatSignature = type(ns.GetAddonCompatibilitySignature) == "function" and ns.GetAddonCompatibilitySignature() or "none"
+    local nativeButtonGeometry = GetNativeSidebarSignature and GetNativeSidebarSignature(sidebarFrame) or "no-geometry"
 
     return table.concat({
         GetConfiguredTheme(),
         compatSignature,
+        nativeButtonGeometry,
         sidebarMode,
         sidebarSide,
         GetFrameIdentity(frame),
@@ -2441,23 +2444,6 @@ local function LayoutSidebarButtonStack(layoutHost, items, buttonWidth, buttonHe
     end
 end
 
-local function LayoutSidebarButtonRow(layoutHost, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
-    local previous
-    for _, item in ipairs(items) do
-        local button = item.frame
-        ApplySidebarButtonLayout(button, layoutHost, buttonWidth, buttonHeight, strata, frameLevel)
-        if previous then
-            button:SetPoint("LEFT", previous, "RIGHT", spacing, 0)
-        else
-            button:SetPoint("LEFT", layoutHost, "LEFT", 0, 0)
-        end
-        if type(item.refresh) == "function" then
-            item.refresh()
-        end
-        previous = button
-    end
-end
-
 local function GetFrameRect(frame)
     if type(frame) ~= "table" and type(frame) ~= "userdata" then
         return nil
@@ -2482,6 +2468,89 @@ local function GetFrameRect(frame)
     end
 
     return left, right, top, bottom
+end
+
+-- Blizzard exposes individual chat controls differently between branches and
+-- releases. Collect visible button rectangles from the native button host and
+-- known global controls. All of these remain owned and positioned by Blizzard.
+local function CollectNativeSidebarButtonRects(sidebarFrame)
+    if not sidebarFrame then return {} end
+    local candidates, seen, rectangles = {}, {}, {}
+    local function add(frame)
+        if not frame or frame == sidebarFrame or frame == settingsContainer or seen[frame] then return end
+        if type(frame) ~= "table" and type(frame) ~= "userdata" then return end
+        seen[frame] = true
+        candidates[#candidates + 1] = frame
+    end
+    local function childrenOf(frame)
+        if not frame or type(frame.GetChildren) ~= "function" then return end
+        local ok, children = pcall(function() return { frame:GetChildren() } end)
+        if ok and type(children) == "table" then
+            for _, child in ipairs(children) do
+                if child and type(child.GetObjectType) == "function" then
+                    local okType, childType = pcall(child.GetObjectType, child)
+                    if okType and (childType == "Button" or childType == "CheckButton") then
+                        add(child)
+                    end
+                end
+            end
+        end
+    end
+    childrenOf(sidebarFrame)
+    local globals = {
+        "ChatFrameMenuButton", "ChatFrameChannelButton", "ChatFrameVoiceChatButton",
+        "QuickJoinToastButton", "ChatFrame1ButtonFrameUpButton",
+        "ChatFrame1ButtonFrameDownButton", "ChatFrame1ButtonFrameBottomButton",
+        "ChatFrame1ButtonFrameScrollToBottomButton", "ChatFrame1ScrollToBottomButton",
+    }
+    for _, name in ipairs(globals) do add(_G[name]) end
+
+    for _, frame in ipairs(candidates) do
+        local shown = true
+        if type(frame.IsShown) == "function" then
+            local ok, value = pcall(frame.IsShown, frame)
+            shown = ok and value == true
+        end
+        if shown then
+            local left, right, top, bottom = GetFrameRect(frame)
+            if type(left) == "number" and type(right) == "number"
+                and type(top) == "number" and type(bottom) == "number"
+                and left < right and bottom < top then
+                rectangles[#rectangles + 1] = { left = left, right = right, top = top, bottom = bottom }
+            end
+        end
+    end
+    return rectangles, candidates
+end
+
+local function HookNativeSidebarSignals(sidebarFrame)
+    if type(ns.SafeHookScript) ~= "function" or not sidebarFrame then return end
+    local _, nativeButtons = CollectNativeSidebarButtonRects(sidebarFrame)
+    nativeButtons[#nativeButtons + 1] = sidebarFrame
+    for _, nativeButton in ipairs(nativeButtons) do
+        ns.SafeHookScript(nativeButton, "OnShow", function()
+            InvalidateQuickButtonLayout("native-sidebar-show")
+            ScheduleRefresh(0)
+        end, "__chatifyQuickNativeShow")
+        ns.SafeHookScript(nativeButton, "OnHide", function()
+            InvalidateQuickButtonLayout("native-sidebar-hide")
+            ScheduleRefresh(0)
+        end, "__chatifyQuickNativeHide")
+        ns.SafeHookScript(nativeButton, "OnSizeChanged", function()
+            InvalidateQuickButtonLayout("native-sidebar-size")
+            ScheduleRefresh(0.05)
+        end, "__chatifyQuickNativeSize")
+    end
+end
+
+GetNativeSidebarSignature = function(sidebarFrame)
+    if not sidebarFrame then return "no-native-sidebar" end
+    local rects = CollectNativeSidebarButtonRects(sidebarFrame)
+    local key = {}
+    for _, rect in ipairs(rects) do
+        key[#key + 1] = string.format("%.1f:%.1f:%.1f:%.1f", rect.left, rect.right, rect.top, rect.bottom)
+    end
+    return table.concat(key, ";")
 end
 
 GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
@@ -2519,35 +2588,40 @@ GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
     })
 end
 
-local function GetUIParentWidth()
-    if UIParent and UIParent.GetWidth then
-        local ok, value = pcall(UIParent.GetWidth, UIParent)
-        if ok and type(value) == "number" and value > 0 then
-            return value
-        end
-    end
-    return nil
-end
-
-local function ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing)
-    local gap = 6
-    local rowWidth = (buttonWidth * itemCount) + (spacing * math.max(0, itemCount - 1))
-    local left, right, top = GetFrameRect(sidebarFrame)
-    local uiWidth = GetUIParentWidth()
+local function ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, nativeButtons, buttonWidth, buttonHeight, itemCount, spacing)
+    local gap = 4
+    local totalHeight = buttonHeight * itemCount + spacing * math.max(0, itemCount - 1)
+    local left, right, top, bottom = GetFrameRect(sidebarFrame)
+    local parentTop = UIParent and type(UIParent.GetTop) == "function" and UIParent:GetTop() or nil
+    local parentBottom = UIParent and type(UIParent.GetBottom) == "function" and UIParent:GetBottom() or nil
     local side = GetClassicSidebarSide(sidebarFrame, hostFrame)
-
-    if side == "LEFT" then
-        if left and left >= (buttonWidth + gap) then
-            return "vertical-left", buttonWidth + 4, (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1)), gap
+    local highest, lowest = top, bottom
+    local centerX = type(left) == "number" and type(right) == "number" and (left + right) * 0.5 or nil
+    for _, rect in ipairs(nativeButtons or {}) do
+        if centerX and type(rect.left) == "number" and type(rect.right) == "number"
+            and rect.left < centerX + buttonWidth * 0.5
+            and rect.right > centerX - buttonWidth * 0.5 then
+            highest = math.max(highest or rect.top, rect.top)
+            lowest = math.min(lowest or rect.bottom, rect.bottom)
         end
-        return "row-above-left", rowWidth, buttonHeight, gap
     end
 
-    if right and uiWidth and (uiWidth - right) >= (buttonWidth + gap) then
-        return "vertical-right", buttonWidth + 4, (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1)), gap
+    -- In cramped layouts never turn the toolbar into the horizontal three-icon
+    -- row shown in bug reports. Keep the same native column: below if possible,
+    -- otherwise above it. Only fall back to an exterior vertical strip when
+    -- neither end fits on screen.
+    if type(lowest) == "number" and type(bottom) == "number"
+        and type(parentBottom) == "number" and lowest - parentBottom >= totalHeight + gap then
+        return "vertical-below", buttonWidth, totalHeight, gap, lowest - bottom - gap
     end
-
-    return "row-above-right", rowWidth, buttonHeight, gap
+    if type(highest) == "number" and type(top) == "number"
+        and type(parentTop) == "number" and parentTop - highest >= totalHeight + gap then
+        return "vertical-above", buttonWidth, totalHeight, gap, highest - top + gap
+    end
+    if side == "LEFT" then
+        return "vertical-left", buttonWidth, totalHeight, gap
+    end
+    return "vertical-right", buttonWidth, totalHeight, gap
 end
 
 local function HideUnusedSidebarButtons(activeItems, ...)
@@ -2574,7 +2648,26 @@ local function PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, button
         or UIParent
 
     itemCount = math.max(1, tonumber(itemCount) or 1)
-    local placement, width, height, gap = ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing)
+    local nativeButtons = CollectNativeSidebarButtonRects(sidebarFrame)
+    local left, right, top, bottom = GetFrameRect(sidebarFrame)
+    local hostLeft, hostRight, hostTop, hostBottom = GetFrameRect(hostFrame)
+    local slot
+    if #nativeButtons > 0 and type(ns.ResolveNativeSidebarSlot) == "function" then
+        slot = ns.ResolveNativeSidebarSlot({
+            sidebar = { left = left, right = right, top = top, bottom = bottom },
+            chat = { left = hostLeft, right = hostRight, top = hostTop, bottom = hostBottom },
+            buttons = nativeButtons,
+            width = buttonWidth, height = buttonHeight,
+            count = itemCount, spacing = spacing, padding = 3,
+        })
+    end
+    local placement, width, height, gap, endOffset
+    if slot then
+        placement, width, height, gap = slot.placement, slot.width, slot.height, 0
+    else
+        placement, width, height, gap, endOffset = ResolveClassicToolbarPlacement(
+            sidebarFrame, hostFrame, nativeButtons, buttonWidth, buttonHeight, itemCount, spacing)
+    end
 
     -- Chat button frames differ across Retail/Forever/Classic variants.
     -- Never insert Chatify into Blizzard's ButtonFrame; attach a separate
@@ -2583,16 +2676,19 @@ local function PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, button
     layoutHost:ClearAllPoints()
     layoutHost:SetSize(math.max(1, width or buttonWidth), math.max(1, height or buttonHeight))
 
-    if placement == "vertical-left" and sidebarFrame then
+    if placement == "inline-native-column" and sidebarFrame and slot then
+        local sidebarCenter = (left + right) * 0.5
+        layoutHost:SetPoint("TOP", sidebarFrame, "TOP", slot.x - sidebarCenter, slot.top - top)
+    elseif placement == "vertical-left" and sidebarFrame then
         layoutHost:SetPoint("TOPRIGHT", sidebarFrame, "TOPLEFT", -gap, 0)
     elseif placement == "vertical-right" and sidebarFrame then
         layoutHost:SetPoint("TOPLEFT", sidebarFrame, "TOPRIGHT", gap, 0)
-    elseif placement == "row-above-right" and sidebarFrame then
-        layoutHost:SetPoint("BOTTOMRIGHT", sidebarFrame, "TOPRIGHT", 0, gap)
-    elseif sidebarFrame then
-        layoutHost:SetPoint("BOTTOMLEFT", sidebarFrame, "TOPLEFT", 0, gap)
+    elseif placement == "vertical-below" and sidebarFrame then
+        layoutHost:SetPoint("TOP", sidebarFrame, "BOTTOM", 0, endOffset or -gap)
+    elseif placement == "vertical-above" and sidebarFrame then
+        layoutHost:SetPoint("BOTTOM", sidebarFrame, "TOP", 0, endOffset or gap)
     elseif hostFrame then
-        layoutHost:SetPoint("BOTTOMLEFT", hostFrame, "TOPLEFT", 0, gap)
+        layoutHost:SetPoint("BOTTOM", hostFrame, "TOP", 0, gap)
     else
         layoutHost:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     end
@@ -2661,11 +2757,7 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
         return false
     end
 
-    if placement == "row-above-left" or placement == "row-above-right" then
-        LayoutSidebarButtonRow(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
-    else
-        LayoutSidebarButtonStack(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
-    end
+    LayoutSidebarButtonStack(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
     HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
 
     -- Never hide or reparent native buttons here. Their order and visibility
@@ -2708,8 +2800,8 @@ local function LayoutFallbackSidebarButtons(anchorFrame)
     local parent = (anchorFrame.GetParent and anchorFrame:GetParent()) or UIParent
     local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
     local spacing = math.max(2, GetSidebarLayoutSpacing())
-    local width = (#layoutItems * buttonWidth) + ((#layoutItems - 1) * spacing)
-    local height = buttonHeight
+    local width = buttonWidth
+    local height = (#layoutItems * buttonHeight) + ((#layoutItems - 1) * spacing)
     local strata = (anchorFrame.GetFrameStrata and anchorFrame:GetFrameStrata()) or "HIGH"
     local frameLevel = (anchorFrame.GetFrameLevel and anchorFrame:GetFrameLevel()) or 1
 
@@ -2727,14 +2819,13 @@ local function LayoutFallbackSidebarButtons(anchorFrame)
         settingsContainer:SetClipsChildren(false)
     end
 
-    -- Last-resort mode for custom/replacement chat layouts that expose no
-    -- Blizzard ButtonFrame yet. Put the small row above the chat instead of
-    -- hiding Settings/Copy/History forever after /reload.
+    -- Last-resort mode for custom/replacement layouts without a Blizzard
+    -- ButtonFrame: keep ONE vertical column, never a horizontal row over chat.
     settingsContainer:SetPoint("BOTTOMRIGHT", anchorFrame, "TOPRIGHT", 0, spacing)
-    settingsContainer.__chatifyClassicPlacement = "fallback-row-above"
+    settingsContainer.__chatifyClassicPlacement = "fallback-vertical-above"
     settingsContainer:Show()
 
-    LayoutSidebarButtonRow(settingsContainer, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
+    LayoutSidebarButtonStack(settingsContainer, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
     HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
     return true
 end
@@ -2743,6 +2834,7 @@ local function LayoutSettingsButton()
     if not settingsButton then return end
     local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
     if sidebarFrame and hostFrame then
+        HookNativeSidebarSignals(sidebarFrame)
         LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
     elseif not LayoutFallbackSidebarButtons(GetAnchorVisualFrame() or GetAnchorFrame()) then
         if settingsContainer then settingsContainer:Hide() end

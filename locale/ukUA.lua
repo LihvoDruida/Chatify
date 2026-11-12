@@ -752,4 +752,7 @@ Locale:RegisterLocale("ukUA", {
     ["Hide party and raid membership notices. Party, raid and instance player messages stay visible."] = "Приховує повідомлення про зміни складу групи та рейду. Спілкування гравців у групі, рейді та підземеллі залишається видимим.",
     ["Hide Battle Join/Leave Notices"] = "Приховувати вхід/вихід учасників бою",
     ["Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible."] = "Приховує вхід/вихід гравців на полях бою й аренах, зокрема зведення «joined the battle». Захищені повідомлення можуть залишатися видимими.",
+    ["Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile."] = 'Chatify не пересуває стандартні елементи чату Blizzard. Відкрийте повні налаштування, щоб змінити параметри, скористатися пошуком і профілями.',
+    ['The full settings window opens at readable size, without changing your game chat layout.'] = 'Повне вікно відкривається з читабельним масштабом, не змінюючи розміщення ігрового чату.',
+    ['Open Complete Chatify Settings'] = 'Відкрити всі налаштування Chatify',
 })

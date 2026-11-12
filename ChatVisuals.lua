@@ -429,38 +429,67 @@ local function ApplyFrameBehaviour(frame)
 
 end
 
--- Blizzard's own chat buttons.
---
--- Hiding is not enough on its own: Blizzard shows them again on various UI
--- updates, so the OnShow handler has to push back. Same technique as Prat's
--- OriginalButtons module. The original handler is kept so the toggle is reversible
--- without a reload.
-local blizzardButtonState = {}
+-- Respect the game-owned chat button scripts.  Replacing native OnShow handlers
+-- breaks other UI addons and can remove Blizzard behaviour when the option is
+-- switched back off.  A passive HookScript observes new shows; it never changes
+-- the button's existing script or anchors. Keep ownership in a private weak map.
+local blizzardButtonState = setmetatable({}, { __mode = "k" })
+local blizzardButtonsActive = true
+
+local function CanModifyNativeButtons()
+    if type(InCombatLockdown) ~= "function" then return true end
+    local ok, locked = pcall(InCombatLockdown)
+    return ok and locked ~= true
+end
+
+local function RestoreBlizzardButtonVisibility()
+    if not CanModifyNativeButtons() then return end
+    for button, state in pairs(blizzardButtonState) do
+        if state.hiddenByChatify then
+            state.hiddenByChatify = false
+            -- Only undo a hide made by Chatify. Never force-show a button that
+            -- was hidden by Blizzard, its parent, or a different UI addon.
+            if state.wasShown and type(button.Show) == "function" then
+                pcall(button.Show, button)
+            end
+            state.wasShown = nil
+        end
+    end
+end
 
 local function ApplyBlizzardButtonVisibility()
     local db = GetVisualDB()
-    if not db then return end
-
-    local hide = db.hideBlizzardChatButtons and true or false
+    if not db or not CanModifyNativeButtons() then return end
+    local hide = blizzardButtonsActive and db.hideBlizzardChatButtons == true
+    if not hide then
+        RestoreBlizzardButtonVisibility()
+        return
+    end
 
     for _, name in ipairs({ "ChatFrameMenuButton", "QuickJoinToastButton" }) do
         local button = _G[name]
         if button and type(button.Hide) == "function" then
-            if hide then
-                if blizzardButtonState[name] == nil then
-                    local ok, original = pcall(button.GetScript, button, "OnShow")
-                    blizzardButtonState[name] = (ok and original) or false
-                end
-                pcall(button.SetScript, button, "OnShow", function(self)
-                    pcall(self.Hide, self)
-                end)
-                pcall(button.Hide, button)
-            elseif blizzardButtonState[name] ~= nil then
-                local original = blizzardButtonState[name]
-                pcall(button.SetScript, button, "OnShow", original or nil)
-                pcall(button.Show, button)
-                blizzardButtonState[name] = nil
+            local state = blizzardButtonState[button]
+            if not state then
+                state = { hooked = false, hiddenByChatify = false }
+                blizzardButtonState[button] = state
             end
+            if not state.hooked and type(button.HookScript) == "function" then
+                local ok = pcall(button.HookScript, button, "OnShow", function(self)
+                    local current = GetVisualDB()
+                    if blizzardButtonsActive and current and current.hideBlizzardChatButtons == true
+                        and CanModifyNativeButtons() then
+                        pcall(self.Hide, self)
+                    end
+                end)
+                state.hooked = ok == true
+            end
+            if not state.hiddenByChatify then
+                local ok, wasShown = pcall(button.IsShown, button)
+                state.wasShown = ok and wasShown == true
+                state.hiddenByChatify = true
+            end
+            pcall(button.Hide, button)
         end
     end
 end
@@ -1494,6 +1523,7 @@ end
 -- 5. MODULE LIFECYCLE
 -- =========================================================
 function VisualsModule:OnEnable()
+    blizzardButtonsActive = true
     if type(ns.InstallChannelStateHooks) == "function" then
         ns.InstallChannelStateHooks()
     end
@@ -1617,6 +1647,8 @@ function VisualsModule:ApplyStyle()
 end
 
 function VisualsModule:OnDisable()
+    blizzardButtonsActive = false
+    RestoreBlizzardButtonVisibility()
     UnregisterTimestampFilters()
     self:UnregisterAllEvents()
     if type(self.UnhookAll) == "function" then

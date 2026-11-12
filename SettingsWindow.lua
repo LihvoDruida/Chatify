@@ -856,7 +856,14 @@ function UI:Rebuild(resetScroll)
     local navY = 0
     for i, page in ipairs(self.pages) do
         local b = self.navButtons[i]
-        if not b then b = button(self.navChild, "", 191, 36); self.navButtons[i] = b end
+        if not b then
+            b = button(self.navChild, "", 191, 36)
+            local active = b:CreateTexture(nil, "BACKGROUND")
+            active:SetAllPoints()
+            active:SetColorTexture(0.43, 0.34, 0.20, 0.20)
+            b.activeBg = active
+            self.navButtons[i] = b
+        end
         self.navMeasure:SetText(page.name)
         local height = max(36, self.navMeasure:GetStringHeight() + 16)
         b:ClearAllPoints(); b:SetPoint("TOPLEFT", 0, -navY); b:SetHeight(height)
@@ -864,6 +871,7 @@ function UI:Rebuild(resetScroll)
         b.text:SetText(page.name)
         b.text:SetJustifyH("LEFT")
         b.text:SetTextColor(unpack(page.key == self.pageKey and GOLD or TEXT))
+        b.activeBg:SetShown(page.key == self.pageKey and self.search:GetText() == "")
         local key = page.key
         b:SetScript("OnClick", function() self:SelectPage(key) end)
         b:Show(); self:ClipControl(b, self.nav, true)
@@ -1001,8 +1009,14 @@ function UI:FitScreen()
         self.layoutSignature = signature
         self:RequestRefresh()
     end
-    self.window:SetScale(max(0.1, min(1, (width - margin) / self.window:GetWidth(),
-        (height - margin) / self.window:GetHeight())))
+    -- An embedded editor must not become tiny inside Blizzard Settings. The
+    -- category falls back to a native launch page on smaller canvases.
+    if self.embeddedHost then
+        self.window:SetScale(1)
+    else
+        self.window:SetScale(max(0.1, min(1, (width - margin) / self.window:GetWidth(),
+            (height - margin) / self.window:GetHeight())))
+    end
 end
 
 function UI:SetStandaloneEscape(enabled)
@@ -1070,6 +1084,16 @@ function UI:Create()
     close:SetScript("OnClick", function() w:Hide() end)
     self.profile = label(w, "", 12); self.profile:SetPoint("TOPRIGHT", -60, -25); self.profile:SetWidth(430); self.profile:SetJustifyH("RIGHT")
     self.search = edit(w, 194); self.search:SetMaxLetters(200); self.search:SetPoint("TOPLEFT", 18, -76)
+    self.search:SetTextInsets(9, 28, 0, 0)
+    local clearSearch = button(self.search, "×", 21, 21)
+    clearSearch:SetPoint("RIGHT", -4, 0)
+    clearSearch:SetScript("OnClick", function()
+        self.search:SetText("")
+        self.search:ClearFocus()
+        self.searchIndex, self.searchDelay = 0, nil
+        self:Rebuild(true)
+    end)
+    self.clearSearch = clearSearch
     self.search:SetScript("OnTextChanged", function()
         self.searchIndex = 0
         self.searchDelay = 0.14
@@ -1160,6 +1184,7 @@ function UI:Create()
             local reset = self.searchDelay ~= nil; self.searchDelay = nil; self:Rebuild(reset)
         end
         self.searchHint:SetShown(self.search:GetText() == "")
+        self.clearSearch:SetShown(self.search:GetText() ~= "")
         if statusTick >= 1 then
             statusTick = 0; self:UpdateStatus()
             if self.fieldSuccess then

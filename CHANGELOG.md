@@ -1,3 +1,19 @@
+## Unreleased — Unified native chat button column
+
+- Restore the original gold Blizzard-style Settings, Copy and History icons, now always stacked as **one vertical column** instead of a horizontal row.
+- Place the Chatify column in an available vertical gap within the original Blizzard chat sidebar, aligned to the game's button width. Scan visible native controls; never move, resize, reparent, or hide them to create space.
+- If no internal gap is large enough, keep a vertical fallback below/above the native strip or next to it rather than overlapping native controls with a row. Follow chat and button visibility/size changes through passive hooks.
+- Preserve channel hotkeys, settings/profile behavior, quick-chat docking options and native UI themes. Verify geometry with the screenshot-style fixture and multi-client regressions; live in-game visuals remain to be verified.
+
+## Unreleased — Native settings and chat UI/UX polish
+
+- Keep the original complete Chatify settings window and Overview; all existing categories, search, profiles and option callbacks remain intact.
+- Embed the complete editor into Blizzard AddOns settings at full readable scale on sufficiently large canvases. On smaller game Settings panels, use Blizzard-style navigation buttons for the full window, chat tabs, Quick Chat Buttons and appearance rather than squeezing the editor.
+- Close Blizzard Settings through its normal panel action when launching the independent full editor; preserve per-profile drafts when switching hosts.
+- Improve settings navigation with visible active-section highlighting and one-click search clearing. Retain text and colour validation, confirmation, category search and feature availability notices.
+- Replace direct edits of Blizzard chat-button OnShow scripts with passive hooks; restore only buttons hidden by Chatify when this option is turned off. Original chat anchors and scripts remain owned by the game.
+- Tested against source-driven Retail, Forever, Era, TBC, Mists and Titan fixtures; real client appearance and taint still require in-game testing.
+
 ## Unreleased — Quick Chat button docking & native UI preservation
 
 - Added **Left / Right / Automatic** docking for the Quick Chat channel buttons. Automatic chooses the side with more usable screen space.
