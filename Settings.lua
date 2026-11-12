@@ -3195,12 +3195,34 @@ function Chatify:RefreshConfig()
         ns.RunRetailCompatibilityMigration(ns.db)
     end
     RefreshRuntimeModules()
+    if type(ns.SyncNativeStatusToastControl) == "function" then ns.SyncNativeStatusToastControl() end
     if ns.SettingsWindow then ns.SettingsWindow:RequestRefresh() end
 end
 
 function Chatify:OnEnable()
     RefreshRuntimeModules()
+    if type(ns.SyncNativeStatusToastControl) == "function" then
+        ns.SyncNativeStatusToastControl()
+        if type(self.RegisterEvent) == "function" then
+            pcall(self.RegisterEvent, self, "PLAYER_ENTERING_WORLD", "PLAYER_ENTERING_WORLD")
+        end
+    end
     self:WarnIfSettingsWereLost()
+end
+
+function Chatify:PLAYER_ENTERING_WORLD()
+    if type(ns.SyncNativeStatusToastControl) == "function" then ns.SyncNativeStatusToastControl() end
+end
+
+function Chatify:OnDisable()
+    if type(self.UnregisterEvent) == "function" then
+        pcall(self.UnregisterEvent, self, "PLAYER_ENTERING_WORLD")
+    end
+    -- Programmatic disable must not leave the account's native social
+    -- notifications permanently overridden while Chatify is inactive.
+    if type(ns.SyncNativeStatusToastControl) == "function" then
+        ns.SyncNativeStatusToastControl(true)
+    end
 end
 
 -- Tells the user once, in chat, when their configuration did not come back.

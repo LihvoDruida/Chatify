@@ -28,6 +28,7 @@ locale\enUS.lua
 locale\ukUA.lua
 Config.lua
 SystemMessages.lua
+NativeNoticeAudio.lua
 WindowLayout.lua
 
 OptionsLayout.lua

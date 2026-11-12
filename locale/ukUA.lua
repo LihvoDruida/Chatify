@@ -3,6 +3,9 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("ukUA", {
+    ['Channel, group and battleground notices normally have no separate Blizzard sound. Battle.net online/offline toasts can play a sound independent of chat messages.'] = 'Повідомлення про канали, групи й поля бою зазвичай не мають окремого звуку Blizzard. Сповіщення Battle.net про вхід/вихід можуть відтворювати звук незалежно від чату.',
+    ['Silence Battle.net Online/Offline Alerts'] = 'Вимкнути звуки входу/виходу Battle.net',
+    ["Also disable Blizzard's online/offline Battle.net popups and their sounds via the game's Social settings. Friend requests, whispers, and other sounds stay enabled. Original settings are restored when unchecked."] = 'Також вимикає стандартні спливаючі сповіщення Battle.net про вхід/вихід і їхні звуки через налаштування «Соціальні» гри. Запрошення в друзі, приватні повідомлення та інші звуки залишаються активними. Після вимкнення параметра попередні налаштування відновлюються.',
     ["Show Chatify Tools"] = "Показувати інструменти Chatify",
     ["Show Chatify Settings, Copy and History beside Blizzard chat controls without moving the game buttons."] = "Показує кнопки налаштувань, копіювання й історії Chatify поруч зі стандартними кнопками гри, не переміщуючи їх.",
     ["Independent Chatify toolbar"] = "Окрема панель інструментів Chatify",

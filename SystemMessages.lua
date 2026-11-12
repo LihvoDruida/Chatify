@@ -8,6 +8,7 @@ local channelEvents = {
 local families = {
     hidePlayerStatusMessages = {
         "ERR_FRIEND_ONLINE_SS", "ERR_FRIEND_OFFLINE_S", "ERR_GUILD_MEMBER_LOGIN_S",
+        "ERR_GUILD_MEMBER_LOGOUT_S",
         "BN_INLINE_TOAST_FRIEND_ONLINE", "BN_INLINE_TOAST_FRIEND_OFFLINE",
     },
     hideGroupRosterMessages = {
@@ -64,6 +65,29 @@ local function FormatPattern(safeFormat)
     parts[#parts + 1] = "$"
     return table.concat(parts)
 end
+-- A translator (e.g. a Ukrainian chat-localization addon) can translate the
+-- completed CHAT_MSG_SYSTEM line while the client's GlobalStrings stay enUS.
+-- The two observed Ukrainian presence notices then cannot match the original
+-- Blizzard format. Match ONLY the complete system-status sentence, never a
+-- substring of ordinary player chat. Locale-independent byte matching avoids
+-- changing UTF-8 character case or depending on optional localization addons.
+local translatedPresenceSuffixes = {
+    " тепер у мережі",
+    " вийшов з мережі",
+}
+local function IsTranslatedPlayerStatus(safeText)
+    if type(safeText) ~= "string" or #safeText > 300 then return false end
+    for _, suffix in ipairs(translatedPresenceSuffixes) do
+        local escaped = Literal(suffix)
+        local subject = safeText:match("^(.-)" .. escaped .. "[%.!]?$")
+        if subject and #subject >= 2 and #subject <= 160
+            and subject:match("^%S") and not subject:find("[%c:]") then
+            return true
+        end
+    end
+    return false
+end
+
 local function Matches(safeText, key)
     local format = _G[key]
     if not Readable(format) or format == "" then return false end
@@ -73,6 +97,47 @@ local function Matches(safeText, key)
         cachedFormats[key] = entry
     end
     return safeText:match(entry.pattern) ~= nil
+end
+
+-- Channel changes may be rendered with a chat-channel prefix (for example
+-- "[1. General] Changed Channel: [1. General - Moonglade]") or as a plain
+-- notice. Some clients and channel-name translators provide a completed
+-- English line even when the available CHAT_YOU_CHANGED_NOTICE global does
+-- not match. Require the entire native notice shape; never search for these
+-- words in ordinary player chat.
+local fallbackEnglishChannelActions = {
+    ["Changed Channel"] = true,
+    ["Joined Channel"] = true,
+    ["Left Channel"] = true,
+}
+local function NativeChannelNoticeNumber(safeText)
+    if #safeText > 380 then return nil end
+    local action, channelNumber, channelName = safeText:match("^(.-):%s*%[(%d+)%.%s+(.+)%]%.?$")
+    if not action or not fallbackEnglishChannelActions[action]
+        or not channelName or #channelName > 260
+        or not channelName:match("^%S") or not channelName:match("%S$")
+        or channelName:find("%[") or channelName:find("%]") then
+        return nil
+    end
+    return channelNumber
+end
+local function IsChannelNoticeText(safeText)
+    if type(safeText) ~= "string" or #safeText > 480 then return false end
+    local function isBareNotice(line)
+        if NativeChannelNoticeNumber(line) then return true end
+        for _, key in ipairs(channelFormats) do
+            if Matches(line, key) then return true end
+        end
+        return false
+    end
+    if isBareNotice(safeText) then return true end
+    -- Blizzard channel messages can carry an extra "[N. Channel]" label;
+    -- accept only a native-looking label with a matching destination number.
+    local prefixNumber, line = safeText:match("^%[(%d+)%.%s+[^%]]+%]%s+(.+)$")
+    if not prefixNumber or not isBareNotice(line) then return false end
+    local noticeNumber = NativeChannelNoticeNumber(line)
+        or line:match("^[^:]+:%s*%[(%d+)%.%s+")
+    return not noticeNumber or noticeNumber == prefixNumber
 end
 
 function ns.SystemNoticeFiltersEnabled()
@@ -89,10 +154,12 @@ function ns.ShouldHideSystemChatEvent(eventName, message)
     if eventName ~= "CHAT_MSG_SYSTEM" and eventName ~= "CHAT_MSG_BN_INLINE_TOAST_ALERT" then return false end
     if ns.IsProtectedChatValue(message) or not ns.CanAccessChatValue(message) then return false end
     if type(message) ~= "string" then return false end
-    if eventName == "CHAT_MSG_BN_INLINE_TOAST_ALERT" then
-        return db.hidePlayerStatusMessages and (message == "FRIEND_ONLINE" or message == "FRIEND_OFFLINE") or false
+    if eventName == "CHAT_MSG_BN_INLINE_TOAST_ALERT"
+        and (message == "FRIEND_ONLINE" or message == "FRIEND_OFFLINE") then
+        return db.hidePlayerStatusMessages and true or false
     end
     local plain = Plain(message)
+    if db.hidePlayerStatusMessages and IsTranslatedPlayerStatus(plain) then return true end
     for option, formats in pairs(families) do
         if db[option] then
             for _, key in ipairs(formats) do
@@ -100,6 +167,9 @@ function ns.ShouldHideSystemChatEvent(eventName, message)
             end
         end
     end
+    -- Older clients and localized chat renderers can emit fully formatted
+    -- channel-change notices through CHAT_MSG_SYSTEM rather than a notice event.
+    if db.hideSystemSpam and IsChannelNoticeText(plain) then return true end
     return false
 end
 
@@ -118,6 +188,12 @@ function ns.ShouldHideRenderedSystemMessage(message, chatTypeID, eventName)
         local info = ChatTypeInfo[name]
         if type(info) == "table" and not ns.HasSecretChatValue(info.id) and ns.CanAccessChatValue(info.id)
             and chatTypeID == info.id then
+            if name == "BN_INLINE_TOAST_ALERT" then
+                -- The client may render either an event token or a formatted
+                -- localized toast line directly into the chat frame.
+                return ns.ShouldHideSystemChatEvent("CHAT_MSG_BN_INLINE_TOAST_ALERT", message)
+                    or ns.ShouldHideSystemChatEvent("CHAT_MSG_SYSTEM", message)
+            end
             return ns.ShouldHideSystemChatEvent("CHAT_MSG_SYSTEM", message)
         end
     end
@@ -129,16 +205,12 @@ function ns.ShouldHideRenderedSystemMessage(message, chatTypeID, eventName)
     -- Some clients color both notices and player text with CHANNEL<n>'s id.
     -- For that shared type require the localized notice format as well.
     local db = DB()
-    if db and db.hideSystemSpam and Readable(message) then
-        local plain = Plain(message)
-        for _, key in ipairs(channelFormats) do
-            if Matches(plain, key) then
-                for name, info in pairs(ChatTypeInfo) do
-                    if type(name) == "string" and (name == "CHANNEL" or name:match("^CHANNEL%d+$"))
-                        and type(info) == "table" and not ns.HasSecretChatValue(info.id)
-                        and ns.CanAccessChatValue(info.id) and chatTypeID == info.id then return true end
-                end
-            end
+    if db and db.hideSystemSpam and Readable(message)
+        and IsChannelNoticeText(Plain(message)) then
+        for name, info in pairs(ChatTypeInfo) do
+            if type(name) == "string" and (name == "CHANNEL" or name:match("^CHANNEL%d+$"))
+                and type(info) == "table" and not ns.HasSecretChatValue(info.id)
+                and ns.CanAccessChatValue(info.id) and chatTypeID == info.id then return true end
         end
     end
 

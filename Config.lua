@@ -951,6 +951,7 @@ ns.defaults = {
         hidePlayerStatusMessages = false,
         hideGroupRosterMessages = false,
         hideBattleRosterMessages = true,
+        mutePlayerStatusSounds = false, -- opt in: suppress Blizzard BNet online/offline toasts and their sounds
 
         -- Базовий список слів для блокування
         spamKeywords = { 

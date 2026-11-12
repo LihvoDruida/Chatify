@@ -1,3 +1,22 @@
+## Unreleased (DEV) — Channel change notices in Forever
+
+- Fix **Hide channel notices** for completed `Changed Channel: [1. General - Moonglade]` / `Changed Channel: [3. LocalDefense - Moonglade]` lines even when the client or a translator uses different `CHAT_YOU_CHANGED_NOTICE` globals.
+- Recognize fully formatted join/leave/change notices in typed system/channel messages, including Blizzard hyperlink formatting and optional `[N. Channel]` prefix; do not suppress ordinary player text or mismatched channel labels.
+- Keep channel filtering independent of online/offline and sound settings. Add regression cases for native `CHAT_MSG_SYSTEM`, channel message types, and enabled/disabled options across six client fixtures. Live-client tests remain necessary.
+
+## Unreleased (DEV) — Translated presence notices in Forever
+
+- Fix the **Hide player online/offline messages** switch for system lines translated into Ukrainian by other addons while the client uses different GlobalStrings.
+- Match the observed `тепер у мережі` / `вийшов з мережі` forms only as complete system/BNet notice lines (also in a known SYSTEM chat message type), never as ordinary guild/party/player text.
+- Add isolated regression cases for client-localized messages, translated notice suppression, and message-type safety across all client fixtures.
+
+## Unreleased — Native system notices and sound integration
+
+- Filter native channel, friend/guild presence, party/raid roster and battleground membership notices independently using each client's localized Blizzard formats. Include legacy channel change messages delivered through `CHAT_MSG_SYSTEM` and direct-render Battle.net toast tokens.
+- Add an **opt-in** Battle.net online/offline popup-and-sound switch beside the System Messages filters. Uses only native `showToastOnline` / `showToastOffline` Social CVars when available, never globally disables SFX or mutes shared sound files.
+- Snapshot native Social settings in the addon-wide SavedVariables and restore on opt-out, profile change or active-addon disable; preserve both values through reloads. Unsupported clients keep the audio control disabled; no guessing of sound IDs or direct Blizzard hook overrides.
+- Validate native-text filtering across Retail, Forever, Era, TBC, Mists and Titan modeled clients, sound-setting restoration, Lua parsing and package integrity. Real-game verification remains outstanding.
+
 ## Unreleased — Unified native chat button column
 
 - Restore the original gold Blizzard-style Settings, Copy and History icons, now always stacked as **one vertical column** instead of a horizontal row.

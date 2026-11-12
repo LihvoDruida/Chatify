@@ -87,6 +87,7 @@ function Layout:Apply(options)
     system.hideSystemSpam.desc = T("Hide channel changes and channel join/leave notices. Player chat stays visible.")
     local function setNotice(key, value)
         ns.Chatify.db.profile[key] = value
+        if type(ns.SyncNativeStatusToastControl) == "function" then ns.SyncNativeStatusToastControl() end
         if type(ns.RefreshChannelLabelHook) == "function" then ns.RefreshChannelLabelHook() end
     end
     local function noticeToggle(key, name, desc, order)
@@ -100,6 +101,15 @@ function Layout:Apply(options)
         "Hide party and raid membership notices. Party, raid and instance player messages stay visible.", 3)
     noticeToggle("hideBattleRosterMessages", "Hide Battle Join/Leave Notices",
         "Hide battleground and arena player join/leave notices, including joined the battle summaries. Protected messages may remain visible.", 4)
+    system.nativeAudioHelp = { type = "description", order = 5,
+        name = T("Channel, group and battleground notices normally have no separate Blizzard sound. Battle.net online/offline toasts can play a sound independent of chat messages.") }
+    noticeToggle("mutePlayerStatusSounds", "Silence Battle.net Online/Offline Alerts",
+        "Also disable Blizzard's online/offline Battle.net popups and their sounds via the game's Social settings. Friend requests, whispers, and other sounds stay enabled. Original settings are restored when unchecked.", 6)
+    system.mutePlayerStatusSounds.disabled = function()
+        return not ns.Chatify.db.profile.hidePlayerStatusMessages
+            or not (type(ns.NativeStatusToastControlAvailable) == "function"
+                and ns.NativeStatusToastControlAvailable())
+    end
     spam.spamCore.args.spamFilterMode.disabled = function() return not ns.Chatify.db.profile.enableSpamFilter end
     -- Scan choices remain editable before enabling the filter. Guild scanning,
     -- however, is bypassed by the whitelist and must not look active then.

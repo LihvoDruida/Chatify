@@ -3,6 +3,9 @@ local Locale = ns.Locale
 if not Locale then return end
 
 Locale:RegisterLocale("enUS", {
+    ['Channel, group and battleground notices normally have no separate Blizzard sound. Battle.net online/offline toasts can play a sound independent of chat messages.'] = 'Channel, group and battleground notices normally have no separate Blizzard sound. Battle.net online/offline toasts can play a sound independent of chat messages.',
+    ['Silence Battle.net Online/Offline Alerts'] = 'Silence Battle.net Online/Offline Alerts',
+    ["Also disable Blizzard's online/offline Battle.net popups and their sounds via the game's Social settings. Friend requests, whispers, and other sounds stay enabled. Original settings are restored when unchecked."] = "Also disable Blizzard's online/offline Battle.net popups and their sounds via the game's Social settings. Friend requests, whispers, and other sounds stay enabled. Original settings are restored when unchecked.",
     ["Show Chatify Tools"] = "Show Chatify Tools",
     ["Show Chatify Settings, Copy and History beside Blizzard chat controls without moving the game buttons."] = "Show Chatify Settings, Copy and History beside Blizzard chat controls without moving the game buttons.",
     ["Independent Chatify toolbar"] = "Independent Chatify toolbar",
