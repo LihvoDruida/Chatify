@@ -12,11 +12,11 @@ local settingsButton
 local copyButton
 local historyButton
 local composerButton
-local socialButton
-local socialButtonHooked = false
 local buttons = {}
 local hookedEditBox
 local hookedAnchorFrame
+local lastPlacedSide = "RIGHT"
+local GetQuickChatAnchorPlacement
 local GetConfiguredAlpha
 local GetConfiguredPanelAlpha
 local GetConfiguredTheme
@@ -1026,13 +1026,23 @@ end
 
 GetConfiguredButtonYOffset = function()
     local db = GetDB()
-    local offset = db and db.quickChatButtonYOffset or -4
-    if type(offset) ~= "number" then
-        offset = -4
-    end
-    if offset < -24 then offset = -24 end
-    if offset > 16 then offset = 16 end
+    local offset = db and db.quickChatButtonYOffset
+    if type(offset) ~= "number" or offset ~= offset then offset = -4 end
+    if offset < -100 then offset = -100 end
+    if offset > 100 then offset = 100 end
     return math.floor(offset + 0.5)
+end
+
+local function GetConfiguredButtonGap()
+    local db = GetDB()
+    local gap = db and db.quickChatButtonGap
+    if type(gap) ~= "number" or gap ~= gap then gap = 18 end
+    return math.max(0, math.min(100, math.floor(gap + 0.5)))
+end
+
+local function GetQuickPlacementOptions()
+    local db = GetDB() or {}
+    return db.quickChatButtonSide or "RIGHT", db.quickChatButtonAlign or "BOTTOM", db.quickChatButtonAvoidNative ~= false
 end
 
 local function ShouldShowSettingsButton()
@@ -1046,29 +1056,10 @@ local function ShouldShowSettingsButton()
     return db.quickChatSettingsButton == true
 end
 
-local function GetSocialSidebarButton()
-    -- Classic-era clients already own the chat menu/scroll stack. Do not
-    -- steal the global social/micro button into the chat button frame there;
-    -- it breaks BCC/Vanilla/Wrath/Titan/Mists layouts where the native stack
-    -- contains scroll buttons instead of the Retail social/channel pair.
-    if type(ns.IsClassicClient) == "function" then
-        local ok, classic = pcall(ns.IsClassicClient)
-        if ok and classic then
-            return nil
-        end
-    end
-
-    if QuickJoinToastButton then
-        return QuickJoinToastButton
-    end
-    if FriendsMicroButton then
-        return FriendsMicroButton
-    end
-    return nil
-end
-
 local function ShouldShowSidebarMenu()
-    return GetSocialSidebarButton() ~= nil or ShouldShowSettingsButton()
+    -- Chatify must never take ownership of or move Blizzard's own social,
+    -- channel, scroll or minimize buttons just to expose its settings icon.
+    return ShouldShowSettingsButton()
 end
 
 local BUTTON_DEFS
@@ -1467,7 +1458,7 @@ local function GetMainSidebarButtonFrame()
     end
 
     local function IsSidebarFrame(value)
-        return type(value) == "table" and type(value.SetPoint) == "function"
+        return (type(value) == "table" or type(value) == "userdata") and type(value.SetPoint) == "function"
             and type(value.GetWidth) == "function"
     end
     if IsSidebarFrame(frame.ButtonFrame) then
@@ -1546,7 +1537,7 @@ local function IsDetachedClassicSidebarLayout()
 end
 
 local function SafeFrameCenterX(frame)
-    if type(frame) ~= "table" then
+    if type(frame) ~= "table" and type(frame) ~= "userdata" then
         return nil
     end
 
@@ -1644,6 +1635,8 @@ local function GetLayoutSignature()
 
     local width = visualFrame.GetWidth and math.floor((visualFrame:GetWidth() or 0) + 0.5) or 0
     local height = visualFrame.GetHeight and math.floor((visualFrame:GetHeight() or 0) + 0.5) or 0
+    local visualLeft = visualFrame.GetLeft and visualFrame:GetLeft() or 0
+    local visualRight = visualFrame.GetRight and visualFrame:GetRight() or 0
     local strata = visualFrame.GetFrameStrata and visualFrame:GetFrameStrata() or "MEDIUM"
     local alpha = string.format("%.2f", GetConfiguredAlpha())
     local spacing = GetConfiguredSpacing()
@@ -1652,8 +1645,13 @@ local function GetLayoutSignature()
     local _, buttonHeight, buttonRatio = GetConfiguredButtonMetrics()
     local ratio = string.format("%.3f", buttonRatio or DEFAULT_SIDEBAR_BUTTON_RATIO)
     local buttonHeightSignature = tostring(buttonHeight or DEFAULT_SIDEBAR_BUTTON_HEIGHT)
-    local gap = type(db.quickChatButtonGap) == "number" and math.floor(db.quickChatButtonGap + 0.5) or 18
+    local gap = GetConfiguredButtonGap()
     local yOffset = GetConfiguredButtonYOffset()
+    local side, verticalAlign, avoidNative = GetQuickPlacementOptions()
+    local nativeFrame, nativeHost = GetMainSidebarButtonFrame()
+    local nativeSide = nativeFrame and GetClassicSidebarSide(nativeFrame, nativeHost) or "none"
+    local nativeLeft = nativeFrame and nativeFrame.GetLeft and nativeFrame:GetLeft() or 0
+    local nativeRight = nativeFrame and nativeFrame.GetRight and nativeFrame:GetRight() or 0
     local panelAlpha = string.format("%.2f", GetConfiguredPanelAlpha())
     local showQuickButtons = db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons"))
     local showSettingsButton = ShouldShowSettingsButton()
@@ -1672,12 +1670,20 @@ local function GetLayoutSignature()
         GetFrameIdentity(visualFrame),
         tostring(width),
         tostring(height),
+        tostring(visualLeft),
+        tostring(visualRight),
         tostring(strata),
         tostring(size),
         buttonHeightSignature,
         ratio,
         tostring(gap),
         tostring(yOffset),
+        tostring(side),
+        tostring(verticalAlign),
+        tostring(avoidNative),
+        tostring(nativeSide),
+        tostring(nativeLeft),
+        tostring(nativeRight),
         tostring(spacing),
         tostring(scale),
         tostring(alpha),
@@ -2275,51 +2281,6 @@ local function ActivateChatType(def, useAlt)
 end
 
 
-local function GetVisibleSidebarLayoutHost()
-    if settingsContainer and settingsContainer:IsShown() then
-        return settingsContainer
-    end
-    return GetMainSidebarButtonFrame()
-end
-
-local function EnsureSocialSidebarButton()
-    local sidebarFrame = GetMainSidebarButtonFrame()
-    if not sidebarFrame then
-        socialButton = nil
-        return nil
-    end
-
-    local button = GetSocialSidebarButton()
-    socialButton = button
-    if not button then
-        return nil
-    end
-
-    button:SetParent(GetVisibleSidebarLayoutHost() or sidebarFrame)
-    button:SetScript("OnMouseDown", nil)
-    button:SetScript("OnMouseUp", nil)
-    button:ClearAllPoints()
-    button:SetFrameStrata((sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH")
-    if sidebarFrame.GetFrameLevel and button.SetFrameLevel then
-        button:SetFrameLevel((sidebarFrame:GetFrameLevel() or 1) + 2)
-    end
-
-    if not socialButtonHooked and type(hooksecurefunc) == "function" then
-        socialButtonHooked = true
-        local originalSetPoint = button.SetPoint
-        pcall(hooksecurefunc, button, "SetPoint", function(_, _, frame)
-            local currentSidebar = GetVisibleSidebarLayoutHost()
-            if currentSidebar and frame ~= currentSidebar then
-                button:SetParent(currentSidebar)
-                button:ClearAllPoints()
-                originalSetPoint(button, "TOP", currentSidebar, "TOP", 0, 0)
-            end
-        end)
-    end
-
-    return button
-end
-
 local function EnsureSidebarIconButtonVisual(self, iconPath, iconSize)
     if not self then
         return
@@ -2387,8 +2348,8 @@ local function RefreshSidebarIconButtonLook(button, iconPath, iconSize)
 
     EnsureSidebarIconButtonVisual(button, iconPath, iconSize)
 
-    -- Size is controlled by LayoutSidebarButtonStack(). Do not hardcode it here,
-    -- otherwise settings/copy buttons drift from Blizzard sidebar metrics.
+    -- Size is controlled by Chatify's independent layout host, not by
+    -- resizing or reparenting Blizzard's native sidebar controls.
     button:SetNormalTexture("chatframe-button-up")
     button:SetPushedTexture("chatframe-button-down")
     button:SetHighlightTexture("chatframe-button-highlight")
@@ -2422,8 +2383,8 @@ RefreshHistoryButtonLook = function()
     RefreshSidebarIconButtonLook(historyButton, HISTORY_CHAT_ICON, 14)
 end
 
--- Table-driven sidebar layout manager: one compact stack controls
--- social/channel/settings/copy buttons and keeps spacing consistent.
+-- Table-driven toolbar manager: ONLY Settings/Copy/History belong here.
+-- Blizzard social/channel/menu/scroll buttons stay under game ownership.
 local SIDEBAR_LAYOUT = {
     paddingTop = 0,
     spacing = 1,
@@ -2463,81 +2424,6 @@ local function ApplySidebarButtonLayout(button, layoutHost, buttonWidth, buttonH
     button:Show()
 end
 
-local function GetSidebarAvailableHeight(sidebarFrame, hostFrame)
-    local sidebarHeight = 0
-    local hostHeight = 0
-
-    if sidebarFrame and sidebarFrame.GetHeight then
-        local ok, value = pcall(sidebarFrame.GetHeight, sidebarFrame)
-        if ok and type(value) == "number" then
-            sidebarHeight = value
-        end
-    end
-    if hostFrame and hostFrame.GetHeight then
-        local ok, value = pcall(hostFrame.GetHeight, hostFrame)
-        if ok and type(value) == "number" then
-            hostHeight = value
-        end
-    end
-
-    -- The default Blizzard button frame is often sized for only the native
-    -- social/channel buttons. Use the real chat frame height as the available
-    -- budget so extra Chatify buttons fit instead of being clipped.
-    return math.max(64, math.floor(math.max(sidebarHeight, hostHeight) + 0.5))
-end
-
-local function FitSidebarButtonMetrics(sidebarFrame, hostFrame, itemCount, buttonWidth, buttonHeight, ratio, spacing)
-    itemCount = tonumber(itemCount) or 0
-    if itemCount <= 0 then
-        return buttonWidth, buttonHeight, spacing, 0
-    end
-
-    local availableHeight = GetSidebarAvailableHeight(sidebarFrame, hostFrame)
-    local naturalHeight = (buttonHeight * itemCount) + (spacing * math.max(0, itemCount - 1))
-    if naturalHeight <= availableHeight then
-        return buttonWidth, buttonHeight, spacing, naturalHeight
-    end
-
-    spacing = math.max(0, math.min(spacing, 1))
-    local fittedHeight = math.floor((availableHeight - (spacing * math.max(0, itemCount - 1))) / itemCount)
-    fittedHeight = math.max(18, math.min(buttonHeight, fittedHeight))
-    local fittedWidth = math.max(18, math.floor((fittedHeight / math.max(ratio or DEFAULT_SIDEBAR_BUTTON_RATIO, 0.1)) + 0.5))
-    local totalHeight = (fittedHeight * itemCount) + (spacing * math.max(0, itemCount - 1))
-
-    return fittedWidth, fittedHeight, spacing, totalHeight
-end
-
-local function PrepareSidebarLayoutHost(sidebarFrame, hostFrame, buttonWidth, totalHeight, strata, frameLevel)
-    local layoutHost = settingsContainer or sidebarFrame
-    if not layoutHost then
-        return nil
-    end
-
-    local parent = (hostFrame and hostFrame.GetParent and hostFrame:GetParent()) or (sidebarFrame and sidebarFrame.GetParent and sidebarFrame:GetParent()) or UIParent
-    layoutHost:SetParent(parent)
-    layoutHost:ClearAllPoints()
-    if sidebarFrame then
-        layoutHost:SetPoint("TOP", sidebarFrame, "TOP", 0, 0)
-    elseif hostFrame then
-        layoutHost:SetPoint("TOPLEFT", hostFrame, "TOPRIGHT", 0, 0)
-    end
-    layoutHost:SetSize(buttonWidth + 4, math.max(1, totalHeight))
-    layoutHost:SetFrameStrata(strata)
-    if layoutHost.SetFrameLevel then
-        layoutHost:SetFrameLevel(frameLevel + 1)
-    end
-    if layoutHost.SetClipsChildren then
-        layoutHost:SetClipsChildren(false)
-    end
-    layoutHost:Show()
-
-    if sidebarFrame and sidebarFrame.SetClipsChildren then
-        sidebarFrame:SetClipsChildren(false)
-    end
-
-    return layoutHost
-end
-
 local function LayoutSidebarButtonStack(layoutHost, items, buttonWidth, buttonHeight, spacing, strata, frameLevel)
     local previous
     for _, item in ipairs(items) do
@@ -2573,7 +2459,7 @@ local function LayoutSidebarButtonRow(layoutHost, items, buttonWidth, buttonHeig
 end
 
 local function GetFrameRect(frame)
-    if type(frame) ~= "table" then
+    if type(frame) ~= "table" and type(frame) ~= "userdata" then
         return nil
     end
 
@@ -2596,6 +2482,41 @@ local function GetFrameRect(frame)
     end
 
     return left, right, top, bottom
+end
+
+GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
+    local db = GetDB() or {}
+    local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
+    -- Only check the native sidebar when anchoring to its actual chat frame.
+    -- Detached tabs and third-party chat layouts must not inherit a clearance
+    -- from the primary Blizzard chat button strip on another window.
+    if GetAnchorFrame() ~= hostFrame then
+        local frameLeft, frameRight = GetFrameRect(visualFrame)
+        local mainLeft, mainRight = GetFrameRect(hostFrame)
+        if type(frameLeft) ~= "number" or type(mainLeft) ~= "number"
+            or type(frameRight) ~= "number" or type(mainRight) ~= "number"
+            or math.abs(frameLeft - mainLeft) > 10 or math.abs(frameRight - mainRight) > 10 then
+            sidebarFrame = nil
+        end
+    end
+    local function rect(frame)
+        if not frame then return nil end
+        local left, right, top, bottom = GetFrameRect(frame)
+        return { left = left, right = right, top = top, bottom = bottom }
+    end
+    return ns.ResolveQuickChatPlacement({
+        side = db.quickChatButtonSide,
+        align = db.quickChatButtonAlign,
+        gap = GetConfiguredButtonGap(),
+        y = GetConfiguredButtonYOffset(),
+        avoidNative = db.quickChatButtonAvoidNative ~= false,
+        chat = rect(visualFrame),
+        sidebar = rect(sidebarFrame),
+        extraObstacles = settingsContainer and settingsContainer.IsShown and settingsContainer:IsShown()
+            and { rect(settingsContainer) } or nil,
+        screen = rect(UIParent),
+        panelWidth = panelWidth,
+    })
 end
 
 local function GetUIParentWidth()
@@ -2642,71 +2563,6 @@ local function HideUnusedSidebarButtons(activeItems, ...)
     end
 end
 
-local function AddClassicNativeButtonCandidate(candidates, button)
-    if not button or candidates[button] then
-        return
-    end
-    if button == settingsButton or button == copyButton or button == historyButton then
-        return
-    end
-    if button.IsShown and not button:IsShown() then
-        return
-    end
-    if not button.GetTop or not button.GetBottom then
-        return
-    end
-
-    local okTop, top = pcall(button.GetTop, button)
-    local okBottom, bottom = pcall(button.GetBottom, button)
-    if okTop and okBottom and type(top) == "number" and type(bottom) == "number" then
-        candidates[button] = { frame = button, top = top, bottom = bottom }
-    end
-end
-
-local function GetClassicNativeButtonBounds(sidebarFrame, hostFrame)
-    local candidates = {}
-    local hostName
-    if hostFrame and hostFrame.GetName then
-        local ok, name = pcall(hostFrame.GetName, hostFrame)
-        if ok and type(name) == "string" then
-            hostName = name
-        end
-    end
-
-    if hostName then
-        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameUpButton"])
-        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameDownButton"])
-        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameBottomButton"])
-        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "ButtonFrameMinimizeButton"])
-        AddClassicNativeButtonCandidate(candidates, _G[hostName .. "MinimizeButton"])
-    end
-
-    AddClassicNativeButtonCandidate(candidates, _G.ChatFrameMenuButton)
-    AddClassicNativeButtonCandidate(candidates, _G.ChatFrameChannelButton)
-
-    if sidebarFrame and sidebarFrame.GetChildren then
-        local children = { sidebarFrame:GetChildren() }
-        for i = 1, #children do
-            AddClassicNativeButtonCandidate(candidates, children[i])
-        end
-    end
-
-    local topButton, bottomButton
-    local highestTop, lowestBottom
-    for button, data in pairs(candidates) do
-        if not highestTop or data.top > highestTop then
-            highestTop = data.top
-            topButton = button
-        end
-        if not lowestBottom or data.bottom < lowestBottom then
-            lowestBottom = data.bottom
-            bottomButton = button
-        end
-    end
-
-    return topButton, highestTop, bottomButton, lowestBottom
-end
-
 local function PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing, strata, frameLevel)
     local layoutHost = settingsContainer
     if not layoutHost then
@@ -2720,9 +2576,9 @@ local function PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, button
     itemCount = math.max(1, tonumber(itemCount) or 1)
     local placement, width, height, gap = ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, buttonWidth, buttonHeight, itemCount, spacing)
 
-    -- Classic chat button frames are not stable across Vanilla/BCC/Wrath/Titan/Mists.
-    -- Do not insert Chatify into Blizzard's ButtonFrame at all; keep a separate
-    -- toolbar beside/above the native stack so scroll/menu buttons remain untouched.
+    -- Chat button frames differ across Retail/Forever/Classic variants.
+    -- Never insert Chatify into Blizzard's ButtonFrame; attach a separate
+    -- toolbar beside/above the native stack to preserve default chat controls.
     layoutHost:SetParent(parent)
     layoutHost:ClearAllPoints()
     layoutHost:SetSize(math.max(1, width or buttonWidth), math.max(1, height or buttonHeight))
@@ -2796,9 +2652,8 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
         or (hostFrame and hostFrame.GetFrameLevel and hostFrame:GetFrameLevel())
         or 1
 
-    -- Classic keeps Chatify controls detached from Blizzard's native button
-    -- column. Use the native button size, but do not fit against the native
-    -- ButtonFrame height because that reintroduces overlap on BCC.
+    -- All clients keep Chatify controls detached from Blizzard's native
+    -- button column. Use native proportions without resizing the game frame.
     spacing = math.max(2, spacing)
 
     local layoutHost, placement = PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, #layoutItems, spacing, strata, frameLevel)
@@ -2813,14 +2668,8 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
     end
     HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
 
-    -- Never hide or reparent Blizzard's Classic chat buttons here. BCC,
-    -- Vanilla, Wrath/Titan and MoP Classic use different native children
-    -- (Up/Down/Bottom/Minimize/Menu), and changing their parent/order is what
-    -- causes the broken vertical stack shown in game.
-    if socialButton and socialButton.Hide then
-        socialButton:Hide()
-    end
-
+    -- Never hide or reparent native buttons here. Their order and visibility
+    -- are fully owned by Blizzard (including Edit Mode and Classic layouts).
     return true
 end
 
@@ -2887,95 +2736,25 @@ local function LayoutFallbackSidebarButtons(anchorFrame)
 
     LayoutSidebarButtonRow(settingsContainer, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel + 18)
     HideUnusedSidebarButtons(layoutItems, settingsButton, copyButton, historyButton)
-    if socialButton and socialButton.Hide then
-        socialButton:Hide()
-    end
     return true
 end
 
 local function LayoutSettingsButton()
-    if not settingsButton then
-        return
-    end
-
+    if not settingsButton then return end
     local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
-    if not sidebarFrame or not hostFrame then
-        if LayoutFallbackSidebarButtons(GetAnchorVisualFrame() or GetAnchorFrame()) then
-            return
-        end
-        if settingsContainer then
-            settingsContainer:Hide()
-        end
-        settingsButton:Hide()
-        if copyButton then
-            copyButton:Hide()
-        end
-        if historyButton then
-            historyButton:Hide()
-        end
-        if socialButton then
-            socialButton:Hide()
-        end
-        return
-    end
-
-    if IsDetachedClassicSidebarLayout() then
+    if sidebarFrame and hostFrame then
         LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
-        return
+    elseif not LayoutFallbackSidebarButtons(GetAnchorVisualFrame() or GetAnchorFrame()) then
+        if settingsContainer then settingsContainer:Hide() end
+        settingsButton:Hide()
+        if copyButton then copyButton:Hide() end
+        if historyButton then historyButton:Hide() end
     end
-
-    local social = EnsureSocialSidebarButton()
-    local channelButton = _G.ChatFrameChannelButton
-    local showSettings = ShouldShowSettingsButton()
-    local showCopy = showSettings and copyButton ~= nil
-    local showHistory = showSettings and historyButton ~= nil
-
-    local layoutItems = {}
-    AddSidebarLayoutItem(layoutItems, "social", social)
-    AddSidebarLayoutItem(layoutItems, "channel", channelButton)
-    if showSettings then
-        AddSidebarLayoutItem(layoutItems, "settings", settingsButton, RefreshSettingsButtonLook)
-    end
-    if showCopy then
-        AddSidebarLayoutItem(layoutItems, "copy", copyButton, RefreshCopyButtonLook)
-    end
-    if showHistory then
-        AddSidebarLayoutItem(layoutItems, "history", historyButton, RefreshHistoryButtonLook)
-    end
-
-    if #layoutItems == 0 then
-        if settingsContainer then
-            settingsContainer:Hide()
-        end
-        HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton, historyButton)
-        return
-    end
-
-    local buttonWidth, buttonHeight, ratio = GetConfiguredButtonMetrics()
-    local spacing = GetSidebarLayoutSpacing()
-    local strata = (sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata()) or "HIGH"
-    local frameLevel = (sidebarFrame.GetFrameLevel and sidebarFrame:GetFrameLevel()) or 1
-
-    local totalHeight
-    buttonWidth, buttonHeight, spacing, totalHeight = FitSidebarButtonMetrics(sidebarFrame, hostFrame, #layoutItems, buttonWidth, buttonHeight, ratio, spacing)
-    local layoutHost = PrepareSidebarLayoutHost(sidebarFrame, hostFrame, buttonWidth, totalHeight, strata, frameLevel)
-    if not layoutHost then
-        return
-    end
-
-    LayoutSidebarButtonStack(layoutHost, layoutItems, buttonWidth, buttonHeight, spacing, strata, frameLevel)
-    HideUnusedSidebarButtons(layoutItems, socialButton, channelButton, settingsButton, copyButton, historyButton)
 end
 
 local function LayoutButtons()
     if not container then
         return false
-    end
-
-    local db = GetDB()
-    local sideGap = 18
-    if db and type(db.quickChatButtonGap) == "number" then
-        sideGap = math.max(8, math.min(36, math.floor(db.quickChatButtonGap + 0.5)))
     end
 
     local frame = GetAnchorFrame()
@@ -3026,11 +2805,24 @@ local function LayoutButtons()
     local totalHeight = desiredTotalHeight
     local holderHeight = totalHeight + (outerPadding * 2)
 
+    local placement = GetQuickChatAnchorPlacement(visualFrame, buttonWidth + 4)
+    local side, vertical = placement.side, placement.align
+    local isLeft = side == "LEFT"
+    local horizontalAnchor = isLeft and "RIGHT" or "LEFT"
+    local visualAnchor = isLeft and "LEFT" or "RIGHT"
+    local signedGap = isLeft and -placement.gap or placement.gap
+    lastPlacedSide = side
+
     container:ClearAllPoints()
     container:SetParent(GetAnchorParent())
-    container:SetPoint("BOTTOMLEFT", visualFrame, "BOTTOMRIGHT", sideGap, GetConfiguredButtonYOffset())
-    container:SetHeight(math.max(chatHeight, holderHeight))
-    container:SetWidth(buttonWidth + 4)
+    container:SetSize(buttonWidth + 4, math.max(1, holderHeight))
+    local targetPoint = vertical == "CENTER" and horizontalAnchor or (vertical .. horizontalAnchor)
+    local relativePoint = vertical == "CENTER" and visualAnchor or (vertical .. visualAnchor)
+    container:SetPoint(targetPoint, visualFrame, relativePoint, signedGap, placement.y)
+    -- Clamping an exterior dock can push the bar back over the chat text or
+    -- Blizzard's original buttons. AUTO side selection handles tight margins;
+    -- explicit LEFT/RIGHT is respected exactly as the user requested.
+    if container.SetClampedToScreen then container:SetClampedToScreen(false) end
 
     if container.SetFrameStrata then
         local strata = (visualFrame.GetFrameStrata and visualFrame:GetFrameStrata()) or (frame.GetFrameStrata and frame:GetFrameStrata()) or "MEDIUM"
@@ -3076,9 +2868,17 @@ local function LayoutButtons()
             if previous == composerButton then
                 gap = gap + COMPOSER_SECTION_GAP
             end
-            button:SetPoint("BOTTOM", previous, "TOP", 0, gap)
+            if vertical == "TOP" then
+                button:SetPoint("TOP", previous, "BOTTOM", 0, -gap)
+            else
+                button:SetPoint("BOTTOM", previous, "TOP", 0, gap)
+            end
         else
-            button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
+            if vertical == "TOP" then
+                button:SetPoint("TOP", container, "TOP", 0, -outerPadding)
+            else
+                button:SetPoint("BOTTOM", container, "BOTTOM", 0, outerPadding)
+            end
         end
 
         if button.Label then
@@ -3123,10 +2923,12 @@ local function HookAnchorFrameSignals()
     local hook = ns.SafeHookScript
     if type(hook) == "function" then
         hook(frame, "OnSizeChanged", function() ScheduleRefresh(0.05) end, "__chatifyQuickAnchorSize")
+        hook(frame, "OnDragStop", function() ScheduleRefresh(0) end, "__chatifyQuickAnchorDragStop")
         hook(frame, "OnShow", function() ScheduleRefresh(0) end, "__chatifyQuickAnchorShow")
         hook(frame, "OnHide", function() ScheduleRefresh(0) end, "__chatifyQuickAnchorHide")
     else
         frame:HookScript("OnSizeChanged", function() ScheduleRefresh(0.05) end)
+        frame:HookScript("OnDragStop", function() ScheduleRefresh(0) end)
         frame:HookScript("OnShow", function() ScheduleRefresh(0) end)
         frame:HookScript("OnHide", function() ScheduleRefresh(0) end)
     end
@@ -3227,7 +3029,7 @@ local function EnsureContainer()
                 local enabled = IsButtonEnabled(def)
                 local altEnabled = def.altChatType and IsAltButtonEnabled(def) or false
 
-                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                GameTooltip:SetOwner(self, lastPlacedSide == "LEFT" and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
                 GameTooltip:ClearLines()
                 GameTooltip:AddLine(T(def.tooltip), 1.00, 0.82, 0.18, true)
                 AddTooltipLine(T("Command"), string.format("%s  |cff8f8f8f%s|r", def.slash:gsub("%s+$", ""), def.slashAlias or ""), 0.90, 0.90, 0.90)
@@ -3255,7 +3057,7 @@ local function EnsureContainer()
                     AddTooltipLine(T("Status"), T("Unavailable"), 1.00, 0.35, 0.35)
                 end
 
-                AddTooltipLine(T("Position"), T("Right side of the chat frame"), 0.72, 0.72, 0.72)
+                AddTooltipLine(T("Position"), lastPlacedSide == "LEFT" and T("Left side of the chat frame") or T("Right side of the chat frame"), 0.72, 0.72, 0.72)
                 local skinLabel = "Standard"
                 if GetConfiguredTheme() == "ELVUI" then
                     skinLabel = "ElvUI"
@@ -3393,7 +3195,7 @@ local function EnsureContainer()
             GameTooltip:ClearLines()
             GameTooltip:AddLine(T("Chatify Settings"), 1.00, 0.82, 0.18, true)
             AddTooltipLine(T("Left Click"), T("Open Chatify configuration"), 0.95, 0.95, 0.95)
-            AddTooltipLine(T("Position"), T("Main chat button panel"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Position"), T("Independent Chatify toolbar"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
@@ -3454,7 +3256,7 @@ local function EnsureContainer()
                 AddTooltipLine(T("Shift + Left Click"), T("Direct chat selection is disabled in settings"), 0.62, 0.62, 0.62)
             end
             AddTooltipLine(T("Limit"), T("Optimized recent messages only"), 0.72, 0.82, 1.00)
-            AddTooltipLine(T("Position"), T("Below Chatify settings"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Position"), T("Independent Chatify toolbar"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
@@ -3502,7 +3304,7 @@ local function EnsureContainer()
             else
                 AddTooltipLine(T("Status"), T("Chat History is disabled in settings"), 1.00, 0.45, 0.35)
             end
-            AddTooltipLine(T("Position"), T("Below Copy Chat"), 0.72, 0.72, 0.72)
+            AddTooltipLine(T("Position"), T("Independent Chatify toolbar"), 0.72, 0.72, 0.72)
             AddTooltipLine(T("Skin"), skinLabel, 0.72, 0.72, 0.72)
             GameTooltip:Show()
         end
@@ -3557,6 +3359,16 @@ local function HookGeneralRefreshSignals()
         pcall(hooksecurefunc, "FloatingChatFrame_Update", function()
             ScheduleRefresh(0)
         end)
+    end
+
+    for _, functionName in ipairs({
+        "FCF_SetWindowPosition", "FCF_SavePositionAndDimensions",
+        "FCF_RestorePositionAndDimensions", "FCF_UpdateButtonSide",
+        "FCF_DockFrame", "FCF_UnDockFrame",
+    }) do
+        if type(_G[functionName]) == "function" then
+            pcall(hooksecurefunc, functionName, function() ScheduleRefresh(0.05) end)
+        end
     end
 
     local function HandleChatHeaderUpdate(editBox)
@@ -3770,9 +3582,11 @@ function ns.RefreshQuickChatButtons()
     local layoutSignature = GetLayoutSignature()
     local didLayout = false
     if layoutSignature ~= lastLayoutSignature or not container:IsShown() or (showSidebarMenu and settingsContainer and not settingsContainer:IsShown()) then
+        -- Position Chatify's own toolbar first so the channel strip can
+        -- reserve its occupied space when docked to the same chat side.
+        LayoutSettingsButton()
         local layoutApplied = LayoutButtons()
         if layoutApplied then
-            LayoutSettingsButton()
             lastLayoutSignature = layoutSignature
             lastStateSignature = nil
             didLayout = true

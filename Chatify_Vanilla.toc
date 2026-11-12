@@ -38,6 +38,7 @@ ProfileTransfer.lua
 ChatCopy.lua
 ChatRouter.lua
 ChatVisuals.lua
+ChatQuickButtonPlacement.lua
 ChatQuickButtons.lua
 ChatComposer.lua
 ChatFilters.lua

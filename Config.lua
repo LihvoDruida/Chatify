@@ -1046,8 +1046,11 @@ ns.defaults = {
         hoverHyperlinkTooltips = true, -- Показувати тултіпи при наведенні на item/spell/link у чаті
         quickChatButtons = true,      -- Вертикальні кнопки швидкого вибору типу чату біля бокового меню
         quickChatButtonSize = 26,   -- Базова ширина кнопок швидкого перемикання чату у пропорціях Blizzard sidebar
-        quickChatButtonGap = 18,    -- Відступ кнопок від правого краю чату
-        quickChatButtonYOffset = -4, -- Додатковий вертикальний зсув стеку швидких кнопок
+        quickChatButtonSide = "RIGHT", -- RIGHT, LEFT, AUTO (choose side with available screen space)
+        quickChatButtonAlign = "BOTTOM", -- BOTTOM, CENTER, TOP, relative to active chat frame
+        quickChatButtonAvoidNative = true, -- Reserve native Blizzard button-frame space without moving game controls
+        quickChatButtonGap = 18,    -- Відступ назовні від обраного боку чату (0..100)
+        quickChatButtonYOffset = -4, -- Вертикальний зсув у пікселях (-100..100)
         quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
         quickChatPanelAlpha = 0.0, -- Прозорість фону контейнера швидких кнопок (0 = повністю прозорий)
         quickChatButtonTheme = "AUTO", -- AUTO follows active chat addons; manual skins are appearance-only and do not require those addons

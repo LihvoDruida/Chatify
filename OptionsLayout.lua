@@ -66,7 +66,7 @@ function Layout:Apply(options)
     move(quick, group(quick, "quickAppearance", "Button Appearance", 20),
         { "quickChatButtonTheme", "quickChatPanelAlpha", "quickChatButtonAlpha", "quickChatButtonSize", "quickChatButtonFontScale" })
     move(quick, group(quick, "quickPosition", "Button Position & Spacing", 30),
-        { "quickChatButtonSpacing", "quickChatButtonGap", "quickChatButtonYOffset" })
+        { "quickChatButtonSide", "quickChatButtonAlign", "quickChatButtonAvoidNative", "quickChatButtonGap", "quickChatButtonYOffset", "quickChatButtonSpacing", "quickChatResetPlacement" })
 
     page("channels", "Channel Names", 40, old.tabChannels)
     page("composer", "Message Composer", 50, old.tabComposer)

@@ -1,3 +1,11 @@
+## Unreleased — Quick Chat button docking & native UI preservation
+
+- Added **Left / Right / Automatic** docking for the Quick Chat channel buttons. Automatic chooses the side with more usable screen space.
+- Added **Top / Center / Bottom** vertical alignment and extended fine adjustment (`0–100` gap, `-100–100` vertical shift). Zero horizontal gap is now supported; existing positions are retained by default.
+- Native Blizzard chat controls remain owned and positioned by the game. Chatify settings, copy and history icons use their own detached host on all supported clients, not just Classic.
+- Optional native sidebar clearance prevents a left- or right-docked Quick Chat strip from overlapping default Blizzard controls. It does not move or reparent Blizzard frames.
+- Panel background hugs its actual buttons; tooltips open outward from the selected side. Docking follows active chat tabs, resized chat windows and UI-layout refreshes.
+
 ## Unreleased — Forever self-message visibility (development build)
 
 - Keep the player's own General/Trade messages out of Chatify's keyword and repeat-message spam filters, including the render fallback. Respect Forever surname identity and non-Forever realm qualifiers.

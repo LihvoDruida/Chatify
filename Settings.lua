@@ -864,7 +864,7 @@ function Chatify:GetOptions()
                             quickChatButtons = {
                                 order = 1,
                                 name = T("Enable Quick Chat Buttons"),
-                                desc = T("Show quick channel buttons on the right side of the chat frame, anchored from the bottom."),
+                                desc = T("Attach quick channel buttons to the active chat frame without replacing or moving its native controls."),
                                 type = "toggle",
                                 width = "full",
                                 set = function(info, val) self.db.profile.quickChatButtons = val; ns.NotifyQuickChatSettingsChanged() end,
@@ -877,8 +877,8 @@ function Chatify:GetOptions()
                             },
                             quickChatSettingsButton = {
                                 order = 2,
-                                name = T("Show Left Settings Button"),
-                                desc = T("Show a dedicated settings button on the left side of the active chat frame. It opens Chatify settings without replacing the default chat behavior."),
+                                name = T("Show Chatify Tools"),
+                                desc = T("Show Chatify Settings, Copy and History beside Blizzard chat controls without moving the game buttons."),
                                 type = "toggle",
                                 width = "full",
                                 set = function(info, val) self.db.profile.quickChatSettingsButton = val; ns.NotifyQuickChatSettingsChanged() end,
@@ -964,27 +964,66 @@ function Chatify:GetOptions()
                                     return self.db.profile.quickChatButtonFontScale or 1
                                 end,
                             },
-                            quickChatButtonGap = {
+                            quickChatButtonSide = {
                                 order = 8,
-                                name = T("Quick Button Offset"),
-                                desc = T("Adjust how far the quick chat buttons sit from the right side of the chat frame."),
+                                name = T("Quick Button Side"),
+                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space."),
+                                type = "select",
+                                values = {
+                                    RIGHT = T("Right"),
+                                    LEFT = T("Left"),
+                                    AUTO = T("Automatic (more room)"),
+                                },
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonSide = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info) return self.db.profile.quickChatButtonSide or "RIGHT" end,
+                            },
+                            quickChatButtonAlign = {
+                                order = 9,
+                                name = T("Quick Button Vertical Alignment"),
+                                desc = T("Anchor the button stack to the top, center or bottom of the chat frame, following the game's chat layout changes."),
+                                type = "select",
+                                values = {
+                                    TOP = T("Top"),
+                                    CENTER = T("Center"),
+                                    BOTTOM = T("Bottom"),
+                                },
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonAlign = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info) return self.db.profile.quickChatButtonAlign or "BOTTOM" end,
+                            },
+                            quickChatButtonAvoidNative = {
+                                order = 10,
+                                name = T("Avoid Blizzard Chat Buttons"),
+                                desc = T("Keep the quick button stack clear of Blizzard's native chat buttons when they occupy the same side. This does not modify the native UI."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonAvoidNative = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info) return self.db.profile.quickChatButtonAvoidNative ~= false end,
+                            },
+                            quickChatButtonGap = {
+                                order = 11,
+                                name = T("Quick Button Edge Gap"),
+                                desc = T("Distance from the chosen chat edge, in UI units. Zero attaches the buttons directly to the frame. Native button clearance may add space when enabled."),
                                 type = "range",
-                                min = 8,
-                                max = 36,
+                                min = 0,
+                                max = 100,
                                 step = 1,
                                 disabled = function() return self.db.profile.quickChatButtons == false end,
                                 set = function(info, val) self.db.profile.quickChatButtonGap = val; ns.NotifyQuickChatSettingsChanged() end,
                                 get = function(info)
-                                    return self.db.profile.quickChatButtonGap or 18
+                                    if self.db.profile.quickChatButtonGap == nil then return 18 end
+                                    return self.db.profile.quickChatButtonGap
                                 end,
                             },
                             quickChatButtonYOffset = {
-                                order = 9,
+                                order = 12,
                                 name = T("Quick Button Vertical Offset"),
-                                desc = T("Move the quick chat stack a little higher or lower while keeping it anchored from the bottom edge of the chat frame."),
+                                desc = T("Fine tune vertical position relative to the chosen chat-frame anchor. Positive moves up; negative moves down."),
                                 type = "range",
-                                min = -24,
-                                max = 16,
+                                min = -100,
+                                max = 100,
                                 step = 1,
                                 disabled = function() return self.db.profile.quickChatButtons == false end,
                                 set = function(info, val) self.db.profile.quickChatButtonYOffset = val; ns.NotifyQuickChatSettingsChanged() end,
@@ -996,7 +1035,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             quickChatButtonAlpha = {
-                                order = 10,
+                                order = 13,
                                 name = T("Quick Button Opacity"),
                                 desc = T("Adjust the opacity of the quick chat buttons."),
                                 type = "range",
@@ -1008,6 +1047,21 @@ function Chatify:GetOptions()
                                 set = function(info, val) self.db.profile.quickChatButtonAlpha = val; ns.NotifyQuickChatSettingsChanged() end,
                                 get = function(info)
                                     return self.db.profile.quickChatButtonAlpha or 0.92
+                                end,
+                            },
+                            quickChatResetPlacement = {
+                                order = 14,
+                                name = T("Reset Quick Button Position"),
+                                desc = T("Restore the original right/bottom placement, 18-unit edge gap, and -4 vertical offset. Appearance settings are preserved."),
+                                type = "execute",
+                                func = function()
+                                    local db = self.db.profile
+                                    db.quickChatButtonSide = "RIGHT"
+                                    db.quickChatButtonAlign = "BOTTOM"
+                                    db.quickChatButtonGap = 18
+                                    db.quickChatButtonYOffset = -4
+                                    db.quickChatButtonAvoidNative = true
+                                    ns.NotifyQuickChatSettingsChanged()
                                 end,
                             },
                         },
