@@ -1004,8 +1004,8 @@ function Chatify:GetOptions()
                             },
                             quickChatReserveScreenSpace = {
                                 order = 10.5,
-                                name = T("Reserve Screen Space Next to Chat"),
-                                desc = T("Keep the chat window far enough from the screen edge for the quick buttons on the chosen side. Chatify never moves the chat itself: the game's screen clamping applies the space when the chat is dragged or the UI reloads. Not used with Automatic side."),
+                                name = T("Move Chat to Make Room for Buttons"),
+                                desc = T("When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side."),
                                 type = "toggle",
                                 width = "full",
                                 disabled = function()

@@ -774,6 +774,6 @@ Closing Composer hides it instead of discarding the current draft and preview. C
     ["Profile nesting exceeds export limit."] = "Profile nesting exceeds export limit.",
     ["Profile table is invalid."] = "Profile table is invalid.",
     ["Unsupported or incomplete profile format. Export a new backup first."] = "Unsupported or incomplete profile format. Export a new backup first.",
-    ["Reserve Screen Space Next to Chat"] = "Reserve Screen Space Next to Chat",
-    ["Keep the chat window far enough from the screen edge for the quick buttons on the chosen side. Chatify never moves the chat itself: the game's screen clamping applies the space when the chat is dragged or the UI reloads. Not used with Automatic side."] = "Keep the chat window far enough from the screen edge for the quick buttons on the chosen side. Chatify never moves the chat itself: the game's screen clamping applies the space when the chat is dragged or the UI reloads. Not used with Automatic side.",
+    ["Move Chat to Make Room for Buttons"] = "Move Chat to Make Room for Buttons",
+    ["When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side."] = "When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side.",
 })

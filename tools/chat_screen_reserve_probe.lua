@@ -36,24 +36,37 @@ local function check(label, ok)
     assert(ok, "chat screen reserve probe: " .. label)
 end
 
--- Clamp insets as a real chat frame has them; count position writes.
+-- Clamp insets and a real position model: SetPoint stores the x offset and
+-- GetLeft/GetRight follow it. Screen is 1920 wide; all scales are 1.
 local BLIZZARD = { -35, 35, 38, -50 }
+local CHAT_WIDTH = 400
 local moves = 0
+UIParent.GetLeft = function() return 0 end
+UIParent.GetRight = function() return 1920 end
+UIParent.GetEffectiveScale = function() return 1 end
 for i = 1, 10 do
     local f = _G["ChatFrame" .. i]
     f.__clamp = { unpack(BLIZZARD) }
+    f.__x = 600
     f.GetClampRectInsets = function(self) return unpack(self.__clamp) end
     f.SetClampRectInsets = function(self, l, r, t, b) self.__clamp = { l, r, t, b } end
-    local setPoint = f.SetPoint
-    f.SetPoint = function(...) moves = moves + 1; if setPoint then return setPoint(...) end end
-    f.ClearAllPoints = function() moves = moves + 1 end
+    f.GetEffectiveScale = function() return 1 end
+    f.GetNumPoints = function() return 1 end
+    f.GetPoint = function(self) return "BOTTOMLEFT", UIParent, "BOTTOMLEFT", self.__x, 40 end
+    f.SetPoint = function(self, _, _, _, x) moves = moves + 1; if not self.__pinned then self.__x = x end end
+    f.ClearAllPoints = function() end
+    f.GetLeft = function(self) return self.__x end
+    f.GetRight = function(self) return self.__x + CHAT_WIDTH end
 end
 local chat = ChatFrame1
 local function insets(frame) return (frame or chat).__clamp end
 local function same(a, b) return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4] end
 
 local db = addon.db.profile
-local function refresh() ns.RefreshQuickChatButtons() end
+local function refresh()
+    ns.RefreshQuickChatButtons()
+    for _ = 1, 5 do env.runPendingTimers(1e9) end -- follow-up layouts after a shift
+end
 
 -- Pure merge: only widens the chosen side, keeps everything else.
 local merged = ns.MergeChatClampInsets(BLIZZARD, { side = "LEFT", extent = 48 }, 5)
@@ -112,5 +125,73 @@ check("hiding the quick buttons restores Blizzard's insets", same(insets(), { -4
 db.quickChatButtons = true
 refresh()
 
-check("Chatify never repositions the chat frame (" .. moves .. " moves)", moves == 0)
+check("no move while the stack already fits (" .. moves .. " moves)", moves == 0)
+
+-- Pure shift maths.
+local shift = ns.ResolveChatShift
+check("shift right by the missing room", shift({ side = "LEFT", extent = 60 }, { left = 5, right = 405 }, { left = 0, right = 1920 }) == 55)
+check("no shift when it fits", shift({ side = "LEFT", extent = 60 }, { left = 80, right = 480 }, { left = 0, right = 1920 }) == 0)
+check("shift left for the right side", shift({ side = "RIGHT", extent = 60 }, { left = 1500, right = 1900 }, { left = 0, right = 1920 }) == -40)
+check("never pushes the chat off the other edge", shift({ side = "LEFT", extent = 60 }, { left = 0, right = 1900 }, { left = 0, right = 1920 }) == 20)
+
+-- Chat at the left screen edge: Chatify moves it just far enough.
+db.quickChatButtonSide = "LEFT"
+db.quickChatReserveScreenSpace = true
+chat.__x = 5
+moves = 0
+refresh()
+local extent = -insets()[1]
+check("chat moved right (left=" .. chat.__x .. ")", chat.__x > 5)
+local stackLeft = chat.__x - extent
+check("stack now fits exactly at the screen edge (stack left=" .. stackLeft .. ")", stackLeft >= 0 and stackLeft <= 1)
+local after = chat.__x
+refresh()
+check("no further moves once it fits", chat.__x == after)
+
+-- Option off: never moves.
+db.quickChatReserveScreenSpace = false
+chat.__x = 5
+refresh()
+check("option off leaves the chat where it is", chat.__x == 5)
+
+-- In combat: wait, then move when combat ends.
+db.quickChatReserveScreenSpace = true
+local inCombat = true
+local savedLockdown = InCombatLockdown
+InCombatLockdown = function() return inCombat end
+refresh()
+check("no move during combat", chat.__x == 5)
+inCombat = false
+env.fireEvent("PLAYER_REGEN_ENABLED")
+for _ = 1, 5 do env.runPendingTimers(1e9) end
+check("moved after combat ends (left=" .. chat.__x .. ")", chat.__x > 5)
+InCombatLockdown = savedLockdown
+
+-- Right side at the right screen edge: moves left.
+db.quickChatButtonSide = "RIGHT"
+chat.__x = 1920 - CHAT_WIDTH - 3
+refresh()
+check("right side moves the chat left (right=" .. (chat.__x + CHAT_WIDTH) .. ")", chat.__x + CHAT_WIDTH < 1917)
+check("right stack fits", chat.__x + CHAT_WIDTH + insets()[2] <= 1921)
+
+-- A layout manager (e.g. Edit Mode) that puts the chat back after every move
+-- is not fought forever: at most a few attempts.
+db.quickChatButtonSide = "LEFT"
+local function moved()
+    return (ns.Runtime and ns.Runtime.counters and ns.Runtime.counters["quickbuttons:chat-moved"]) or 0
+end
+local before = moved()
+for _ = 1, 8 do
+    chat.__x = 5 -- restored by "someone else"
+    ns.RefreshQuickChatButtons()
+    env.runPendingTimers(1e9)
+end
+local attempts = moved() - before
+check("gives up after 3 attempts against a restoring layout (" .. attempts .. ")", attempts >= 1 and attempts <= 3)
+-- The player dragging the chat to a new spot is honoured again.
+chat.__x = 12
+ns.RefreshQuickChatButtons()
+for _ = 1, 5 do env.runPendingTimers(1e9) end
+check("a chat dragged to a new spot is moved again (left=" .. chat.__x .. ")", chat.__x > 12)
+
 print(string.format("chat screen reserve probe: PASS (%d checks)", checks))

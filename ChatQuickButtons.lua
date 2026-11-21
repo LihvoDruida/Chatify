@@ -2918,6 +2918,89 @@ local function SameInsets(a, b)
     return a and b and a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
 end
 
+-- Moving the chat: only out of combat, by re-applying its own anchors with a
+-- horizontal offset (no new parent or anchor target). Repeated attempts that
+-- do not take effect (e.g. Edit Mode restoring a layout) are capped.
+local shiftWaiter
+local relayoutAfterShift = false
+-- frame -> { from = visual left/right we moved it away from, count = n }.
+-- If the chat keeps coming back to the same spot after we move it, something
+-- else (Edit Mode, another addon) owns its position: stop after a few tries.
+-- A chat dragged to a different spot is a new situation and resets the count.
+local shiftAttempts = setmetatable({}, { __mode = "k" })
+local MAX_SHIFT_ATTEMPTS = 3
+
+local function EffectiveScaleRatio(fromFrame, toFrame)
+    local okA, a = pcall(fromFrame.GetEffectiveScale, fromFrame)
+    local okB, b = pcall(toFrame.GetEffectiveScale, toFrame)
+    if okA and okB and type(a) == "number" and type(b) == "number" and a > 0 and b > 0 then
+        return a / b
+    end
+    return 1
+end
+
+local function ShiftChatFrame(frame, dx)
+    local okN, count = pcall(frame.GetNumPoints, frame)
+    if not okN or type(count) ~= "number" or count < 1 then return false end
+    local points = {}
+    for i = 1, count do
+        local ok, point, relativeTo, relativePoint, x, y = pcall(frame.GetPoint, frame, i)
+        if not ok or type(point) ~= "string" then return false end
+        points[i] = { point, relativeTo, relativePoint, (tonumber(x) or 0) + dx, tonumber(y) or 0 }
+    end
+    if not pcall(frame.ClearAllPoints, frame) then return false end
+    for _, p in ipairs(points) do
+        pcall(frame.SetPoint, frame, p[1], p[2], p[3], p[4], p[5])
+    end
+    return true
+end
+
+local function WaitForCombatEnd()
+    if not shiftWaiter then
+        shiftWaiter = CreateFrame("Frame")
+        shiftWaiter:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            InvalidateQuickButtonLayout("chat-shift-after-combat")
+            ScheduleRefresh(0)
+        end)
+    end
+    pcall(shiftWaiter.RegisterEvent, shiftWaiter, "PLAYER_REGEN_ENABLED")
+end
+
+local function MakeRoomForStack(dragFrame, visualFrame, reserve)
+    if not (dragFrame and visualFrame and UIParent) then return end
+    local vLeft, vRight = GetFrameRect(visualFrame)
+    local uLeft, uRight = GetFrameRect(UIParent)
+    if type(uLeft) ~= "number" or type(uRight) ~= "number" then return end
+    local toVisual = EffectiveScaleRatio(UIParent, visualFrame)
+    local dx = ns.ResolveChatShift(reserve, { left = vLeft, right = vRight },
+        { left = uLeft * toVisual, right = uRight * toVisual })
+    if dx == 0 then
+        return
+    end
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        WaitForCombatEnd()
+        return
+    end
+    local from = reserve.side == "LEFT" and vLeft or vRight
+    local record = shiftAttempts[dragFrame]
+    if not record or type(from) ~= "number" or math.abs(from - record.from) >= 1 then
+        record = { from = from, count = 0 }
+        shiftAttempts[dragFrame] = record
+    end
+    if record.count >= MAX_SHIFT_ATTEMPTS then return end
+    record.count = record.count + 1
+    if ShiftChatFrame(dragFrame, dx * EffectiveScaleRatio(visualFrame, dragFrame)) then
+        if type(ns.IncrementRuntimeCounter) == "function" then
+            ns.IncrementRuntimeCounter("quickbuttons:chat-moved")
+        end
+        -- We are inside a layout pass whose signature is stored when it ends,
+        -- so invalidating here would be lost; force the next pass instead.
+        relayoutAfterShift = true
+        ScheduleRefresh(0)
+    end
+end
+
 local function ApplyChatScreenReserve(anchorFrame, visualFrame, placement)
     local db = GetDB()
     local reserve = placement and placement.reserve
@@ -2968,6 +3051,11 @@ local function ApplyChatScreenReserve(anchorFrame, visualFrame, placement)
             end
         end
     end
+
+    -- The clamp keeps the chat clear when it is dragged; move it now if the
+    -- stack does not fit where the chat currently sits. The frame the player
+    -- drags is the dock's primary frame for docked windows.
+    MakeRoomForStack(targets[2] or anchorFrame, visualFrame, reserve)
 end
 
 local function LayoutButtons()
@@ -3802,6 +3890,10 @@ function ns.RefreshQuickChatButtons()
     HookEditBoxSignals()
 
     EnsureContainer()
+    if relayoutAfterShift then
+        relayoutAfterShift = false
+        lastLayoutSignature = nil
+    end
     local layoutSignature = GetLayoutSignature()
     local didLayout = false
     if layoutSignature ~= lastLayoutSignature or not container:IsShown() or (showSidebarMenu and settingsContainer and not settingsContainer:IsShown()) then
