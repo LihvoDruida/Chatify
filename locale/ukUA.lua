@@ -760,4 +760,18 @@ Locale:RegisterLocale("ukUA", {
     ["Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile."] = 'Chatify не пересуває стандартні елементи чату Blizzard. Відкрийте повні налаштування, щоб змінити параметри, скористатися пошуком і профілями.',
     ['The full settings window opens at readable size, without changing your game chat layout.'] = 'Повне вікно відкривається з читабельним масштабом, не змінюючи розміщення ігрового чату.',
     ['Open Complete Chatify Settings'] = 'Відкрити всі налаштування Chatify',
+    -- Profile backup validation errors (ProfileTransfer.lua)
+    ["Cannot export an empty profile."] = "Неможливо експортувати порожній профіль.",
+    ["Cannot import an empty profile."] = "Неможливо імпортувати порожній профіль.",
+    ["Profile application failed; previous settings restored."] = "Не вдалося застосувати профіль; попередні налаштування відновлено.",
+    ["Profile backup is incomplete or has failed its checksum."] = "Резервна копія профілю неповна або не пройшла перевірку контрольної суми.",
+    ["Profile contains a cyclic table."] = "Профіль містить циклічну таблицю.",
+    ["Profile contains an invalid or duplicate line."] = "Профіль містить некоректний або повторюваний рядок.",
+    ["Profile contains an unsupported key."] = "Профіль містить непідтримуваний ключ.",
+    ["Profile contains an unsupported value."] = "Профіль містить непідтримуване значення.",
+    ["Profile contains text exceeding export limit."] = "Профіль містить текст, довший за ліміт експорту.",
+    ["Profile entry count does not match."] = "Кількість записів профілю не збігається.",
+    ["Profile nesting exceeds export limit."] = "Вкладеність профілю перевищує ліміт експорту.",
+    ["Profile table is invalid."] = "Таблиця профілю некоректна.",
+    ["Unsupported or incomplete profile format. Export a new backup first."] = "Непідтримуваний або неповний формат профілю. Спершу створіть нову резервну копію.",
 })
