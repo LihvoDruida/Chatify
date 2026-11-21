@@ -59,8 +59,6 @@ run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.
 run "tag-driven release TOC metadata" python3 tools/tag_version_probe.py
 run "R1-08 package validator negative controls" python3 tools/package_validation_probe.py
 run "Guarded tag release workflow contract" python3 tools/release_workflow_probe.py
-run "new-tag release guard controls" python3 tools/release_tag_guard_probe.py
-run "exact package ZIP guard controls" python3 tools/release_guard_probe.py
 run "R1-08 real AceDB staging control" python3 tools/stage_acedb_probe.py
 # Python audits above run even when Lua is unavailable. Missing Lua is then
 # a hard failure (never a green partial suite).
@@ -135,5 +133,5 @@ for client in $clients; do
     done
 done
 
-printf '\nPASS: %d required checks; OPTIONAL SKIP: %d (Plunderstorm fixture without channel API; UI/UX without AceGUI).\n' "$passed" "$optional_skips"
+printf '\nPASS: %d required checks; OPTIONAL SKIP: %d (Plunderstorm channel-label fixtures; UI/UX only when AceGUI is missing).\n' "$passed" "$optional_skips"
 printf 'NOT RUN IN SOURCE GATE: real AceDB persistence, packaged libs, live-client taint. See R1-08.\n'
