@@ -1651,6 +1651,7 @@ local function GetLayoutSignature()
     local xOffset = GetConfiguredButtonXOffset()
     local yOffset = GetConfiguredButtonYOffset()
     local side, verticalAlign, avoidNative = GetQuickPlacementOptions()
+    local reserveScreen = db.quickChatReserveScreenSpace == true
     local nativeFrame, nativeHost = GetMainSidebarButtonFrame()
     local nativeSide = nativeFrame and GetClassicSidebarSide(nativeFrame, nativeHost) or "none"
     local nativeLeft = nativeFrame and nativeFrame.GetLeft and nativeFrame:GetLeft() or 0
@@ -1687,6 +1688,7 @@ local function GetLayoutSignature()
         tostring(side),
         tostring(verticalAlign),
         tostring(avoidNative),
+        tostring(reserveScreen),
         tostring(nativeSide),
         tostring(nativeLeft),
         tostring(nativeRight),
@@ -2853,6 +2855,121 @@ local function LayoutSettingsButton()
     end
 end
 
+-- ---------------------------------------------------------------------
+-- Optional screen-space reserve next to the chat (quickChatReserveScreenSpace).
+-- Chatify never moves Blizzard's chat window. Instead it widens the chat
+-- frame's clamp insets by the room the quick button stack needs, so the
+-- game's own clamp-to-screen keeps the chat that far from the edge when it is
+-- dragged or restored. Blizzard's insets are remembered and restored exactly.
+-- ---------------------------------------------------------------------
+local reserveBase = setmetatable({}, { __mode = "k" })    -- frame -> Blizzard insets
+local reserveApplied = setmetatable({}, { __mode = "k" }) -- frame -> insets we wrote
+local reserveHooked = setmetatable({}, { __mode = "k" })
+local writingReserve = false
+
+local function ReadClampInsets(frame)
+    local ok, l, r, t, b = pcall(frame.GetClampRectInsets, frame)
+    if not ok then return nil end
+    return { tonumber(l) or 0, tonumber(r) or 0, tonumber(t) or 0, tonumber(b) or 0 }
+end
+
+local function WriteClampInsets(frame, insets)
+    writingReserve = true
+    local ok = pcall(frame.SetClampRectInsets, frame, insets[1], insets[2], insets[3], insets[4])
+    writingReserve = false
+    return ok
+end
+
+local function SupportsClampInsets(frame)
+    return frame and type(frame.GetClampRectInsets) == "function"
+        and type(frame.SetClampRectInsets) == "function"
+end
+
+local function HookClampInsets(frame)
+    if reserveHooked[frame] or type(hooksecurefunc) ~= "function" then return end
+    reserveHooked[frame] = true
+    -- Blizzard rewrites clamp insets itself (e.g. when the button side
+    -- changes). Treat its new values as the base and re-apply on next layout.
+    pcall(hooksecurefunc, frame, "SetClampRectInsets", function(self, l, r, t, b)
+        if writingReserve or not reserveApplied[self] then return end
+        reserveBase[self] = { tonumber(l) or 0, tonumber(r) or 0, tonumber(t) or 0, tonumber(b) or 0 }
+        reserveApplied[self] = nil
+        InvalidateQuickButtonLayout("chat-clamp-insets")
+        ScheduleRefresh(0)
+    end)
+end
+
+local function RestoreChatScreenReserve(frame)
+    local base = reserveBase[frame]
+    if base and reserveApplied[frame] and SupportsClampInsets(frame) then
+        WriteClampInsets(frame, base)
+    end
+    reserveBase[frame] = nil
+    reserveApplied[frame] = nil
+end
+
+local function RestoreAllChatScreenReserves()
+    for frame in pairs(reserveApplied) do
+        RestoreChatScreenReserve(frame)
+    end
+end
+
+local function SameInsets(a, b)
+    return a and b and a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
+end
+
+local function ApplyChatScreenReserve(anchorFrame, visualFrame, placement)
+    local db = GetDB()
+    local reserve = placement and placement.reserve
+    if not (db and db.quickChatReserveScreenSpace == true and reserve and anchorFrame) then
+        RestoreAllChatScreenReserves()
+        return
+    end
+
+    -- Docked windows follow the dock's primary frame, which is the one the
+    -- player drags; reserve on it as well as on the active window.
+    local targets, wanted = { anchorFrame }, { [anchorFrame] = true }
+    local primary = GetMainSidebarHostFrame()
+    if primary and primary ~= anchorFrame then
+        for _, docked in ipairs(GetDockedChatFrames()) do
+            if docked == anchorFrame then
+                targets[#targets + 1] = primary
+                wanted[primary] = true
+                break
+            end
+        end
+    end
+    for frame in pairs(reserveApplied) do
+        if not wanted[frame] then RestoreChatScreenReserve(frame) end
+    end
+
+    local visualLeft, visualRight = GetFrameRect(visualFrame or anchorFrame)
+    for _, frame in ipairs(targets) do
+        if SupportsClampInsets(frame) then
+            HookClampInsets(frame)
+            if not reserveBase[frame] then
+                reserveBase[frame] = ReadClampInsets(frame)
+            end
+            local base = reserveBase[frame]
+            if base then
+                -- The visible chat (e.g. a skinned background) can extend
+                -- beyond the clamped frame; reserve from the visible edge.
+                local frameLeft, frameRight = GetFrameRect(frame)
+                local delta = 0
+                if reserve.side == "LEFT" and type(frameLeft) == "number" and type(visualLeft) == "number" then
+                    delta = frameLeft - visualLeft
+                elseif reserve.side == "RIGHT" and type(frameRight) == "number" and type(visualRight) == "number" then
+                    delta = visualRight - frameRight
+                end
+                local insets = ns.MergeChatClampInsets(base, reserve, delta)
+                if not SameInsets(insets, reserveApplied[frame]) and WriteClampInsets(frame, insets) then
+                    reserveApplied[frame] = insets
+                end
+            end
+        end
+    end
+end
+
 local function LayoutButtons()
     if not container then
         return false
@@ -2877,6 +2994,7 @@ local function LayoutButtons()
     local orderedButtons = GetOrderedButtons()
     local buttonCount = #orderedButtons
     if buttonCount == 0 then
+        RestoreAllChatScreenReserves()
         container:SetSize(1, 1)
         for _, button in pairs(buttons) do
             if button then
@@ -2907,6 +3025,7 @@ local function LayoutButtons()
     local holderHeight = totalHeight + (outerPadding * 2)
 
     local placement, placementSidebar = GetQuickChatAnchorPlacement(visualFrame, buttonWidth + 4, math.max(1, holderHeight))
+    ApplyChatScreenReserve(frame, visualFrame, placement)
     local side, vertical = placement.side, placement.align
     local isLeft = side == "LEFT"
     local horizontalAnchor = isLeft and "RIGHT" or "LEFT"
@@ -3654,6 +3773,9 @@ function ns.RefreshQuickChatButtons()
     local showQuickButtons = db and db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons"))
     local showSidebarMenu = ShouldShowSidebarMenu()
 
+    if not db or not showQuickButtons then
+        RestoreAllChatScreenReserves()
+    end
     if not db or (not showQuickButtons and not showSidebarMenu) then
         lastLayoutSignature = nil
         lastStateSignature = nil

@@ -1,3 +1,8 @@
+## Unreleased — Reserve screen space next to the chat
+
+- New **Reserve Screen Space Next to Chat** option (Quick Chat Buttons → placement, off by default). With Side = Left or Right, Chatify widens the chat window's screen clamp by the room the quick button stack needs, so the game itself keeps the chat that far from the screen edge when it is dragged or the UI reloads.
+- Chatify still never moves Blizzard's chat window: only the clamp insets change, Blizzard's own values are remembered (including when the game rewrites them) and restored exactly when the option, the side or the quick buttons are turned off.
+
 ## Unreleased — Quick buttons keep the chosen side
 
 - Choosing **Left** (or **Right**) for the quick chat buttons is now always respected. When that side has no room on screen, the buttons use a free spot in Blizzard's chat button column or stay on the chosen side just inside the screen edge, instead of jumping to the other side of the chat. Only **Automatic** may pick the other side.

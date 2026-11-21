@@ -79,6 +79,14 @@ function ns.ResolveQuickChatPlacement(opts)
     -- x is a screen-direction nudge (positive = right) applied after the
     -- outward gap and native clearance.
     local result = { side = side, align = vertical, gap = gapFor(side), x = x, y = y, mode = "exterior" }
+    -- Room the stack needs beyond the chat edge on the chosen side, in UI
+    -- units. Used to reserve screen space next to the chat (clamp insets).
+    -- Automatic side selection has no fixed side, so it reserves nothing.
+    if requested ~= "AUTO" then
+        local width = max(1, finite(opts.panelWidth, 30))
+        local extent = side == "LEFT" and (result.gap - x + width) or (result.gap + x + width)
+        result.reserve = { side = side, extent = max(0, floor(extent + 0.5)) }
+    end
     if opts.keepOnScreen == false then return result end
     return ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
 end
@@ -179,6 +187,26 @@ function ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
     result.x = floor(result.x + 0.5)
     result.mode = "clamped"
     return result
+end
+
+-- Clamp insets that keep a chat frame far enough from the screen edge for the
+-- quick button stack. `base` = { left, right, top, bottom } as Blizzard set
+-- them (a negative left / positive right inset already reserves room for the
+-- native button column). `edgeDelta` is how far the visible chat edge sits
+-- outside the clamped frame on that side. Only ever widens, never narrows.
+function ns.MergeChatClampInsets(base, reserve, edgeDelta)
+    local left, right = finite(base and base[1], 0), finite(base and base[2], 0)
+    local top, bottom = finite(base and base[3], 0), finite(base and base[4], 0)
+    if type(reserve) ~= "table" or type(reserve.extent) ~= "number" then
+        return { left, right, top, bottom }
+    end
+    local need = max(0, reserve.extent + max(0, finite(edgeDelta, 0)))
+    if reserve.side == "LEFT" then
+        left = min(left, -need)
+    elseif reserve.side == "RIGHT" then
+        right = max(right, need)
+    end
+    return { left, right, top, bottom }
 end
 
 -- Find an empty vertical section in Blizzard's existing chat-button column.
