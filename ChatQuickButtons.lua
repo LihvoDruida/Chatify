@@ -17,6 +17,7 @@ local hookedEditBox
 local hookedAnchorFrame
 local lastPlacedSide = "RIGHT"
 local GetQuickChatAnchorPlacement
+local GetRoomWindowsSignature
 local GetNativeSidebarSignature
 local GetConfiguredAlpha
 local GetConfiguredPanelAlpha
@@ -1651,6 +1652,7 @@ local function GetLayoutSignature()
     local xOffset = GetConfiguredButtonXOffset()
     local yOffset = GetConfiguredButtonYOffset()
     local side, verticalAlign, avoidNative = GetQuickPlacementOptions()
+    local roomWindows = (side == "LEFT" and GetRoomWindowsSignature) and GetRoomWindowsSignature() or "-"
     local nativeFrame, nativeHost = GetMainSidebarButtonFrame()
     local nativeSide = nativeFrame and GetClassicSidebarSide(nativeFrame, nativeHost) or "none"
     local nativeLeft = nativeFrame and nativeFrame.GetLeft and nativeFrame:GetLeft() or 0
@@ -1687,6 +1689,7 @@ local function GetLayoutSignature()
         tostring(side),
         tostring(verticalAlign),
         tostring(avoidNative),
+        roomWindows,
         tostring(nativeSide),
         tostring(nativeLeft),
         tostring(nativeRight),
@@ -2966,13 +2969,30 @@ local function WaitForCombatEnd()
 end
 
 -- What Chatify moved, kept per character (chat positions are per character)
--- so choosing another side can put the chat back even after /reload:
--- { frame = "ChatFrame1", from = <anchors before the first move>,
---   to = <anchors after Chatify's last move> }.
+-- so choosing another side can put every window back even after /reload:
+-- quickChatShift = { ["ChatFrame1"] = { from = <anchors before the first
+-- move>, to = <anchors after Chatify's last move> }, ... }.
 local function GetShiftStore()
     local addon = ns.Chatify
     local char = addon and addon.db and addon.db.char
     return type(char) == "table" and char or nil
+end
+
+local function GetShiftRecords(create)
+    local store = GetShiftStore()
+    if not store then return nil end
+    local records = store.quickChatShift
+    if type(records) == "table" and type(records.frame) == "string" then
+        -- Single-window record written by the previous build.
+        records = { [records.frame] = { from = records.from, to = records.to } }
+        store.quickChatShift = records
+    end
+    if type(records) ~= "table" then
+        if not create then return nil end
+        records = {}
+        store.quickChatShift = records
+    end
+    return records
 end
 
 local function FrameName(frame)
@@ -3024,29 +3044,39 @@ local function ApplyAnchors(frame, points)
     return true
 end
 
--- Put the chat back where it was before Chatify moved it, unless the player
--- has moved it since (then their position wins). Waits for combat to end.
-local function RestoreChatShift()
-    local store = GetShiftStore()
-    local record = store and store.quickChatShift
-    if type(record) ~= "table" then return end
-    local frame = type(record.frame) == "string" and _G[record.frame] or nil
-    if not frame then
-        store.quickChatShift = nil
-        return
+-- Put chat windows back where they were before Chatify moved them, unless
+-- the player has moved one since (then their position wins). `keep` names
+-- windows that still need the room and must stay where they are. Waits for
+-- combat to end before touching anything.
+local function RestoreChatShift(keep)
+    local records = GetShiftRecords(false)
+    if not records then return end
+    local names = {}
+    for name in pairs(records) do
+        if not (keep and keep[name]) then names[#names + 1] = name end
     end
+    if #names == 0 then return end
     if type(InCombatLockdown) == "function" and InCombatLockdown() then
         WaitForCombatEnd()
         return
     end
-    if type(record.from) == "table" and SameAnchors(SnapshotAnchors(frame), record.to) then
-        ApplyAnchors(frame, record.from)
-        if type(ns.IncrementRuntimeCounter) == "function" then
-            ns.IncrementRuntimeCounter("quickbuttons:chat-restored")
+    for _, name in ipairs(names) do
+        local record = records[name]
+        records[name] = nil
+        local frame = _G[name]
+        if frame and type(record) == "table" and type(record.from) == "table"
+            and SameAnchors(SnapshotAnchors(frame), record.to) then
+            ApplyAnchors(frame, record.from)
+            if type(ns.IncrementRuntimeCounter) == "function" then
+                ns.IncrementRuntimeCounter("quickbuttons:chat-restored")
+            end
         end
+        if frame then shiftAttempts[frame] = nil end
     end
-    store.quickChatShift = nil
-    shiftAttempts[frame] = nil
+    if next(records) == nil then
+        local store = GetShiftStore()
+        if store then store.quickChatShift = nil end
+    end
 end
 
 local function MakeRoomForStack(dragFrame, visualFrame, reserve)
@@ -3073,15 +3103,15 @@ local function MakeRoomForStack(dragFrame, visualFrame, reserve)
     if record.count >= MAX_SHIFT_ATTEMPTS then return end
     -- Remember where the chat was before Chatify first moved it, so another
     -- side can put it back. Without restorable anchors, do not move at all.
-    local store = GetShiftStore()
+    local records = GetShiftRecords(true)
     local before = SnapshotAnchors(dragFrame)
-    if not (store and before) then return end
-    local saved = store.quickChatShift
     local frameName = FrameName(dragFrame)
-    if type(saved) ~= "table" or saved.frame ~= frameName or not SameAnchors(before, saved.to) then
-        -- First move, or the player moved the chat since: start from here.
-        saved = { frame = frameName, from = before }
-        store.quickChatShift = saved
+    if not (records and before and frameName) then return end
+    local saved = records[frameName]
+    if type(saved) ~= "table" or not SameAnchors(before, saved.to) then
+        -- First move, or the player moved the window since: start from here.
+        saved = { from = before }
+        records[frameName] = saved
     end
     record.count = record.count + 1
     if ShiftChatFrame(dragFrame, dx * EffectiveScaleRatio(visualFrame, dragFrame)) then
@@ -3096,64 +3126,112 @@ local function MakeRoomForStack(dragFrame, visualFrame, reserve)
     end
 end
 
+-- Every chat window the player can place on its own: the dock's primary frame
+-- (docked tabs move with it) and each undocked window, including temporary
+-- whisper windows and an undocked combat log. Hidden windows are skipped.
+local function IsShownFrame(frame)
+    if type(frame.IsShown) ~= "function" then return true end
+    local ok, shown = pcall(frame.IsShown, frame)
+    return ok and shown and true or false
+end
+
+local function CollectRoomWindows()
+    local docked = {}
+    for _, frame in ipairs(GetDockedChatFrames()) do docked[frame] = true end
+    local primary = GetMainSidebarHostFrame()
+    local windows, seen = {}, {}
+    local function consider(frame)
+        -- Candidates come from Blizzard's chat-frame globals, so keep the raw
+        -- frame if a hybrid client reports an unexpected object type (the same
+        -- fallback GetMainSidebarHostFrame uses).
+        frame = NormalizeChatFrame(frame) or (type(frame) == "table" and frame) or nil
+        if not frame or seen[frame] then return end
+        seen[frame] = true
+        if frame ~= primary then
+            -- GetDockedChatFrames never lists the combat log; ask it directly.
+            if docked[frame] or (frame == _G.ChatFrame2 and frame.isDocked) then return end
+            if not IsShownFrame(frame) then return end
+        end
+        if FrameName(frame) then windows[#windows + 1] = frame end
+    end
+    consider(primary)
+    if type(_G.CHAT_FRAMES) == "table" then
+        for _, name in ipairs(_G.CHAT_FRAMES) do consider(_G[name]) end
+    end
+    local maxFrames = (type(ns.GetMaxChatWindows) == "function" and ns.GetMaxChatWindows()) or NUM_CHAT_WINDOWS or 10
+    for i = 1, maxFrames do consider(_G["ChatFrame" .. i]) end
+    return windows
+end
+
+-- Positions of the windows that need room, so moving or opening any of them
+-- re-runs the layout while Side = Left.
+GetRoomWindowsSignature = function()
+    local parts = {}
+    for _, frame in ipairs(CollectRoomWindows()) do
+        local left, right = GetFrameRect(frame)
+        parts[#parts + 1] = string.format("%s:%d:%d", FrameName(frame) or "?",
+            math.floor((left or 0) + 0.5), math.floor((right or 0) + 0.5))
+    end
+    return table.concat(parts, ";")
+end
+
+local function ReserveClampForWindow(frame, visual, reserve)
+    if not SupportsClampInsets(frame) then return end
+    HookClampInsets(frame)
+    if not reserveBase[frame] then
+        reserveBase[frame] = ReadClampInsets(frame)
+    end
+    local base = reserveBase[frame]
+    if not base then return end
+    -- The visible chat (e.g. a skinned background) can extend beyond the
+    -- clamped frame; reserve from the visible edge.
+    local frameLeft = GetFrameRect(frame)
+    local visualLeft = GetFrameRect(visual)
+    local delta = 0
+    if type(frameLeft) == "number" and type(visualLeft) == "number" then
+        delta = frameLeft - visualLeft
+    end
+    local insets = ns.MergeChatClampInsets(base, reserve, delta)
+    if not SameInsets(insets, reserveApplied[frame]) and WriteClampInsets(frame, insets) then
+        reserveApplied[frame] = insets
+    end
+end
+
 local function ApplyChatScreenReserve(anchorFrame, visualFrame, placement)
     local db = GetDB()
     local reserve = placement and placement.reserve
-    -- Side = Left makes room automatically; any other choice puts the chat
-    -- back where it was and restores Blizzard's clamp insets.
-    if not (db and db.quickChatButtonSide == "LEFT" and reserve and reserve.side == "LEFT" and anchorFrame) then
+    -- Side = Left makes room automatically; any other choice puts every chat
+    -- window back where it was and restores Blizzard's clamp insets.
+    if not (db and db.quickChatButtonSide == "LEFT" and reserve and reserve.side == "LEFT") then
         RestoreAllChatScreenReserves()
         RestoreChatShift()
         return
     end
 
-    -- Docked windows follow the dock's primary frame, which is the one the
-    -- player drags; reserve on it as well as on the active window.
-    local targets, wanted = { anchorFrame }, { [anchorFrame] = true }
-    local primary = GetMainSidebarHostFrame()
-    if primary and primary ~= anchorFrame then
-        for _, docked in ipairs(GetDockedChatFrames()) do
-            if docked == anchorFrame then
-                targets[#targets + 1] = primary
-                wanted[primary] = true
-                break
-            end
-        end
+    local windows = CollectRoomWindows()
+    -- The active window is measured by its visible frame (skins can extend
+    -- it); its draggable frame is the dock's primary frame when it is docked.
+    local activeWindow = anchorFrame
+    local docked = {}
+    for _, frame in ipairs(GetDockedChatFrames()) do docked[frame] = true end
+    if anchorFrame and docked[anchorFrame] then activeWindow = GetMainSidebarHostFrame() end
+
+    local wanted, keep = {}, {}
+    for _, frame in ipairs(windows) do
+        wanted[frame] = true
+        keep[FrameName(frame)] = true
     end
     for frame in pairs(reserveApplied) do
         if not wanted[frame] then RestoreChatScreenReserve(frame) end
     end
+    -- Windows that no longer need room (docked again, closed) go back.
+    RestoreChatShift(keep)
 
-    local visualLeft, visualRight = GetFrameRect(visualFrame or anchorFrame)
-    for _, frame in ipairs(targets) do
-        if SupportsClampInsets(frame) then
-            HookClampInsets(frame)
-            if not reserveBase[frame] then
-                reserveBase[frame] = ReadClampInsets(frame)
-            end
-            local base = reserveBase[frame]
-            if base then
-                -- The visible chat (e.g. a skinned background) can extend
-                -- beyond the clamped frame; reserve from the visible edge.
-                local frameLeft, frameRight = GetFrameRect(frame)
-                local delta = 0
-                if reserve.side == "LEFT" and type(frameLeft) == "number" and type(visualLeft) == "number" then
-                    delta = frameLeft - visualLeft
-                elseif reserve.side == "RIGHT" and type(frameRight) == "number" and type(visualRight) == "number" then
-                    delta = visualRight - frameRight
-                end
-                local insets = ns.MergeChatClampInsets(base, reserve, delta)
-                if not SameInsets(insets, reserveApplied[frame]) and WriteClampInsets(frame, insets) then
-                    reserveApplied[frame] = insets
-                end
-            end
-        end
+    for _, frame in ipairs(windows) do
+        local visual = (frame == activeWindow and visualFrame) or frame
+        ReserveClampForWindow(frame, visual, reserve)
+        MakeRoomForStack(frame, visual, reserve)
     end
-
-    -- The clamp keeps the chat clear when it is dragged; move it now if the
-    -- stack does not fit where the chat currently sits. The frame the player
-    -- drags is the dock's primary frame for docked windows.
-    MakeRoomForStack(targets[2] or anchorFrame, visualFrame, reserve)
 end
 
 local function LayoutButtons()
@@ -3773,6 +3851,7 @@ local function HookGeneralRefreshSignals()
         "FCF_SetWindowPosition", "FCF_SavePositionAndDimensions",
         "FCF_RestorePositionAndDimensions", "FCF_UpdateButtonSide",
         "FCF_DockFrame", "FCF_UnDockFrame",
+        "FCF_OpenNewWindow", "FCF_OpenTemporaryWindow", "FCF_Close",
     }) do
         if type(_G[functionName]) == "function" then
             pcall(hooksecurefunc, functionName, function() ScheduleRefresh(0.05) end)
