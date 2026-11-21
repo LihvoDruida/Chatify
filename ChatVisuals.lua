@@ -1078,7 +1078,14 @@ local function InstallChannelLabelHook(frame)
     local original = frame.AddMessage
     channelHookOriginal[frame] = original
 
-    local wrapper = function(self, text, ...)
+    local wrapper
+    wrapper = function(self, text, ...)
+        -- Removed while another hook (the router or another addon) sat on top:
+        -- the wrapper cannot be unlinked, so it forwards untouched instead of
+        -- labelling every line a second time after the next reinstall.
+        if channelHookWrapper[self] ~= wrapper then
+            return original(self, text, ...)
+        end
         local output = text
         if type(ns.NoteChatEntryPoint) == "function" then
             ns.NoteChatEntryPoint("AddMessage wrapper", "ADDMESSAGE")
