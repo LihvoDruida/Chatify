@@ -79,6 +79,7 @@ for mode in classic retail; do
     run "commands/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/command_probe.lua
     run "proxy prototype/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/proxy_probe.lua
 done
+run "quick chat button placement" "$lua_cmd" tools/quick_placement_probe.lua
 run "copy" "$lua_cmd" tools/copy_probe.lua
 run "public hooks" "$lua_cmd" tools/hook_probe.lua
 run "SavedVariables serialization" "$lua_cmd" tools/savedvars_test.lua
