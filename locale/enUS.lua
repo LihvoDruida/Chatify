@@ -760,4 +760,18 @@ Closing Composer hides it instead of discarding the current draft and preview. C
     ["Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile."] = "Chatify keeps Blizzard's chat controls in place. Open the full settings window for every option, search and profile.",
     ['The full settings window opens at readable size, without changing your game chat layout.'] = 'The full settings window opens at readable size, without changing your game chat layout.',
     ['Open Complete Chatify Settings'] = 'Open Complete Chatify Settings',
+    -- Profile backup validation errors (ProfileTransfer.lua)
+    ["Cannot export an empty profile."] = "Cannot export an empty profile.",
+    ["Cannot import an empty profile."] = "Cannot import an empty profile.",
+    ["Profile application failed; previous settings restored."] = "Profile application failed; previous settings restored.",
+    ["Profile backup is incomplete or has failed its checksum."] = "Profile backup is incomplete or has failed its checksum.",
+    ["Profile contains a cyclic table."] = "Profile contains a cyclic table.",
+    ["Profile contains an invalid or duplicate line."] = "Profile contains an invalid or duplicate line.",
+    ["Profile contains an unsupported key."] = "Profile contains an unsupported key.",
+    ["Profile contains an unsupported value."] = "Profile contains an unsupported value.",
+    ["Profile contains text exceeding export limit."] = "Profile contains text exceeding export limit.",
+    ["Profile entry count does not match."] = "Profile entry count does not match.",
+    ["Profile nesting exceeds export limit."] = "Profile nesting exceeds export limit.",
+    ["Profile table is invalid."] = "Profile table is invalid.",
+    ["Unsupported or incomplete profile format. Export a new backup first."] = "Unsupported or incomplete profile format. Export a new backup first.",
 })
