@@ -85,6 +85,7 @@ run "SavedVariables serialization" "$lua_cmd" tools/savedvars_test.lua
 run "strict API capabilities" "$lua_cmd" tools/strict_api_probe.lua
 run "R1-01 atomic profile backups" "$lua_cmd" tools/profile_integrity_probe.lua
 run "R1-02 post-hook lifecycle" "$lua_cmd" tools/frame_hook_lifecycle_probe.lua
+run "legacy AddMessage wrapper chain" "$lua_cmd" tools/addmessage_chain_probe.lua
 run "R1-04 history/render/buffer parity" "$lua_cmd" tools/history_pipeline_probe.lua
 run "R1-05/06 friend identity and Unicode keywords" "$lua_cmd" tools/filter_identity_unicode_probe.lua
 run "R1-07 PvP/BG/LFG queues and pending returns" "$lua_cmd" tools/auto_reply_queue_probe.lua

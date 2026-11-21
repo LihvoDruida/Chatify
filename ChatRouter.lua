@@ -32,6 +32,9 @@ local tooltipLinkTypes = {
 -- referenced (and its original AddMessage retained) until the next reload.
 local hookedFrames = setmetatable({}, { __mode = "k" })
 local originalAddMessage = setmetatable({}, { __mode = "k" })
+-- The wrapper currently installed by HookFrame. A wrapper that is no longer
+-- registered here is inert: it forwards straight to the AddMessage it wrapped.
+local routerWrapper = setmetatable({}, { __mode = "k" })
 local cache = {}
 local cacheIndex = 0
 local CACHE_LIMIT = 800
@@ -649,11 +652,17 @@ local function RestoreHookFrame(frame)
         return
     end
 
+    -- Only unwrap when our wrapper is still the outermost AddMessage. If the
+    -- channel label hook or another addon wrapped on top of it, writing our
+    -- saved original back would silently drop their hook; leave the wrapper in
+    -- the chain instead; once unregistered below it is a plain pass-through.
+    local wrapper = routerWrapper[frame]
     local original = originalAddMessage[frame]
-    if type(original) == "function" and frame.AddMessage ~= original then
+    if wrapper and frame.AddMessage == wrapper and type(original) == "function" then
         frame.AddMessage = original
     end
 
+    routerWrapper[frame] = nil
     hookedFrames[frame] = nil
     originalAddMessage[frame] = nil
 end
@@ -685,11 +694,20 @@ local function HookFrame(frame)
     end
 
     hookedFrames[frame] = true
-    originalAddMessage[frame] = frame.AddMessage
+    local original = frame.AddMessage
+    originalAddMessage[frame] = original
 
-    frame.AddMessage = function(self, ...)
+    local wrapper
+    wrapper = function(self, ...)
+        -- Unhooked while another hook sat on top of us: stay in the chain but
+        -- behave exactly like the AddMessage we wrapped.
+        if routerWrapper[self] ~= wrapper then
+            return original(self, ...)
+        end
         return HandleVirtualAddMessage(self, ...)
     end
+    routerWrapper[frame] = wrapper
+    frame.AddMessage = wrapper
 end
 
 function Router:ApplyToAllFrames()
