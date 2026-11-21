@@ -2,6 +2,7 @@
 
 - Add a **Quick Button Horizontal Offset** slider (`-100–100`, default `0`) next to the vertical offset. Positive moves the stack right on screen, negative moves it left, applied after the edge gap and native-button clearance.
 - Lets a chat docked against the left screen edge pull left-side quick buttons back on-screen or line them up with Blizzard's chat button column. Existing positions are unchanged; **Reset Quick Button Position** also resets this offset.
+- Quick buttons can no longer disappear off-screen. If the chosen side does not fit, the stack automatically moves into a free gap of Blizzard's chat button column (avoiding native buttons and Chatify's own toolbar), otherwise to the opposite chat edge, otherwise just inside the screen edge. Native controls are never moved. Covered by `tools/quick_placement_probe.lua`.
 
 ## Unreleased (DEV) — Channel change notices in Forever
 

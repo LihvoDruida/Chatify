@@ -77,9 +77,107 @@ function ns.ResolveQuickChatPlacement(opts)
         end
     end
     -- x is a screen-direction nudge (positive = right) applied after the
-    -- outward gap and native clearance, so a chat docked at the screen edge
-    -- can still pull the stack back on-screen or onto the native column.
-    return { side = side, align = vertical, gap = gapFor(side), x = x, y = y }
+    -- outward gap and native clearance.
+    local result = { side = side, align = vertical, gap = gapFor(side), x = x, y = y, mode = "exterior" }
+    if opts.keepOnScreen == false then return result end
+    return ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
+end
+
+local function isRect(r)
+    return type(r) == "table" and type(r.left) == "number" and type(r.right) == "number"
+        and type(r.top) == "number" and type(r.bottom) == "number"
+end
+
+-- Highest vertical gap of at least `required` units inside one column span.
+-- `blocks` are rectangles (native buttons, Chatify's own toolbar) to avoid.
+local function findColumnGap(top, bottom, left, right, rects, required, padding)
+    if top - bottom < required + padding * 2 then return nil end
+    local blocks = {}
+    for _, rect in ipairs(type(rects) == "table" and rects or {}) do
+        if isRect(rect) and rect.top > rect.bottom
+            and rect.left < right and rect.right > left
+            and rect.bottom < top and rect.top > bottom then
+            blocks[#blocks + 1] = { top = min(rect.top, top), bottom = max(rect.bottom, bottom) }
+        end
+    end
+    table.sort(blocks, function(a, b)
+        if a.top == b.top then return a.bottom > b.bottom end
+        return a.top > b.top
+    end)
+    local cursor = top
+    for _, block in ipairs(blocks) do
+        if cursor - block.top >= required + padding * 2 then return cursor - padding end
+        cursor = min(cursor, block.bottom)
+    end
+    if cursor - bottom >= required + padding * 2 then return cursor - padding end
+    return nil
+end
+
+-- Horizontal span of an exterior dock for a given side/gap/x.
+local function exteriorSpan(side, rect, gap, x, width)
+    if side == "LEFT" then
+        local right = rect.left - gap + x
+        return right - width, right
+    end
+    local left = rect.right + gap + x
+    return left, left + width
+end
+
+-- A dock that leaves the screen is invisible and useless. When the requested
+-- side does not fit, fall back in this order, never moving native controls:
+--   1. a free vertical gap inside Blizzard's chat-button column on that side;
+--   2. the opposite chat edge, when it fits there;
+--   3. the requested side, nudged back just inside the screen edge.
+function ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
+    local rect, root = opts.chat, opts.screen
+    if not isRect(rect) or type(root) ~= "table"
+        or type(root.left) ~= "number" or type(root.right) ~= "number" then
+        return result
+    end
+    local width = max(1, finite(opts.panelWidth, 30))
+    local function fits(side, gap, x)
+        local left, right = exteriorSpan(side, rect, gap, x, width)
+        return left >= root.left - 0.5 and right <= root.right + 0.5
+    end
+    if fits(result.side, result.gap, result.x) then return result end
+
+    local sidebar = opts.sidebar
+    local height = finite(opts.panelHeight, 0)
+    if isRect(sidebar) and height > 0 and sidebar.right > sidebar.left then
+        local centerX = (sidebar.left + sidebar.right) / 2
+        local chatCenter = (rect.left + rect.right) / 2
+        local onSide = (result.side == "LEFT" and centerX < chatCenter)
+            or (result.side == "RIGHT" and centerX > chatCenter)
+        local colLeft, colRight = centerX - width / 2, centerX + width / 2
+        if onSide and colLeft >= root.left - 0.5 and colRight <= root.right + 0.5 then
+            local top = findColumnGap(min(rect.top, sidebar.top), rect.bottom, colLeft, colRight,
+                opts.columnObstacles, height, 3)
+            if top then
+                result.mode = "native-column"
+                result.slot = { x = centerX, top = top, width = width, height = height }
+                return result
+            end
+        end
+    end
+
+    local other = result.side == "LEFT" and "RIGHT" or "LEFT"
+    local otherGap = gapFor and gapFor(other) or result.gap
+    if fits(other, otherGap, 0) then
+        result.requestedSide = result.side
+        result.side, result.gap, result.x = other, otherGap, 0
+        result.mode = "flipped"
+        return result
+    end
+
+    local left, right = exteriorSpan(result.side, rect, result.gap, result.x, width)
+    if left < root.left then
+        result.x = result.x + (root.left - left)
+    elseif right > root.right then
+        result.x = result.x - (right - root.right)
+    end
+    result.x = floor(result.x + 0.5)
+    result.mode = "clamped"
+    return result
 end
 
 -- Find an empty vertical section in Blizzard's existing chat-button column.
