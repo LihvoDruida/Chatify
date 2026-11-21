@@ -209,6 +209,30 @@ function ns.MergeChatClampInsets(base, reserve, edgeDelta)
     return { left, right, top, bottom }
 end
 
+-- How far to move the chat (in the chat's visual units, positive = right) so
+-- the quick button stack fits on screen on the reserved side. Never moves the
+-- chat past the opposite screen edge; 0 when it already fits or cannot help.
+function ns.ResolveChatShift(reserve, chat, screen)
+    if type(reserve) ~= "table" or type(reserve.extent) ~= "number"
+        or type(chat) ~= "table" or type(screen) ~= "table" then
+        return 0
+    end
+    local cl, cr, sl, sr = chat.left, chat.right, screen.left, screen.right
+    if type(cl) ~= "number" or type(cr) ~= "number" or type(sl) ~= "number" or type(sr) ~= "number" then
+        return 0
+    end
+    if reserve.side == "LEFT" then
+        local need = sl - (cl - reserve.extent)
+        if need <= 0.5 then return 0 end
+        return floor(min(need, max(0, sr - cr)) + 0.5)
+    elseif reserve.side == "RIGHT" then
+        local need = (cr + reserve.extent) - sr
+        if need <= 0.5 then return 0 end
+        return -floor(min(need, max(0, cl - sl)) + 0.5)
+    end
+    return 0
+end
+
 -- Find an empty vertical section in Blizzard's existing chat-button column.
 -- Native buttons are represented only by their screen rectangles: they are
 -- never moved, hidden, resized, reparented, or used as parents for our buttons.

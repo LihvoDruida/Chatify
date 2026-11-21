@@ -774,6 +774,6 @@ Locale:RegisterLocale("ukUA", {
     ["Profile nesting exceeds export limit."] = "Вкладеність профілю перевищує ліміт експорту.",
     ["Profile table is invalid."] = "Таблиця профілю некоректна.",
     ["Unsupported or incomplete profile format. Export a new backup first."] = "Непідтримуваний або неповний формат профілю. Спершу створіть нову резервну копію.",
-    ["Reserve Screen Space Next to Chat"] = "Резервувати місце біля чату",
-    ["Keep the chat window far enough from the screen edge for the quick buttons on the chosen side. Chatify never moves the chat itself: the game's screen clamping applies the space when the chat is dragged or the UI reloads. Not used with Automatic side."] = "Тримає вікно чату на достатній відстані від краю екрана для швидких кнопок на обраному боці. Chatify ніколи не пересуває чат сам: відступ застосовує обмеження екрана самої гри, коли чат перетягують або перезавантажують інтерфейс. Не діє з автоматичним вибором боку.",
+    ["Move Chat to Make Room for Buttons"] = "Відсувати чат, щоб звільнити місце для кнопок",
+    ["When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side."] = "Якщо швидкі кнопки на обраному боці не вміщаються на екрані, вікно чату зсувається рівно на потрібну відстань (лише поза боєм) і не дає перетягнути себе назад під кнопки. Не діє з автоматичним вибором боку.",
 })
