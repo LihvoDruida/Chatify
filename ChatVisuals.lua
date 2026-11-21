@@ -12,7 +12,6 @@ local TimestampFilter
 -- the whole session.
 local frameStyleCache = setmetatable({}, { __mode = "k" })
 local C_Timer = C_Timer
-local GetServerTime = GetServerTime
 
 local function IsSecretValue(value)
     return type(ns.IsSecretValue) == "function" and ns.IsSecretValue(value)
@@ -122,11 +121,6 @@ local function NormalizeFontSize(size)
     local rounded = math.floor(size + 0.5)
     if rounded <= 0 or rounded > 64 then return 14 end
     return rounded
-end
-
-local function CleanTextTags(text)
-    if not text then return "" end
-    return text:gsub("|[cC]%x%x%x%x%x%x%x%x", ""):gsub("|[rR]", "")
 end
 
 -- Безпечне отримання тексту (Deep Sanitization)
@@ -671,7 +665,7 @@ local function BuildChannelLabelMap(db)
             end
         end
     end
-    for key, mode in pairs(modes) do
+    for key in pairs(modes) do
         if map.byName[key] == nil then
             local resolved = ns.GetChannelMode(db, key, nil)
             if resolved == "hidden" then

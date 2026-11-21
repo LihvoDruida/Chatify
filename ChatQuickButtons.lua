@@ -254,15 +254,6 @@ local function ScheduleButtonStateUpdate()
     end
 end
 
-local function ApplyTextureToRegion(region, path)
-    if not region or type(path) ~= "string" then
-        return
-    end
-
-    region:SetTexture(path)
-    region:SetAllPoints(region:GetParent() or region)
-end
-
 local function ResetManagedButtonTexture(button, getterName, setterName, layer)
     if not button then
         return
@@ -2382,10 +2373,6 @@ local function RefreshSidebarIconButtonLook(button, iconPath, iconSize)
     end
 end
 
-local function EnsureSettingsButtonVisual(self)
-    EnsureSidebarIconButtonVisual(self, SETTINGS_ICON, 12)
-end
-
 local function RefreshSettingsButtonLook()
     RefreshSidebarIconButtonLook(settingsButton, SETTINGS_ICON, 12)
 end
@@ -2761,7 +2748,7 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
         return true
     end
 
-    local buttonWidth, buttonHeight, ratio = GetConfiguredButtonMetrics()
+    local buttonWidth, buttonHeight = GetConfiguredButtonMetrics()
     local spacing = GetSidebarLayoutSpacing()
     local strata = (sidebarFrame and sidebarFrame.GetFrameStrata and sidebarFrame:GetFrameStrata())
         or (hostFrame and hostFrame.GetFrameStrata and hostFrame:GetFrameStrata())
@@ -2774,7 +2761,7 @@ local function LayoutDetachedClassicSidebarButtons(sidebarFrame, hostFrame)
     -- button column. Use native proportions without resizing the game frame.
     spacing = math.max(2, spacing)
 
-    local layoutHost, placement = PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, #layoutItems, spacing, strata, frameLevel)
+    local layoutHost = PrepareDetachedClassicSidebarHost(sidebarFrame, hostFrame, buttonWidth, buttonHeight, #layoutItems, spacing, strata, frameLevel)
     if not layoutHost then
         return false
     end
@@ -3099,14 +3086,6 @@ local function ShouldUseNativeCopy(mouseButton)
     return mouseButton == "LeftButton"
         and type(IsShiftKeyDown) == "function"
         and IsShiftKeyDown()
-end
-
-local function GetNativeCopyTooltipMode()
-    if not IsNativeCopyEnabled() then
-        return T("disabled in settings")
-    end
-
-    return T("Shift + Left Click")
 end
 
 local function EnsureContainer()
@@ -3673,7 +3652,6 @@ end
 function ns.RefreshQuickChatButtons()
     local db = GetDB()
     local showQuickButtons = db and db.quickChatButtons ~= false and (type(ns.IsFeatureAvailable) ~= "function" or ns.IsFeatureAvailable("quickButtons"))
-    local showSettingsButton = ShouldShowSettingsButton()
     local showSidebarMenu = ShouldShowSidebarMenu()
 
     if not db or (not showQuickButtons and not showSidebarMenu) then

@@ -171,7 +171,7 @@ function Sounds:Play(soundName, forceMaster)
 
     db = db or {}
 
-    local soundFile = nil
+    local soundFile
     if type(ns.ResolveSoundPath) == "function" then
         soundFile = ns.ResolveSoundPath(soundName)
     else
@@ -304,7 +304,7 @@ function Sounds:OnEvent(event, msg, author, ...)
         ns.NoteChatEntryPoint("sounds", event)
     end
 
-    local profile, db = GetSoundConfig()
+    local _, db = GetSoundConfig()
     local normalSoundsEnabled = db and db.enable == true
 
     -- Mention sounds normally ride along with the highlight, from inside the chat

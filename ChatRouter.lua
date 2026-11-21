@@ -1,7 +1,6 @@
 local addonName, ns = ...
 local Chatify = ns.Chatify
 local Router = Chatify:NewModule("Router", "AceEvent-3.0")
-local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 local _G = _G
 local pairs = pairs

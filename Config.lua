@@ -921,7 +921,7 @@ ns.defaults = {
         -- === VISUALS ===
         fontID = "Friz Quadrata (WoW)", -- Дефолтний шрифт клієнта WoW
         fontOutline = "",    -- Контур тексту для кращої читабельності
-        
+
         -- === TIME ===
         enableTimestamps = true,     -- Таймстемпи: virtual mode через Router, normal/retail через safe filter path
         timestampID = 2,            -- За замовчуванням HH:MM
@@ -951,7 +951,7 @@ ns.defaults = {
 
         -- === SPAM FILTERS (Updated) ===
         enableSpamFilter = true,
-        
+
         -- Anti-Flood / Filter Engine 3.0
         enableThrottle = true,      -- Блокувати повтор повідомлень
         throttleTime = 60,          -- Час блокування (сек)
@@ -979,7 +979,7 @@ ns.defaults = {
             COMMUNITY = true,
             LOOT = false,
         },
-        
+
         -- System Cleaner
         hideSystemSpam = true,      -- Приховувати вхід/вихід з каналів
         hidePlayerStatusMessages = false,
@@ -988,7 +988,7 @@ ns.defaults = {
         mutePlayerStatusSounds = false, -- opt in: suppress Blizzard BNet online/offline toasts and their sounds
 
         -- Базовий список слів для блокування
-        spamKeywords = { 
+        spamKeywords = {
             "BOOST", "CARRY", "GOLD", "CHEAP", "WTS", "SELLING", "SERVICES", "VIP"
         },
 
@@ -1611,13 +1611,6 @@ end
 -- Based on the safer patterns used by Prat 3 and ElvUI: detect the project at
 -- runtime, never assume a client-only API exists, and probe events before
 -- registering them. These helpers are intentionally small and side-effect free.
-local function SafeGlobalCall(func, ...)
-    if type(func) ~= "function" then
-        return false, nil
-    end
-    return pcall(func, ...)
-end
-
 -- CVars.
 --
 -- Modern Retail moved these into C_CVar and keeps the flat globals only as
@@ -2396,7 +2389,6 @@ end
 local tostring = tostring
 local pcall = pcall
 local type = type
-local select = select
 local canaccessvalue = canaccessvalue
 local issecretvalue = issecretvalue
 

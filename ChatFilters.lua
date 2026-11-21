@@ -20,7 +20,6 @@ local NormalizeCacheOrder = {}
 local NORMALIZE_CACHE_LIMIT = 256
 local NormalizeCacheCursor = 0
 local FriendCache = {}
-local friendCacheLastClear = 0
 local repeatCacheLastPrune = 0
 
 -- Filter Engine 3.0
@@ -180,10 +179,6 @@ local function IsVirtualMode()
     end
 
     return true
-end
-
-local function IsRetailRestricted()
-    return type(ns.IsRetailSecretValueBuild) == "function" and ns.IsRetailSecretValueBuild()
 end
 
 local function Trim(value)
@@ -1157,7 +1152,6 @@ end
 
 local function ClearFriendCache()
     FriendCache = {}
-    friendCacheLastClear = GetTime and GetTime() or 0
 end
 
 function Filters:FRIENDLIST_UPDATE()

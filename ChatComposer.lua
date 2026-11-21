@@ -604,9 +604,9 @@ function Composer:GetEffectiveRouting(state, chunk)
     return state.channel, target
 end
 
-function Composer:RefreshRuntimeState(event, addonName)
+function Composer:RefreshRuntimeState(event, loadedAddon)
     local ui = self.ui
-    if event == "ADDON_LOADED" and addonName == "Misspelled" then
+    if event == "ADDON_LOADED" and loadedAddon == "Misspelled" then
         local profile = GetProfile()
         if profile and profile.spellcheckIntegration ~= false and self.inputWidget then
             WireSpellcheck(self.inputWidget, profile)
