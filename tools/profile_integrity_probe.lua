@@ -69,4 +69,22 @@ ok, why = ns.ImportProfileText(good)
 check(not ok and type(why) == "string", "refresh failure must reject")
 check(profile.lineSpacing == 3, "refresh failure did not roll back")
 addon.RefreshConfig = orig
+
+-- Export/import share ONE window; reopening must not stack new frames.
+local created, baseCreateFrame = 0, CreateFrame
+CreateFrame = function(kind, name, ...)
+    if name == "ChatifyProfileTransferFrame" then created = created + 1 end
+    return baseCreateFrame(kind, name, ...)
+end
+ns.OpenProfileExport()
+local window = _G.ChatifyProfileTransferFrame
+check(window and window:IsShown(), "export window not shown")
+check(window.edit:GetText() == export(), "export window lacks the current profile")
+ns.OpenProfileExport()
+ns.OpenProfileImport()
+CreateFrame = baseCreateFrame
+check(created == 1, "transfer window created " .. created .. " times")
+check(_G.ChatifyProfileTransferFrame == window and window:IsShown(), "import did not reuse the window")
+check(window.edit:GetText() == "" and window.action:IsShown() and not window.selectAll:IsShown(),
+    "import mode not applied to the shared window")
 print("profile integrity: PASS")
