@@ -1,8 +1,8 @@
-## Unreleased — Left side makes room next to the chat automatically
+## Unreleased — Left side makes room next to every chat window
 
-- Choosing **Left** for the quick chat buttons now makes room by itself: if the chat sits too close to the left screen edge, the chat window is moved right just far enough (out of combat), and its screen clamp keeps it from being dragged back under the buttons. There is no separate option any more.
-- Choosing **Right** or **Automatic**, or hiding the quick buttons, puts the chat back exactly where it was before and restores Blizzard's clamp values. If you moved the chat yourself in the meantime, your position is kept.
-- The original position is remembered per character, so this also works after `/reload`. If something else keeps putting the chat back (e.g. Edit Mode), Chatify stops after three tries.
+- Choosing **Left** for the quick chat buttons now makes room by itself for **every** chat window: the main/docked chat, each undocked window, temporary whisper windows and an undocked combat log. A window that sits too close to the left screen edge is moved right just far enough (out of combat), and its screen clamp keeps it from being dragged back under the buttons. Docked tabs move with the dock; closed windows are left alone. There is no separate option.
+- Choosing **Right** or **Automatic**, or hiding the quick buttons, puts **all** moved windows back exactly where they were and restores Blizzard's clamp values. A window you moved yourself in the meantime keeps your position; a window that is docked again goes back too.
+- Original positions are remembered per character and per window, so this also works after `/reload`. If something else keeps putting a window back (e.g. Edit Mode), Chatify stops after three tries for that window.
 
 ## Unreleased — Quick buttons keep the chosen side
 

@@ -967,7 +967,7 @@ function Chatify:GetOptions()
                             quickChatButtonSide = {
                                 order = 8,
                                 name = T("Quick Button Side"),
-                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. With Left, if there is no room between the chat and the screen edge, the chat window is moved just far enough (out of combat); choosing another side puts it back. Use the horizontal offset to fine-tune."),
+                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. With Left, every chat window without room at the screen edge is moved just far enough (out of combat); choosing another side puts them all back. Use the horizontal offset to fine-tune."),
                                 type = "select",
                                 values = {
                                     RIGHT = T("Right"),

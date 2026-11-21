@@ -62,7 +62,35 @@ for i = 1, 10 do
     f.ClearAllPoints = function() end
     f.GetLeft = function(self) return self.__x end
     f.GetRight = function(self) return self.__x + CHAT_WIDTH end
+    f.GetObjectType = function() return "ScrollingMessageFrame" end
 end
+local function modelWindow(f)
+    f.__clamp = { unpack(BLIZZARD) }
+    f.__x = 600
+    f.GetClampRectInsets = function(self) return unpack(self.__clamp) end
+    f.SetClampRectInsets = function(self, l, r, t, b) self.__clamp = { l, r, t, b } end
+    f.GetEffectiveScale = function() return 1 end
+    f.GetNumPoints = function() return 1 end
+    f.GetPoint = function(self) return "BOTTOMLEFT", UIParent, "BOTTOMLEFT", self.__x, 40 end
+    f.SetPoint = function(self, _, _, _, x) self.__x = x end
+    f.ClearAllPoints = function() end
+    f.GetLeft = function(self) return self.__x end
+    f.GetRight = function(self) return self.__x + CHAT_WIDTH end
+    f.GetObjectType = function() return "ScrollingMessageFrame" end
+    return f
+end
+-- Blizzard's dock: membership is reported by FCFDock_GetChatFrames.
+_G.GENERAL_CHAT_DOCK = { name = "GeneralDockManager" }
+_G.FCFDock_GetChatFrames = function()
+    local list = { ChatFrame1 }
+    for i = 2, 11 do
+        local f = _G["ChatFrame" .. i]
+        if f and f.isDocked then list[#list + 1] = f end
+    end
+    return list
+end
+for i = 2, 10 do _G["ChatFrame" .. i]:Hide() end -- only the main window to start with
+ChatFrame1:Show()
 local chat = ChatFrame1
 local function insets() return chat.__clamp end
 local function same(a, b) return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4] end
@@ -126,8 +154,8 @@ check("Automatic does not move the chat", chat.__x == 5)
 -- Persistence: the record lives in db.char, so another side can still put
 -- the chat back after a reload.
 side("LEFT")
-local record = addon.db.char.quickChatShift
-check("record names the frame and both positions", record and record.frame == "ChatFrame1" and record.from and record.to)
+local record = addon.db.char.quickChatShift and addon.db.char.quickChatShift.ChatFrame1
+check("per-window record keeps both positions", record and record.from and record.to)
 side("RIGHT")
 check("restored from the saved record", chat.__x == 5)
 
@@ -183,5 +211,60 @@ check("gives up after 3 attempts against a restoring layout (" .. attempts .. ")
 chat.__x = 12
 refresh()
 check("a chat dragged to a new spot is handled again (left=" .. chat.__x .. ")", chat.__x > 12)
+
+
+-- ---------------------------------------------------------------- all windows
+side("RIGHT")
+chat.__x = 600
+local w3, w4, w5 = ChatFrame3, ChatFrame4, ChatFrame5
+w3:Show(); w3.__x = 5                    -- undocked window at the left edge
+w4:Show(); w4.__x = 5; w4.isDocked = true -- docked tab: moves with the dock
+w5:Hide(); w5.__x = 5                    -- closed window
+local temp = modelWindow(env.newFrame("ScrollingMessageFrame", "ChatFrame11"))
+_G.ChatFrame11 = temp; temp:Show(); temp.__x = 8
+_G.CHAT_FRAMES = { "ChatFrame1", "ChatFrame2", "ChatFrame3", "ChatFrame4", "ChatFrame5", "ChatFrame11" }
+refresh()
+check("Right leaves every window alone", w3.__x == 5 and temp.__x == 8 and chat.__x == 600)
+
+side("LEFT")
+check("undocked window at the edge is moved (left=" .. w3.__x .. ")", w3.__x > 5)
+check("undocked window gets the left clamp too", w3.__clamp[1] < BLIZZARD[1])
+check("temporary whisper window is moved (left=" .. temp.__x .. ")", temp.__x > 8)
+check("main window with room stays", chat.__x == 600)
+check("docked tab is not moved on its own", w4.__x == 5)
+check("closed window is not moved", w5.__x == 5)
+local shifts = addon.db.char.quickChatShift
+check("one record per moved window", shifts.ChatFrame3 and shifts.ChatFrame11 and not shifts.ChatFrame1 and not shifts.ChatFrame4)
+
+-- A moved window that is docked again no longer needs room: put it back.
+temp.isDocked = true
+refresh()
+check("a window docked again is put back (left=" .. temp.__x .. ")", temp.__x == 8)
+check("its record is cleared", addon.db.char.quickChatShift.ChatFrame11 == nil)
+temp.isDocked = nil
+refresh()
+check("undocked again: moved again", temp.__x > 8)
+
+-- Right puts EVERY moved window back and restores every clamp.
+side("RIGHT")
+check("Right puts the undocked window back", w3.__x == 5)
+check("Right puts the whisper window back", temp.__x == 8)
+check("Right restores every window's clamp", same(w3.__clamp, BLIZZARD) and same(temp.__clamp, BLIZZARD))
+check("no records left", addon.db.char.quickChatShift == nil)
+
+-- A player-moved window keeps its spot while the others go back.
+side("LEFT")
+w3.__x = 250
+refresh()
+side("RIGHT")
+check("player-moved window keeps its spot (left=" .. w3.__x .. ")", w3.__x == 250)
+check("the other window still goes back", temp.__x == 8)
+
+-- A single-window record from the previous build is migrated.
+side("LEFT")
+local current = addon.db.char.quickChatShift.ChatFrame11
+addon.db.char.quickChatShift = { frame = "ChatFrame11", from = current.from, to = current.to }
+side("RIGHT")
+check("old single-window record still restores (left=" .. temp.__x .. ")", temp.__x == 8)
 
 print(string.format("chat room probe: PASS (%d checks)", checks))
