@@ -10,6 +10,7 @@ ignore:
   - README.md
   - COMPATIBILITY.md
   - .gitignore
+  - .luacheckrc
   - .forever-ui
   - .release
   - dist

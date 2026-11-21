@@ -32,9 +32,10 @@ jobs:
       - name: Install Lua 5.1 and test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.1
+          sudo apt-get install -y lua5.1 lua-check
           command -v lua5.1
           command -v luac5.1
+          luacheck --version
           python3 -m pip install --quiet fonttools pillow
 
       - name: Fetch Ace3 for real-library tests
