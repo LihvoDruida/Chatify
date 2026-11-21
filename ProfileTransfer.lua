@@ -164,7 +164,7 @@ local numberRanges = {
     chatFadeTime={0, 86400}, scrollLinesPerNotch={1, 100},
     senderIconScale={1, 400}, senderIconOffset={-100, 100},
     quickChatButtonSize={1, 256}, quickChatButtonGap={-500, 500},
-    quickChatButtonYOffset={-500, 500}, quickChatButtonAlpha={0, 1},
+    quickChatButtonXOffset={-500, 500}, quickChatButtonYOffset={-500, 500}, quickChatButtonAlpha={0, 1},
     quickChatPanelAlpha={0, 1}, quickChatButtonSpacing={0, 200},
     quickChatButtonFontScale={0.1, 5}, copyNativeTimeout={0, 86400},
     ["composer.automationDelay"]={0, 3600}, ["composer.chunkLimit"]={1, 10000},

@@ -1051,6 +1051,7 @@ ns.defaults = {
         quickChatButtonAlign = "BOTTOM", -- BOTTOM, CENTER, TOP, relative to active chat frame
         quickChatButtonAvoidNative = true, -- Reserve native Blizzard button-frame space without moving game controls
         quickChatButtonGap = 18,    -- Відступ назовні від обраного боку чату (0..100)
+        quickChatButtonXOffset = 0,  -- Horizontal shift in UI units (-100..100); positive moves right on screen
         quickChatButtonYOffset = -4, -- Вертикальний зсув у пікселях (-100..100)
         quickChatButtonAlpha = 0.92, -- Прозорість кнопок швидкого чату
         quickChatPanelAlpha = 0.0, -- Прозорість фону контейнера швидких кнопок (0 = повністю прозорий)

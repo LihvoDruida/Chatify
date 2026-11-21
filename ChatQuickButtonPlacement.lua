@@ -48,6 +48,7 @@ function ns.ResolveQuickChatPlacement(opts)
     local vertical = opts.align
     if vertical ~= "TOP" and vertical ~= "CENTER" then vertical = "BOTTOM" end
     local baseGap = clamp(opts.gap, 0, 100, 18)
+    local x = clamp(opts.x, -100, 100, 0)
     local y = clamp(opts.y, -100, 100, -4)
     local rect, sidebar, root = opts.chat, opts.sidebar, opts.screen
     local avoid = opts.avoidNative ~= false
@@ -75,7 +76,10 @@ function ns.ResolveQuickChatPlacement(opts)
             if freeLeft > freeRight then side = "LEFT" end
         end
     end
-    return { side = side, align = vertical, gap = gapFor(side), y = y }
+    -- x is a screen-direction nudge (positive = right) applied after the
+    -- outward gap and native clearance, so a chat docked at the screen edge
+    -- can still pull the stack back on-screen or onto the native column.
+    return { side = side, align = vertical, gap = gapFor(side), x = x, y = y }
 end
 
 -- Find an empty vertical section in Blizzard's existing chat-button column.
