@@ -271,19 +271,34 @@ end
 
 local behaviourCache = setmetatable({}, { __mode = "k" })
 
+-- Ask the client whether a chat window is the combat log. Returns true/false
+-- when it can answer and nil when it cannot (API missing or failing), so each
+-- caller decides explicitly how to treat "unknown".
+local function QueryCombatLogWindow(frame)
+    if type(frame) ~= "table" or type(frame.GetID) ~= "function" then
+        return false
+    end
+    local fn = ns.GetChatAPI and ns.GetChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog")
+    if type(fn) ~= "function" then
+        return nil
+    end
+    local okID, id = pcall(frame.GetID, frame)
+    if not okID or type(id) ~= "number" then
+        return nil
+    end
+    local ok, isCombatLog = pcall(fn, id)
+    if not ok then
+        return nil
+    end
+    return isCombatLog and true or false
+end
+
+-- Display behaviour (fading, line limits): ChatFrame2 is Blizzard's combat
+-- log, so it is treated as one even when the client cannot answer.
 local function IsCombatLogFrame(frame)
     if not frame then return false end
     if frame == _G.ChatFrame2 then return true end
-
-    local id = type(frame.GetID) == "function" and select(2, pcall(frame.GetID, frame)) or nil
-    if type(id) == "number" then
-        local ok, isCombatLog = ns.CallChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog", id)
-        if ok and isCombatLog then
-            return true
-        end
-    end
-
-    return false
+    return QueryCombatLogWindow(frame) == true
 end
 
 -- Chat replacement addons own the chat frames outright. Prat has the same carve
@@ -1023,23 +1038,8 @@ end
 -- Answered defensively. If the client cannot tell us which window is the combat log we
 -- wrap it as before, because skipping a frame that does carry chat would silently drop
 -- the features on it, which is the worse of the two mistakes.
-local function IsCombatLogFrame(frame)
-    if type(frame) ~= "table" or type(frame.GetID) ~= "function" then
-        return false
-    end
-
-    local fn = ns.GetChatAPI and ns.GetChatAPI("FCF_IsWindowIDCombatLog", "IsWindowIDCombatLog")
-    if type(fn) ~= "function" then
-        return false
-    end
-
-    local okID, id = pcall(frame.GetID, frame)
-    if not okID or type(id) ~= "number" then
-        return false
-    end
-
-    local ok, isCombatLog = pcall(fn, id)
-    return ok and isCombatLog and true or false
+local function SkipLabelHookForCombatLog(frame)
+    return QueryCombatLogWindow(frame) == true
 end
 
 local function InstallChannelLabelHook(frame)
@@ -1047,7 +1047,7 @@ local function InstallChannelLabelHook(frame)
         return
     end
 
-    if IsCombatLogFrame(frame) then
+    if SkipLabelHookForCombatLog(frame) then
         return
     end
 
