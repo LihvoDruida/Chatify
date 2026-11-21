@@ -1017,8 +1017,22 @@ function Chatify:GetOptions()
                                     return self.db.profile.quickChatButtonGap
                                 end,
                             },
-                            quickChatButtonYOffset = {
+                            quickChatButtonXOffset = {
                                 order = 12,
+                                name = T("Quick Button Horizontal Offset"),
+                                desc = T("Fine tune horizontal position after the edge gap and native button clearance. Positive moves right; negative moves left. Useful when the chat is docked at the screen edge."),
+                                type = "range",
+                                min = -100,
+                                max = 100,
+                                step = 1,
+                                disabled = function() return self.db.profile.quickChatButtons == false end,
+                                set = function(info, val) self.db.profile.quickChatButtonXOffset = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info)
+                                    return self.db.profile.quickChatButtonXOffset or 0
+                                end,
+                            },
+                            quickChatButtonYOffset = {
+                                order = 13,
                                 name = T("Quick Button Vertical Offset"),
                                 desc = T("Fine tune vertical position relative to the chosen chat-frame anchor. Positive moves up; negative moves down."),
                                 type = "range",
@@ -1035,7 +1049,7 @@ function Chatify:GetOptions()
                                 end,
                             },
                             quickChatButtonAlpha = {
-                                order = 13,
+                                order = 14,
                                 name = T("Quick Button Opacity"),
                                 desc = T("Adjust the opacity of the quick chat buttons."),
                                 type = "range",
@@ -1050,15 +1064,16 @@ function Chatify:GetOptions()
                                 end,
                             },
                             quickChatResetPlacement = {
-                                order = 14,
+                                order = 15,
                                 name = T("Reset Quick Button Position"),
-                                desc = T("Restore the original right/bottom placement, 18-unit edge gap, and -4 vertical offset. Appearance settings are preserved."),
+                                desc = T("Restore the original right/bottom placement, 18-unit edge gap, 0 horizontal offset and -4 vertical offset. Appearance settings are preserved."),
                                 type = "execute",
                                 func = function()
                                     local db = self.db.profile
                                     db.quickChatButtonSide = "RIGHT"
                                     db.quickChatButtonAlign = "BOTTOM"
                                     db.quickChatButtonGap = 18
+                                    db.quickChatButtonXOffset = 0
                                     db.quickChatButtonYOffset = -4
                                     db.quickChatButtonAvoidNative = true
                                     ns.NotifyQuickChatSettingsChanged()

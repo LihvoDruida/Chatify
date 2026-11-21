@@ -21,6 +21,7 @@ local GetNativeSidebarSignature
 local GetConfiguredAlpha
 local GetConfiguredPanelAlpha
 local GetConfiguredTheme
+local GetConfiguredButtonXOffset
 local GetConfiguredButtonYOffset
 local GetElvUIPanelColor
 local GetGW2ChatFont
@@ -1025,6 +1026,15 @@ GetConfiguredFontScale = function()
     return scale
 end
 
+GetConfiguredButtonXOffset = function()
+    local db = GetDB()
+    local offset = db and db.quickChatButtonXOffset
+    if type(offset) ~= "number" or offset ~= offset then offset = 0 end
+    if offset < -100 then offset = -100 end
+    if offset > 100 then offset = 100 end
+    return math.floor(offset + 0.5)
+end
+
 GetConfiguredButtonYOffset = function()
     local db = GetDB()
     local offset = db and db.quickChatButtonYOffset
@@ -1647,6 +1657,7 @@ local function GetLayoutSignature()
     local ratio = string.format("%.3f", buttonRatio or DEFAULT_SIDEBAR_BUTTON_RATIO)
     local buttonHeightSignature = tostring(buttonHeight or DEFAULT_SIDEBAR_BUTTON_HEIGHT)
     local gap = GetConfiguredButtonGap()
+    local xOffset = GetConfiguredButtonXOffset()
     local yOffset = GetConfiguredButtonYOffset()
     local side, verticalAlign, avoidNative = GetQuickPlacementOptions()
     local nativeFrame, nativeHost = GetMainSidebarButtonFrame()
@@ -1680,6 +1691,7 @@ local function GetLayoutSignature()
         buttonHeightSignature,
         ratio,
         tostring(gap),
+        tostring(xOffset),
         tostring(yOffset),
         tostring(side),
         tostring(verticalAlign),
@@ -2577,6 +2589,7 @@ GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
         side = db.quickChatButtonSide,
         align = db.quickChatButtonAlign,
         gap = GetConfiguredButtonGap(),
+        x = GetConfiguredButtonXOffset(),
         y = GetConfiguredButtonYOffset(),
         avoidNative = db.quickChatButtonAvoidNative ~= false,
         chat = rect(visualFrame),
@@ -2910,7 +2923,7 @@ local function LayoutButtons()
     container:SetSize(buttonWidth + 4, math.max(1, holderHeight))
     local targetPoint = vertical == "CENTER" and horizontalAnchor or (vertical .. horizontalAnchor)
     local relativePoint = vertical == "CENTER" and visualAnchor or (vertical .. visualAnchor)
-    container:SetPoint(targetPoint, visualFrame, relativePoint, signedGap, placement.y)
+    container:SetPoint(targetPoint, visualFrame, relativePoint, signedGap + (placement.x or 0), placement.y)
     -- Clamping an exterior dock can push the bar back over the chat text or
     -- Blizzard's original buttons. AUTO side selection handles tight margins;
     -- explicit LEFT/RIGHT is respected exactly as the user requested.

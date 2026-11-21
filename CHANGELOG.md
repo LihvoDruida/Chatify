@@ -1,3 +1,8 @@
+## Unreleased — Quick Chat horizontal offset
+
+- Add a **Quick Button Horizontal Offset** slider (`-100–100`, default `0`) next to the vertical offset. Positive moves the stack right on screen, negative moves it left, applied after the edge gap and native-button clearance.
+- Lets a chat docked against the left screen edge pull left-side quick buttons back on-screen or line them up with Blizzard's chat button column. Existing positions are unchanged; **Reset Quick Button Position** also resets this offset.
+
 ## Unreleased (DEV) — Channel change notices in Forever
 
 - Fix **Hide channel notices** for completed `Changed Channel: [1. General - Moonglade]` / `Changed Channel: [3. LocalDefense - Moonglade]` lines even when the client or a translator uses different `CHAT_YOU_CHANGED_NOTICE` globals.
