@@ -1,3 +1,7 @@
+## Unreleased — Quick buttons keep the chosen side
+
+- Choosing **Left** (or **Right**) for the quick chat buttons is now always respected. When that side has no room on screen, the buttons use a free spot in Blizzard's chat button column or stay on the chosen side just inside the screen edge, instead of jumping to the other side of the chat. Only **Automatic** may pick the other side.
+
 ## Unreleased — Bug fixes from the module audit
 
 - **Profile export/import:** reopening the window no longer stacks another copy on top of the previous one.

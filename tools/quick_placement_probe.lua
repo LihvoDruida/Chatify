@@ -16,12 +16,21 @@ local p = R({side="LEFT", gap=18, y=-4, chat=chat, sidebar=sidebar, screen=scree
 assert(p.mode=="exterior" and p.side=="LEFT", p.mode)
 local l = span(p, chat, W); assert(l >= 0)
 
--- 2) Screenshot 2: chat at the left edge, native column full -> flip right
+-- 2) Screenshot 2: chat at the left edge, native column full. An explicit
+--    Left choice stays on the left, nudged just inside the screen edge.
 chat = rect(37,430,240,40); sidebar = rect(5,30,240,40)
 local natives = { rect(5,30,232,206), rect(5,30,204,178), rect(5,30,176,150), rect(5,30,148,122), rect(5,30,70,44) }
 p = R({side="LEFT", gap=18, chat=chat, sidebar=sidebar, screen=screen, panelWidth=W, panelHeight=H, columnObstacles=natives})
-assert(p.mode=="flipped" and p.side=="RIGHT" and p.requestedSide=="LEFT", p.mode)
-local a,b = span(p, chat, W); assert(a >= 0 and b <= 1920)
+assert(p.mode=="clamped" and p.side=="LEFT" and not p.requestedSide, p.mode .. " " .. p.side)
+local a,b = span(p, chat, W); assert(a == 0 and b <= chat.left, a)
+--    The same layout with Side = Automatic may use the right edge instead.
+p = R({side="AUTO", gap=18, chat=chat, sidebar=sidebar, screen=screen, panelWidth=W, panelHeight=H, columnObstacles=natives})
+assert(p.side=="RIGHT", p.side)
+a,b = span(p, chat, W); assert(a >= 0 and b <= 1920)
+--    Explicit Right never jumps to the left either.
+local rchat = rect(1500,1910,240,40)
+p = R({side="RIGHT", gap=18, chat=rchat, screen=screen, panelWidth=W, panelHeight=H})
+assert(p.side=="RIGHT" and p.mode=="clamped", p.mode); a,b = span(p, rchat, W); assert(b == 1920, b)
 
 -- 3) Same, but a tall chat leaves a free gap in the native column -> dock inline
 chat = rect(37,430,500,40); sidebar = rect(5,30,500,40)
@@ -30,10 +39,10 @@ assert(p.mode=="native-column" and p.slot, p.mode)
 assert(p.slot.top <= 497 and p.slot.top - H >= 232, "slot above native buttons: "..p.slot.top)
 assert(math.abs(p.slot.x - 17.5) < 0.01)
 
--- 4) Chatify's own toolbar fills that gap too -> not inline (flip instead)
+-- 4) Chatify's own toolbar fills that gap too -> not inline; stays left
 local obs = { (table.unpack or unpack)(natives) }; obs[#obs+1] = rect(5,30,497,240)
 p = R({side="LEFT", gap=18, chat=chat, sidebar=sidebar, screen=screen, panelWidth=W, panelHeight=H, columnObstacles=obs})
-assert(p.mode=="flipped", p.mode)
+assert(p.mode=="clamped" and p.side=="LEFT", p.mode)
 
 -- 5) Chat spans the whole screen width -> clamp just inside the edge
 chat = rect(10,1910,240,40)
@@ -63,4 +72,4 @@ assert(ns.ResolveQuickChatPlacement({x=-500}).x == -100, "clamp low")
 assert(ns.ResolveQuickChatPlacement({x=500}).x == 100, "clamp high")
 assert(ns.ResolveQuickChatPlacement({x=0/0}).x == 0, "NaN -> 0")
 assert(ns.ResolveQuickChatPlacement({x=12.6}).x == 13, "rounding")
-print("Quick placement probe: PASS (offset + 8 on-screen scenarios)")
+print("Quick placement probe: PASS (offset + on-screen scenarios; explicit side never flips)")
