@@ -13,7 +13,6 @@ desktop.ini
 .idea/
 
 # Lua build/temp files
-*.luacheckrc
 *.bak
 *.tmp
 *.log

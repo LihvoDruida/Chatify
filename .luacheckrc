@@ -1,0 +1,136 @@
+-- luacheck configuration for Chatify (run: luacheck .)
+-- WoW runs Lua 5.1. The game API is read-only from the addon's point of view;
+-- only Chatify's own SavedVariables and Blizzard's StaticPopupDialogs registry
+-- may be written. A new global read or write should be a deliberate edit here.
+std = "lua51"
+max_line_length = false
+exclude_files = { "libs/", "tools/", ".release/", ".forever-ui/" }
+
+ignore = {
+    "212",            -- unused arguments: WoW event/script callbacks have fixed signatures
+    "211/addonName",  -- `local addonName, ns = ...` is the standard addon file header
+    "432/self",       -- nested `function(self)` script handlers inside methods
+}
+
+globals = {
+    "ChatifyDB",          -- SavedVariables
+    "ChatifyHistoryDB",   -- SavedVariables
+    "StaticPopupDialogs", -- Blizzard popup registry (Chatify adds its dialogs)
+}
+
+read_globals = {
+    -- Lua 5.2+ name, used as `table.unpack or unpack`.
+    table = { fields = { "unpack" } },
+    -- Legacy colour picker API (pre-SetupColorPickerAndShow) is configured by
+    -- assigning these fields before Show().
+    ColorPickerFrame = { other_fields = true, fields = {
+        hasOpacity = { read_only = false }, func = { read_only = false },
+        cancelFunc = { read_only = false },
+    } },
+    "Ambiguate",
+    "BNSendWhisper",
+    "BackdropTemplateMixin",
+    "BattlePetToolTip_ShowLink",
+    "BattlePetTooltip",
+    "C_AddOns",
+    "C_BattleNet",
+    "C_CVar",
+    "C_ChatInfo",
+    "C_Club",
+    "C_FriendList",
+    "C_GuildInfo",
+    "C_PlayerInfo",
+    "C_PvP",
+    "C_Secrets",
+    "C_StringUtil",
+    "C_Texture",
+    "C_Timer",
+    "CanEditOfficerNote",
+    "ChatFontNormal",
+    "ChatFrame1EditBox",
+    "ChatTypeInfo",
+    "CommunitiesChatLineMixin",
+    "Constants",
+    "CreateFont",
+    "CreateFrame",
+    "DEFAULT_CHAT_FRAME",
+    "FCF_OpenNewWindow",
+    "FCF_OpenTemporaryWindow",
+    "FCF_SetChatWindowFontSize",
+    "FCF_SetTemporaryWindowType",
+    "GameTooltip",
+    "GetAddOnMetadata",
+    "GetBattlefieldEstimatedWaitTime",
+    "GetBattlefieldStatus",
+    "GetBuildInfo",
+    "GetCVar",
+    "GetChannelList",
+    "GetChannelName",
+    "GetChatWindowInfo",
+    "GetClassAtlas",
+    "GetFriendInfo",
+    "GetLFGMode",
+    "GetLFGQueueStats",
+    "GetLocale",
+    "GetMaxBattlefieldID",
+    "GetNumFriends",
+    "GetPlayerInfoByGUID",
+    "GetRaceAtlas",
+    "GetRealmName",
+    "GetServerTime",
+    "GetTime",
+    "HideUIPanel",
+    "InCombatLockdown",
+    "InterfaceOptions_AddCategory",
+    "IsAddOnLoaded",
+    "IsAltKeyDown",
+    "IsControlKeyDown",
+    "IsInGroup",
+    "IsInGuild",
+    "IsInInstance",
+    "IsInRaid",
+    "IsShiftKeyDown",
+    "ItemRefTooltip",
+    "LE_LFG_CATEGORY_LFD",
+    "LE_LFG_CATEGORY_RF",
+    "LE_LFG_CATEGORY_SCENARIO",
+    "LibStub",
+    "NUM_CHAT_WINDOWS",
+    "PlaySoundFile",
+    "ReloadUI",
+    "SELECTED_CHAT_FRAME",
+    "STANDARD_TEXT_FONT",
+    "ScrollingEdit_OnCursorChanged",
+    "ScrollingEdit_OnUpdate",
+    "SendChatMessage",
+    "SetCVar",
+    "SetItemRef",
+    "Settings",
+    "StaticPopup_Show",
+    "UIParent",
+    "UISpecialFrames",
+    "UnitFullName",
+    "UnitIsAFK",
+    "UnitIsGroupAssistant",
+    "UnitIsGroupLeader",
+    "UnitIsInMyGuild",
+    "UnitName",
+    "UnitNameUnmodified",
+    "WOW_PROJECT_BURNING_CRUSADE_CLASSIC",
+    "WOW_PROJECT_CATACLYSM_CLASSIC",
+    "WOW_PROJECT_CLASSIC",
+    "WOW_PROJECT_ID",
+    "WOW_PROJECT_MAINLINE",
+    "WOW_PROJECT_MISTS_CLASSIC",
+    "WOW_PROJECT_WOWLABS",
+    "WOW_PROJECT_WRATH_CLASSIC",
+    "canaccesstable",
+    "canaccessvalue",
+    "date",
+    "hooksecurefunc",
+    "issecretvalue",
+    "issecurevariable",
+    "securecallfunction",
+    "strsplit",
+    "time",
+}

@@ -55,6 +55,7 @@ run "symbols" python3 tools/check_symbols.py
 run "static audit" python3 tools/audit.py
 run "legacy API audit negative controls" python3 tools/api_audit_probe.py
 run "secret guard audit" python3 tools/secret_guard_audit.py
+run "luacheck static analysis" bash tools/luacheck_gate.sh
 run "locale coverage" python3 tools/locale_audit.py
 run "locale coverage negative controls" python3 tools/locale_audit.py --self-test
 run "TOC consistency (release versions set by tag)" python3 tools/generate_tocs.py --check --ignore-version

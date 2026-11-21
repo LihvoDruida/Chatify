@@ -33,6 +33,7 @@ def main():
 
     # validate: complete source gate, real libraries, no secrets.
     assert 'bash ./tools/check_all.sh' in validate, 'source gate missing'
+    assert 'lua-check' in validate, 'luacheck (required by check_all.sh) is not installed in CI'
     assert 'CHATIFY_REQUIRE_REAL_ACEGUI: "1"' in validate, 'UI/UX tests could silently skip in CI'
     assert 'CHATIFY_REQUIRE_REAL_ACEDB: "1"' in validate and 'tools/roundtrip_test.lua' in validate
     assert 'tools/negative_control.sh' in validate, 'failure detection is not proven'
