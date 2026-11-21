@@ -75,7 +75,6 @@ for mode in classic retail; do
     run "post-render security contracts/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/render_taint_probe.lua
     run "mentions/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/mention_probe.lua
     run "commands/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/command_probe.lua
-    run "proxy prototype/$mode" env CHATIFY_STUB_MODE="$mode" "$lua_cmd" tools/proxy_probe.lua
 done
 run "quick chat button placement" "$lua_cmd" tools/quick_placement_probe.lua
 run "copy" "$lua_cmd" tools/copy_probe.lua

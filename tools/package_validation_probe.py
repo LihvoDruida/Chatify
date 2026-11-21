@@ -57,6 +57,11 @@ with tempfile.TemporaryDirectory() as tmp:
         ({**files, 'Chatify/chatify.toc': files['Chatify/Chatify.toc']}, 'case-insensitive'),
         ({**files, 'Chatify/../escape.lua': b''}, 'unsafe'),
         ({**files, 'Chatify/Chatify.toc': files['Chatify/Chatify.toc'].replace(b'## Interface:', b'## BadInterface:')}, 'Interface metadata'),
+        ({**files, 'Chatify/ChatOrphan.lua': b'-- not in any TOC\n'}, 'not loaded by any TOC'),
+        ({**files, 'Chatify/Chatify-9.9.9-commit.bundle': b'git bundle'}, 'Development artifact'),
+        ({**files, 'Chatify/CHANGESET.patch': b'diff'}, 'Development artifact'),
+        ({key: value for key, value in files.items() if key != 'Chatify/Chatify_Mists.toc'}, 'Chatify TOCs'),
+        ({**files, 'Chatify/Chatify_WrathLegacy.toc': files['Chatify/Chatify_Wrath.toc']}, 'Chatify TOCs'),
     ]
     for entries, expected in controls:
         report = evaluate(entries)
