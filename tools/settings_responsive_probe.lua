@@ -144,11 +144,47 @@ ui.search:SetText('')
 ui.search:GetScript('OnTextChanged')(ui.search, true)
 ui:Rebuild(true)
 
-ns.SettingsIntegration.panel:SetSize(800, 650)
-ns.SettingsIntegration.panel:GetScript('OnShow')(ns.SettingsIntegration.panel)
-check('embedded mode stays compact', ui.embeddedHost ~= nil and ui.window:GetWidth() == 790)
-ns.SettingsIntegration.panel:SetSize(730, 550)
+-- Blizzard Settings host contract (SettingsIntegration:RefreshPanel):
+-- a canvas of at least 810x580 embeds the full 790-wide editor at scale 1;
+-- anything smaller shows the native launch page instead of shrinking text.
+local integration = ns.SettingsIntegration
+local panel = integration.panel
+local function showPanel(width, height)
+    panel:SetSize(width, height)
+    panel:GetScript('OnShow')(panel)
+end
+showPanel(900, 650)
+check('large canvas embeds the full editor', ui.embeddedHost == panel and ui.window:IsShown())
+check('embedded editor stays compact and readable', ui.window:GetWidth() == 790 and ui.window:GetScale() == 1)
+check('embedded height follows the canvas', ui.window:GetHeight() == 650)
+check('landing hidden while embedded', not (integration.landing and integration.landing:IsShown()))
+panel:SetSize(1400, 1000)
 ui:FitScreen()
-check('embedded mode fits host', ui.window:GetScale() < 1 and ui.window:GetHeight() == 550)
+check('embedded editor never upscales', ui.window:GetScale() == 1 and ui.window:GetHeight() == 670)
+
+showPanel(800, 650)
+check('narrow canvas un-embeds instead of shrinking', ui.embeddedHost == nil and not ui.window:IsShown())
+check('narrow canvas shows the launch page', integration.landing ~= nil and integration.landing:IsShown())
+showPanel(900, 550)
+check('short canvas shows the launch page', ui.embeddedHost == nil and integration.landing:IsShown())
+showPanel(810, 580)
+check('threshold canvas embeds again', ui.embeddedHost == panel and ui.window:GetScale() == 1)
+check('landing hidden after re-embedding', not integration.landing:IsShown())
+-- A layout pass on a host that shrank under the embedded editor must keep
+-- glyphs at full size; the size-change handler then swaps in the launch page.
+panel:SetSize(730, 550)
+ui:FitScreen()
+check('embedded editor is never scaled down', ui.window:GetScale() == 1)
+panel:Show()
+panel:GetScript('OnSizeChanged')(panel)
+check('shrinking the canvas swaps to the launch page', ui.embeddedHost == nil and integration.landing:IsShown())
+showPanel(900, 650)
+check('growing the canvas embeds again', ui.embeddedHost == panel and not integration.landing:IsShown())
+
+panel:GetScript('OnHide')(panel)
+addon:OpenConfig()
+check('standalone editor opens outside Settings', ui.embeddedHost == nil and ui.window:IsShown())
+showPanel(730, 550)
+check('launch page never closes a standalone editor', ui.window:IsShown() and ui.embeddedHost == nil)
 
 print(string.format('R2 responsive/editor: PASS (%s/%s; %d checks)',client,api,checks))

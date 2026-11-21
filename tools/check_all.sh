@@ -36,7 +36,7 @@ run() {
         printf 'FAIL: required test printed a failure: %s\n' "$label" >&2
         exit 1
     fi
-    if grep -Eq '(^|[[:space:]])SKIP([[:space:](]|$)' "$logfile"; then
+    if grep -Eq '(^|[[:space:]])SKIP([[:space:](:]|$)' "$logfile"; then
         rm -f "$logfile"
         printf 'FAIL: required test SKIP: %s\n' "$label" >&2
         exit 1
@@ -89,11 +89,26 @@ run "R1-02 post-hook lifecycle" "$lua_cmd" tools/frame_hook_lifecycle_probe.lua
 run "R1-04 history/render/buffer parity" "$lua_cmd" tools/history_pipeline_probe.lua
 run "R1-05/06 friend identity and Unicode keywords" "$lua_cmd" tools/filter_identity_unicode_probe.lua
 run "R1-07 PvP/BG/LFG queues and pending returns" "$lua_cmd" tools/auto_reply_queue_probe.lua
+# The UI/UX probe runs the real AceGUI Lua, a packager external that a source
+# checkout does not contain. Point ACE3_PATH at an Ace3 checkout (or populate
+# libs/) to run it; CHATIFY_REQUIRE_REAL_ACEGUI=1 makes its absence fatal.
+acegui_available=0
+if "$lua_cmd" -e "package.path='tools/stub/?.lua;'..package.path; os.exit(require('acegui_env').locate() and 0 or 1)"; then
+    acegui_available=1
+elif [ "${CHATIFY_REQUIRE_REAL_ACEGUI:-0}" = "1" ]; then
+    echo 'FAIL: real AceGUI-3.0 required (CHATIFY_REQUIRE_REAL_ACEGUI=1) but not found; set ACE3_PATH or populate libs/' >&2
+    exit 1
+fi
 # R2-04/05/06 viewport, inline hex/picker and keyboard search contracts.
 for config in "retail modern" "forever modern" "era legacy" "tbc legacy" "mists modern" "titan modern"; do
     read -r client api <<< "$config"
     run "R2 responsive/colour/keyboard / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/settings_responsive_probe.lua
-    run "UI/UX viewport and interaction / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/uiux_probe.lua
+    if [ "$acegui_available" = "1" ]; then
+        run "UI/UX viewport and interaction / $client" env CHATIFY_SETTINGS_CLIENT="$client" CHATIFY_SETTINGS_API="$api" "$lua_cmd" tools/uiux_probe.lua
+    else
+        echo "OPTIONAL SKIP UI/UX viewport and interaction / $client: AceGUI-3.0 not found (set ACE3_PATH)"
+        optional_skips=$((optional_skips+1))
+    fi
     run "localized system notice filters / $client" env CHATIFY_SETTINGS_CLIENT="$client" "$lua_cmd" tools/system_notice_probe.lua
 done
 run "R2 native editor/defaults / Retail" env CHATIFY_SETTINGS_CLIENT=retail CHATIFY_SETTINGS_API=modern "$lua_cmd" tools/settings_edit_probe.lua
@@ -120,5 +135,5 @@ for client in $clients; do
     done
 done
 
-printf '\nPASS: %d required checks; OPTIONAL SKIP: %d (documented experimental fixture).\n' "$passed" "$optional_skips"
+printf '\nPASS: %d required checks; OPTIONAL SKIP: %d (Plunderstorm fixture without channel API; UI/UX without AceGUI).\n' "$passed" "$optional_skips"
 printf 'NOT RUN IN SOURCE GATE: real AceDB persistence, packaged libs, live-client taint. See R1-08.\n'

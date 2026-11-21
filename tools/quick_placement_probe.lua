@@ -31,7 +31,7 @@ assert(p.slot.top <= 497 and p.slot.top - H >= 232, "slot above native buttons: 
 assert(math.abs(p.slot.x - 17.5) < 0.01)
 
 -- 4) Chatify's own toolbar fills that gap too -> not inline (flip instead)
-local obs = { unpack(natives) }; obs[#obs+1] = rect(5,30,497,240)
+local obs = { (table.unpack or unpack)(natives) }; obs[#obs+1] = rect(5,30,497,240)
 p = R({side="LEFT", gap=18, chat=chat, sidebar=sidebar, screen=screen, panelWidth=W, panelHeight=H, columnObstacles=obs})
 assert(p.mode=="flipped", p.mode)
 
