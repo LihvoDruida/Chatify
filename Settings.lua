@@ -1002,6 +1002,19 @@ function Chatify:GetOptions()
                                 set = function(info, val) self.db.profile.quickChatButtonAvoidNative = val; ns.NotifyQuickChatSettingsChanged() end,
                                 get = function(info) return self.db.profile.quickChatButtonAvoidNative ~= false end,
                             },
+                            quickChatReserveScreenSpace = {
+                                order = 10.5,
+                                name = T("Reserve Screen Space Next to Chat"),
+                                desc = T("Keep the chat window far enough from the screen edge for the quick buttons on the chosen side. Chatify never moves the chat itself: the game's screen clamping applies the space when the chat is dragged or the UI reloads. Not used with Automatic side."),
+                                type = "toggle",
+                                width = "full",
+                                disabled = function()
+                                    return self.db.profile.quickChatButtons == false
+                                        or (self.db.profile.quickChatButtonSide or "RIGHT") == "AUTO"
+                                end,
+                                set = function(info, val) self.db.profile.quickChatReserveScreenSpace = val; ns.NotifyQuickChatSettingsChanged() end,
+                                get = function(info) return self.db.profile.quickChatReserveScreenSpace == true end,
+                            },
                             quickChatButtonGap = {
                                 order = 11,
                                 name = T("Quick Button Edge Gap"),
@@ -1076,6 +1089,7 @@ function Chatify:GetOptions()
                                     db.quickChatButtonXOffset = 0
                                     db.quickChatButtonYOffset = -4
                                     db.quickChatButtonAvoidNative = true
+                                    db.quickChatReserveScreenSpace = false
                                     ns.NotifyQuickChatSettingsChanged()
                                 end,
                             },
