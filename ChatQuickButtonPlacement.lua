@@ -123,11 +123,12 @@ local function exteriorSpan(side, rect, gap, x, width)
     return left, left + width
 end
 
--- A dock that leaves the screen is invisible and useless. When the requested
+-- A dock that leaves the screen is invisible and useless. When the chosen
 -- side does not fit, fall back in this order, never moving native controls:
 --   1. a free vertical gap inside Blizzard's chat-button column on that side;
---   2. the opposite chat edge, when it fits there;
---   3. the requested side, nudged back just inside the screen edge.
+--   2. AUTO only: the opposite chat edge, when it fits there. An explicit
+--      Left/Right choice is never moved to the other side of the chat;
+--   3. the chosen side, nudged back just inside the screen edge.
 function ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
     local rect, root = opts.chat, opts.screen
     if not isRect(rect) or type(root) ~= "table"
@@ -162,7 +163,7 @@ function ns.KeepQuickChatPlacementOnScreen(result, opts, gapFor)
 
     local other = result.side == "LEFT" and "RIGHT" or "LEFT"
     local otherGap = gapFor and gapFor(other) or result.gap
-    if fits(other, otherGap, 0) then
+    if opts.side == "AUTO" and fits(other, otherGap, 0) then
         result.requestedSide = result.side
         result.side, result.gap, result.x = other, otherGap, 0
         result.mode = "flipped"
