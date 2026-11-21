@@ -967,7 +967,7 @@ function Chatify:GetOptions()
                             quickChatButtonSide = {
                                 order = 8,
                                 name = T("Quick Button Side"),
-                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. If the chosen side would be off-screen, the buttons use a free spot in Blizzard's chat button column or stay on that side just inside the screen edge; use the horizontal offset to fine-tune."),
+                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. With Left, if there is no room between the chat and the screen edge, the chat window is moved just far enough (out of combat); choosing another side puts it back. Use the horizontal offset to fine-tune."),
                                 type = "select",
                                 values = {
                                     RIGHT = T("Right"),
@@ -1001,19 +1001,6 @@ function Chatify:GetOptions()
                                 disabled = function() return self.db.profile.quickChatButtons == false end,
                                 set = function(info, val) self.db.profile.quickChatButtonAvoidNative = val; ns.NotifyQuickChatSettingsChanged() end,
                                 get = function(info) return self.db.profile.quickChatButtonAvoidNative ~= false end,
-                            },
-                            quickChatReserveScreenSpace = {
-                                order = 10.5,
-                                name = T("Move Chat to Make Room for Buttons"),
-                                desc = T("When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side."),
-                                type = "toggle",
-                                width = "full",
-                                disabled = function()
-                                    return self.db.profile.quickChatButtons == false
-                                        or (self.db.profile.quickChatButtonSide or "RIGHT") == "AUTO"
-                                end,
-                                set = function(info, val) self.db.profile.quickChatReserveScreenSpace = val; ns.NotifyQuickChatSettingsChanged() end,
-                                get = function(info) return self.db.profile.quickChatReserveScreenSpace == true end,
                             },
                             quickChatButtonGap = {
                                 order = 11,
@@ -1089,7 +1076,6 @@ function Chatify:GetOptions()
                                     db.quickChatButtonXOffset = 0
                                     db.quickChatButtonYOffset = -4
                                     db.quickChatButtonAvoidNative = true
-                                    db.quickChatReserveScreenSpace = false
                                     ns.NotifyQuickChatSettingsChanged()
                                 end,
                             },

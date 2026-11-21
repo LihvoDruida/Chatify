@@ -23,7 +23,7 @@ Locale:RegisterLocale("ukUA", {
     ["Bottom"] = "Знизу",
     ["Center"] = "По центру",
     ["Left side of the chat frame"] = "Лівий бік вікна чату",
-    ["Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. If the chosen side would be off-screen, the buttons use a free spot in Blizzard's chat button column or stay on that side just inside the screen edge; use the horizontal offset to fine-tune."] = "Розміщує кнопки зліва чи справа від активного вікна чату або автоматично обирає бік із більшим вільним простором. Якщо обраний бік виходить за екран, кнопки займають вільне місце в колонці кнопок Blizzard або лишаються на цьому ж боці біля краю екрана; точніше налаштуйте горизонтальним зсувом.",
+    ["Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. With Left, if there is no room between the chat and the screen edge, the chat window is moved just far enough (out of combat); choosing another side puts it back. Use the horizontal offset to fine-tune."] = "Розміщує кнопки зліва чи справа від активного вікна чату або автоматично обирає бік із більшим вільним простором. Якщо обрано «Ліворуч» і між чатом та краєм екрана бракує місця, вікно чату зсувається рівно настільки, скільки потрібно (лише поза боєм); вибір іншого боку повертає його на місце. Точніше налаштуйте горизонтальним зсувом.",
     ["Anchor the button stack to the top, center or bottom of the chat frame, following the game's chat layout changes."] = "Закріплює панель зверху, по центру або знизу вікна чату та підлаштовується під зміни інтерфейсу гри.",
     ["Keep the quick button stack clear of Blizzard's native chat buttons when they occupy the same side. This does not modify the native UI."] = "Залишає відступ від стандартних кнопок чату Blizzard, якщо вони розташовані з того самого боку. Не змінює оригінальний інтерфейс.",
     ["Distance from the chosen chat edge, in UI units. Zero attaches the buttons directly to the frame. Native button clearance may add space when enabled."] = "Відстань від вибраного краю чату. Нуль розміщує кнопки впритул до вікна. Якщо ввімкнено захист штатних кнопок, відступ може збільшуватися.",
@@ -774,6 +774,4 @@ Locale:RegisterLocale("ukUA", {
     ["Profile nesting exceeds export limit."] = "Вкладеність профілю перевищує ліміт експорту.",
     ["Profile table is invalid."] = "Таблиця профілю некоректна.",
     ["Unsupported or incomplete profile format. Export a new backup first."] = "Непідтримуваний або неповний формат профілю. Спершу створіть нову резервну копію.",
-    ["Move Chat to Make Room for Buttons"] = "Відсувати чат, щоб звільнити місце для кнопок",
-    ["When the quick buttons on the chosen side do not fit on screen, move the chat window just far enough (out of combat only) and keep it from being dragged back under them. Not used with Automatic side."] = "Якщо швидкі кнопки на обраному боці не вміщаються на екрані, вікно чату зсувається рівно на потрібну відстань (лише поза боєм) і не дає перетягнути себе назад під кнопки. Не діє з автоматичним вибором боку.",
 })
