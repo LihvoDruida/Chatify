@@ -1651,7 +1651,6 @@ local function GetLayoutSignature()
     local xOffset = GetConfiguredButtonXOffset()
     local yOffset = GetConfiguredButtonYOffset()
     local side, verticalAlign, avoidNative = GetQuickPlacementOptions()
-    local reserveScreen = db.quickChatReserveScreenSpace == true
     local nativeFrame, nativeHost = GetMainSidebarButtonFrame()
     local nativeSide = nativeFrame and GetClassicSidebarSide(nativeFrame, nativeHost) or "none"
     local nativeLeft = nativeFrame and nativeFrame.GetLeft and nativeFrame:GetLeft() or 0
@@ -1688,7 +1687,6 @@ local function GetLayoutSignature()
         tostring(side),
         tostring(verticalAlign),
         tostring(avoidNative),
-        tostring(reserveScreen),
         tostring(nativeSide),
         tostring(nativeLeft),
         tostring(nativeRight),
@@ -2856,11 +2854,11 @@ local function LayoutSettingsButton()
 end
 
 -- ---------------------------------------------------------------------
--- Optional screen-space reserve next to the chat (quickChatReserveScreenSpace).
--- Chatify never moves Blizzard's chat window. Instead it widens the chat
--- frame's clamp insets by the room the quick button stack needs, so the
--- game's own clamp-to-screen keeps the chat that far from the edge when it is
--- dragged or restored. Blizzard's insets are remembered and restored exactly.
+-- Side = Left makes room next to the chat automatically: the chat frame's
+-- clamp insets are widened by the room the quick button stack needs (so the
+-- game keeps the chat clear when it is dragged), and a chat that sits too
+-- close to the edge is moved just far enough (out of combat). Choosing
+-- another side restores Blizzard's insets and puts the chat back.
 -- ---------------------------------------------------------------------
 local reserveBase = setmetatable({}, { __mode = "k" })    -- frame -> Blizzard insets
 local reserveApplied = setmetatable({}, { __mode = "k" }) -- frame -> insets we wrote
@@ -2967,6 +2965,90 @@ local function WaitForCombatEnd()
     pcall(shiftWaiter.RegisterEvent, shiftWaiter, "PLAYER_REGEN_ENABLED")
 end
 
+-- What Chatify moved, kept per character (chat positions are per character)
+-- so choosing another side can put the chat back even after /reload:
+-- { frame = "ChatFrame1", from = <anchors before the first move>,
+--   to = <anchors after Chatify's last move> }.
+local function GetShiftStore()
+    local addon = ns.Chatify
+    local char = addon and addon.db and addon.db.char
+    return type(char) == "table" and char or nil
+end
+
+local function FrameName(frame)
+    if frame and type(frame.GetName) == "function" then
+        local ok, name = pcall(frame.GetName, frame)
+        if ok and type(name) == "string" and name ~= "" then return name end
+    end
+    return nil
+end
+
+-- Anchors as plain data. A relative frame is stored by global name; anchors
+-- to an unnamed frame cannot be restored after a reload, so they are refused.
+local function SnapshotAnchors(frame)
+    local okN, count = pcall(frame.GetNumPoints, frame)
+    if not okN or type(count) ~= "number" or count < 1 then return nil end
+    local points = {}
+    for i = 1, count do
+        local ok, point, relativeTo, relativePoint, x, y = pcall(frame.GetPoint, frame, i)
+        if not ok or type(point) ~= "string" then return nil end
+        local relName = nil
+        if relativeTo ~= nil then
+            relName = FrameName(relativeTo)
+            if not relName or _G[relName] ~= relativeTo then return nil end
+        end
+        points[i] = { point, relName, relativePoint or point, tonumber(x) or 0, tonumber(y) or 0 }
+    end
+    return points
+end
+
+local function SameAnchors(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" or #a ~= #b then return false end
+    for i = 1, #a do
+        local p, q = a[i], b[i]
+        if p[1] ~= q[1] or p[2] ~= q[2] or p[3] ~= q[3]
+            or math.abs((p[4] or 0) - (q[4] or 0)) > 0.5
+            or math.abs((p[5] or 0) - (q[5] or 0)) > 0.5 then
+            return false
+        end
+    end
+    return true
+end
+
+local function ApplyAnchors(frame, points)
+    if not pcall(frame.ClearAllPoints, frame) then return false end
+    for _, p in ipairs(points) do
+        local relativeTo = p[2] and _G[p[2]] or nil
+        pcall(frame.SetPoint, frame, p[1], relativeTo, p[3], p[4], p[5])
+    end
+    return true
+end
+
+-- Put the chat back where it was before Chatify moved it, unless the player
+-- has moved it since (then their position wins). Waits for combat to end.
+local function RestoreChatShift()
+    local store = GetShiftStore()
+    local record = store and store.quickChatShift
+    if type(record) ~= "table" then return end
+    local frame = type(record.frame) == "string" and _G[record.frame] or nil
+    if not frame then
+        store.quickChatShift = nil
+        return
+    end
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        WaitForCombatEnd()
+        return
+    end
+    if type(record.from) == "table" and SameAnchors(SnapshotAnchors(frame), record.to) then
+        ApplyAnchors(frame, record.from)
+        if type(ns.IncrementRuntimeCounter) == "function" then
+            ns.IncrementRuntimeCounter("quickbuttons:chat-restored")
+        end
+    end
+    store.quickChatShift = nil
+    shiftAttempts[frame] = nil
+end
+
 local function MakeRoomForStack(dragFrame, visualFrame, reserve)
     if not (dragFrame and visualFrame and UIParent) then return end
     local vLeft, vRight = GetFrameRect(visualFrame)
@@ -2989,8 +3071,21 @@ local function MakeRoomForStack(dragFrame, visualFrame, reserve)
         shiftAttempts[dragFrame] = record
     end
     if record.count >= MAX_SHIFT_ATTEMPTS then return end
+    -- Remember where the chat was before Chatify first moved it, so another
+    -- side can put it back. Without restorable anchors, do not move at all.
+    local store = GetShiftStore()
+    local before = SnapshotAnchors(dragFrame)
+    if not (store and before) then return end
+    local saved = store.quickChatShift
+    local frameName = FrameName(dragFrame)
+    if type(saved) ~= "table" or saved.frame ~= frameName or not SameAnchors(before, saved.to) then
+        -- First move, or the player moved the chat since: start from here.
+        saved = { frame = frameName, from = before }
+        store.quickChatShift = saved
+    end
     record.count = record.count + 1
     if ShiftChatFrame(dragFrame, dx * EffectiveScaleRatio(visualFrame, dragFrame)) then
+        saved.to = SnapshotAnchors(dragFrame)
         if type(ns.IncrementRuntimeCounter) == "function" then
             ns.IncrementRuntimeCounter("quickbuttons:chat-moved")
         end
@@ -3004,8 +3099,11 @@ end
 local function ApplyChatScreenReserve(anchorFrame, visualFrame, placement)
     local db = GetDB()
     local reserve = placement and placement.reserve
-    if not (db and db.quickChatReserveScreenSpace == true and reserve and anchorFrame) then
+    -- Side = Left makes room automatically; any other choice puts the chat
+    -- back where it was and restores Blizzard's clamp insets.
+    if not (db and db.quickChatButtonSide == "LEFT" and reserve and reserve.side == "LEFT" and anchorFrame) then
         RestoreAllChatScreenReserves()
+        RestoreChatShift()
         return
     end
 
@@ -3083,6 +3181,7 @@ local function LayoutButtons()
     local buttonCount = #orderedButtons
     if buttonCount == 0 then
         RestoreAllChatScreenReserves()
+        RestoreChatShift()
         container:SetSize(1, 1)
         for _, button in pairs(buttons) do
             if button then
@@ -3863,6 +3962,7 @@ function ns.RefreshQuickChatButtons()
 
     if not db or not showQuickButtons then
         RestoreAllChatScreenReserves()
+        RestoreChatShift()
     end
     if not db or (not showQuickButtons and not showSidebarMenu) then
         lastLayoutSignature = nil

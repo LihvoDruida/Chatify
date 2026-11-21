@@ -1084,7 +1084,6 @@ ns.defaults = {
         quickChatButtonSide = "RIGHT", -- RIGHT, LEFT, AUTO (choose side with available screen space)
         quickChatButtonAlign = "BOTTOM", -- BOTTOM, CENTER, TOP, relative to active chat frame
         quickChatButtonAvoidNative = true, -- Reserve native Blizzard button-frame space without moving game controls
-        quickChatReserveScreenSpace = false, -- Widen the chat's clamp insets so the game keeps room for the stack
         quickChatButtonGap = 18,    -- Відступ назовні від обраного боку чату (0..100)
         quickChatButtonXOffset = 0,  -- Horizontal shift in UI units (-100..100); positive moves right on screen
         quickChatButtonYOffset = -4, -- Вертикальний зсув у пікселях (-100..100)
