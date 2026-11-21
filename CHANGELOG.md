@@ -1,3 +1,10 @@
+## Unreleased — Bug fixes from the module audit
+
+- **Profile export/import:** reopening the window no longer stacks another copy on top of the previous one.
+- **Ukrainian:** the 13 profile backup error messages are translated; a new locale audit keeps every key used in code present in both locales.
+- **Older clients (no `TransformMessages`):** toggling virtual chat no longer drops another addon's chat hook, and no longer leaves extra channel-label passes running on every line.
+- **Fonts:** players who picked "Exo 2 (Chatify)" before June 2026 get Exo 2 again instead of a silent fallback to Friz Quadrata; the saved setting is migrated and the unused root `fonts/` folder is removed.
+
 ## Unreleased — Package cleanup
 
 - Stop shipping development leftovers to players: a 2.9 MB git bundle, stale `START_HERE.txt` notes, and three Lua files no TOC loaded (`ChatMultiPost.lua`, replaced by the Composer in September; the `ChatProxy.lua` prototype; the old `locale_loader.lua`).
