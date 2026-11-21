@@ -1,21 +1,70 @@
 name: Continuous Integration
 
+# validate: every push to main, every pull request and every release tag.
+# release:  only a pushed tag, and only after validate is green.
+# Re-pushing a tag re-runs both jobs (the release is published again).
 on:
   push:
+    branches: [main]
     tags:
-      - "*"           # Запускати на будь-який тег
-      - "!**-alpha**" # Ігнорувати теги з суфіксом -alpha
-      - "!**-beta**"  # Ігнорувати теги з суфіксом -beta
+      - "*"           # Будь-який тег запускає реліз...
+      - "!**-alpha**" # ...крім тегів з суфіксом -alpha
+      - "!**-beta**"  # ...та -beta
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  # Real Ace3 for the AceGUI UI/UX and AceDB persistence tests. The packager
+  # fetches Ace3 from wowace (.pkgmeta externals); this is its GitHub mirror.
+  ACE3_REPO: https://github.com/WoWUIDev/Ace3
+  ACE3_REF: Release-r1403
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  validate:
+    name: Source validation (Lua 5.1)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    outputs:
-      changeLogText: ${{ steps.readChanglog.outputs.text }}
+      - name: Install Lua 5.1 and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          command -v lua5.1
+          command -v luac5.1
+          python3 -m pip install --quiet fonttools
+
+      - name: Fetch Ace3 for real-library tests
+        run: |
+          git clone --quiet --depth 1 --branch "$ACE3_REF" "$ACE3_REPO" "$RUNNER_TEMP/Ace3"
+          echo "ACE3_PATH=$RUNNER_TEMP/Ace3" >> "$GITHUB_ENV"
+
+      - name: Required checks (real AceGUI mandatory)
+        env:
+          CHATIFY_REQUIRE_REAL_ACEGUI: "1"
+        run: bash ./tools/check_all.sh
+
+      - name: Real AceDB persistence round trip
+        env:
+          CHATIFY_REQUIRE_REAL_ACEDB: "1"
+        run: lua5.1 tools/roundtrip_test.lua
+
+      - name: Prove failure detection
+        run: bash ./tools/negative_control.sh
+
+  release:
+    name: Package and publish
+    needs: validate
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: chatify-release-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
       - name: Checkout Repository
@@ -26,52 +75,26 @@ jobs:
       - name: Fetch all tags
         run: git fetch --tags --force
 
-      - name: Get Latest Tag or use TOC version
-        id: get_latest_tag
-        run: |
-          # 1. Шукаємо файл .toc (беремо перший знайдений, щоб не хардкодити назву)
-          TOC_FILE=$(find . -maxdepth 1 -name "*.toc" | head -n 1)
-          echo "📂 Знайдено TOC файл: $TOC_FILE"
-
-          # 2. Витягуємо версію з TOC
-          if [ -f "$TOC_FILE" ]; then
-            TOC_VERSION=$(grep -oP '^## Version: \K.*' "$TOC_FILE" | tr -d '\r')
-          else
-            TOC_VERSION="1.0"
-          fi
-          
-          TOC_FALLBACK="v${TOC_VERSION}"
-
-          # 3. Перевіряємо теги
-          TAGS=$(git tag -l)
-          if [ -z "$TAGS" ]; then
-            LATEST_TAG="$TOC_FALLBACK"
-            echo "⚠️ Теги не знайдено, використовується версія з TOC: $LATEST_TAG"
-          else
-            LATEST_TAG=$(git describe --tags --abbrev=0)
-            echo "🧷 Знайдено останній тег: $LATEST_TAG"
-          fi
-
-          # 4. Зберігаємо змінні
-          echo "FINAL_VERSION=$LATEST_TAG" >> $GITHUB_ENV
-          echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
-
-      - name: Print Debug Info
-        run: |
-          echo "GitHub Ref: ${{ github.ref }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Використана версія: $FINAL_VERSION"
-
+      # The version is the tag that triggered this run, never the newest tag
+      # reachable from HEAD and never the developer version in the TOCs.
       - name: Update Version in .toc Files
+        shell: bash
         run: |
-          # Оновлює поле Version у всіх .toc файлах репозиторію на поточний тег
-          # Видаляє літеру 'v' якщо вона є (наприклад v1.2 -> 1.2), бо WoW любить чисті цифри
-          CLEAN_VERSION=$(echo "${FINAL_VERSION}" | sed 's/^v//')
-          
-          find . -type f -name "*.toc" | while read toc_file; do
-            echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
+          test "${GITHUB_REF_TYPE}" = "tag" || { echo "Not a tag build" >&2; exit 1; }
+          CLEAN_VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$CLEAN_VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "Tag '${GITHUB_REF_NAME}' is not a version (expected v1.2.3 or 1.2.3)" >&2; exit 1; }
+          updated=0
+          while IFS= read -r -d '' toc_file; do
+            grep -q '^## Version: ' "$toc_file" || { echo "No ## Version in $toc_file" >&2; exit 1; }
             sed -i "s/^## Version: .*/## Version: ${CLEAN_VERSION}/" "$toc_file"
-          done
+            echo "Оновлення версії в файлі: $toc_file до $CLEAN_VERSION"
+            updated=$((updated+1))
+          done < <(find . -maxdepth 1 -type f -name '*.toc' -print0)
+          test "$updated" -gt 0 || { echo "No TOC files found" >&2; exit 1; }
+          python3 tools/generate_tocs.py --check
+          echo "FINAL_VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "CLEAN_VERSION=${CLEAN_VERSION}" >> "$GITHUB_ENV"
 
       # Генеруємо changelog (потрібен файл cliff.toml у корені)
       - name: Generate CHANGELOG.md
@@ -81,15 +104,15 @@ jobs:
           args: --latest --strip header --output CHANGELOG.md
 
       - name: Verify Changelog
-        run: cat CHANGELOG.md || echo "Changelog not generated"
+        run: test -s CHANGELOG.md
 
       # Пакування та відправка на CurseForge / GitHub Releases
       - name: Create and Upload Package
         uses: BigWigsMods/packager@v2
         env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}  # Токен CurseForge
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}     # Токен CurseForge
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }} # Токен GitHub (автоматичний)
 
       - name: Add Summary
         run: |
-          echo "## ✅ CI завершено успішно для версії $FINAL_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Реліз $FINAL_VERSION опубліковано (TOC: $CLEAN_VERSION)" >> "$GITHUB_STEP_SUMMARY"
