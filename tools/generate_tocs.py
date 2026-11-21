@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate every flavor TOC from Chatify.toc, including Forever and legacy Wrath.
+"""Generate every flavor TOC from Chatify.toc, including Forever.
 
 The generic TOC lists all packaged interface targets for client fallback. Flavor
 TOCs select their own interface, identity and support tier. Runtime routing still
@@ -20,7 +20,6 @@ FLAVOURS = {
     "Vanilla": ("11509, 11508", "classic", "Vanilla", "Classic Era / Hardcore / Season of Discovery", "current"),
     "TBC": ("20506", "classic", "TBC", "Burning Crusade Classic Anniversary", "current"),
     "Wrath": ("38002, 30405", "classic", "Wrath", "Titan Reforged / Wrath Classic", "current / legacy"),
-    "WrathLegacy": ("30405", "classic-legacy", "Wrath", "Wrath Classic 3.4.5", "legacy"),
     "Cata": ("40402", "classic-legacy", "Cata", "Cataclysm Classic", "legacy"),
     "Mists": ("50504", "classic", "Mists", "Mists of Pandaria Classic", "current"),
     "Camelot": ("16001", "forever", "Forever", "World of Warcraft: Forever", "beta"),
@@ -85,9 +84,15 @@ def main():
             path.write_text(content, encoding="utf-8")
             print(f"wrote {path.name} (Interface {target[0]})")
     if check:
+        # A TOC the generator no longer produces would still ship and confuse
+        # clients/tests (e.g. the retired Chatify_WrathLegacy.toc).
+        expected = {f"Chatify_{suffix}.toc" for suffix in FLAVOURS}
+        unknown = sorted(p.name for p in ROOT.glob("Chatify_*.toc") if p.name not in expected)
+        if unknown:
+            sys.exit("Unknown flavor TOCs (add them to FLAVOURS or delete them): " + ", ".join(unknown))
         if stale:
             sys.exit("Out of date, re-run tools/generate_tocs.py: " + ", ".join(stale))
-        print("All seven flavor TOCs are current, including Forever and legacy Wrath."
+        print(f"All {len(FLAVOURS)} flavor TOCs are current, including Forever."
               + (" Local release versions ignored until tag sync." if ignore_version else ""))
 
 

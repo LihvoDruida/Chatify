@@ -14,9 +14,24 @@ import posixpath
 import re
 import stat
 import sys
+import importlib.util
 import zipfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
+
+
+def _expected_toc_count() -> int:
+    """Chatify.toc plus every flavor the TOC generator produces."""
+    path = Path(__file__).resolve().with_name('generate_tocs.py')
+    spec = importlib.util.spec_from_file_location('chatify_generate_tocs', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return 1 + len(module.FLAVOURS)
+
+
+EXPECTED_TOCS = _expected_toc_count()
+# Development artifacts that must never reach players' AddOns folders.
+SOURCE_ONLY_SUFFIXES = ('.bundle', '.patch', '.diff', '.orig', '.rej', '.py', '.pyc', '.sh')
 
 CORE_LIBS = (
     'LibStub/LibStub.lua',
@@ -58,14 +73,15 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 errors.append('ZIP contains symlink: ' + info.filename)
         files = set(n for n in names if not n.endswith('/'))
         tocs = sorted(n for n in files if re.fullmatch(r'Chatify/[^/]+\.toc', n))
-        if len(tocs) != 8:
-            errors.append(f'Expected 8 Chatify TOCs, found {len(tocs)}')
+        if len(tocs) != EXPECTED_TOCS:
+            errors.append(f'Expected {EXPECTED_TOCS} Chatify TOCs, found {len(tocs)}')
         report['toc_files'] = tocs
         if not expected_version:
             errors.append('Missing expected version: pass --expected-version from Git tag')
         if expected_version and not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,3}(?:-[0-9A-Za-z.-]+)?', expected_version):
             errors.append('Invalid expected version: ' + expected_version)
         visited: set[str] = set()
+        loaded: set[str] = set()  # every file some TOC or XML manifest loads
 
         def inspect_xml(filepath: str):
             if filepath in visited:
@@ -90,8 +106,10 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 file_ref = posixpath.normpath(posixpath.join(posixpath.dirname(filepath), value.replace('\\', '/')))
                 if not file_ref.startswith('Chatify/') or file_ref not in files:
                     errors.append(f'Unresolved {filepath} -> {file_ref}')
-                elif tag == 'include':
-                    inspect_xml(file_ref)
+                else:
+                    loaded.add(file_ref)
+                    if tag == 'include':
+                        inspect_xml(file_ref)
                 report['checked_includes'] += 1
 
         interfaces_by_toc = {}
@@ -119,8 +137,10 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 includes.append(resolved)
                 if resolved not in files:
                     errors.append(f'Unresolved {toc} -> {resolved}')
-                elif resolved.endswith('.xml'):
-                    inspect_xml(resolved)
+                else:
+                    loaded.add(resolved)
+                    if resolved.endswith('.xml'):
+                        inspect_xml(resolved)
                 report['checked_includes'] += 1
             if 'Chatify/libs/_manifest.xml' not in includes:
                 errors.append(toc + ' does not load libs/_manifest.xml')
@@ -158,9 +178,16 @@ def validate(path: str, expected_version: str | None = None) -> dict:
                 digest.update(b'\0')
                 digest.update(z.read(member))
             report['libraries_sha256'][libname] = digest.hexdigest()
-        for name in files:
+        for name in sorted(files):
             if name.startswith(('Chatify/tools/', 'Chatify/.git/', 'Chatify/.github/')):
                 errors.append('Source-only content leaked into installation: ' + name)
+            elif name.lower().endswith(SOURCE_ONLY_SUFFIXES):
+                errors.append('Development artifact leaked into installation: ' + name)
+            # Addon Lua outside the embedded libraries must be loaded by some
+            # TOC; otherwise it is dead code shipped to players.
+            elif (name.endswith('.lua') and not name.startswith('Chatify/libs/')
+                  and name not in loaded):
+                errors.append('Lua file not loaded by any TOC: ' + name)
         # zipfile.testzip verifies each member's CRC and catches truncated files.
         corrupt = z.testzip()
         if corrupt:

@@ -17,7 +17,6 @@ and security probes are retried rather than freezing an early negative result.
 | Classic Era / Hardcore / Season of Discovery | `Chatify_Vanilla.toc` | 11509, 11508 | shared Era API fixtures |
 | Burning Crusade Classic Anniversary | `Chatify_TBC.toc` | 20506 | offline runtime fixture |
 | Titan Reforged / Wrath Classic | `Chatify_Wrath.toc` | 38002, 30405 | offline current/legacy fixtures |
-| Wrath Classic legacy | `Chatify_WrathLegacy.toc` | 30405 | legacy compatibility target |
 | Cataclysm Classic legacy | `Chatify_Cata.toc` | 40402 | legacy compatibility target |
 | Mists of Pandaria Classic | `Chatify_Mists.toc` | 50504 | offline runtime fixture |
 | Plunderstorm | generic `Chatify.toc` | runtime project/API detection | experimental; missing features hidden |

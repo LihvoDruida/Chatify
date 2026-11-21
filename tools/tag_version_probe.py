@@ -42,7 +42,10 @@ def extract_run(step_name):
 
 
 def main():
-    assert len(TOCS) >= 8, 'Expected all main and flavor TOCs'
+    sys.path.insert(0, str(ROOT / 'tools'))
+    from generate_tocs import FLAVOURS
+    expected = 1 + len(FLAVOURS)
+    assert len(TOCS) == expected, f'Expected {expected} TOCs (Chatify.toc + generated flavors), found {len(TOCS)}'
     sync = extract_run('Update Version in .toc Files')
     assert 'GITHUB_REF_NAME' in sync, 'Version must come from the triggering Git tag'
     assert 'git describe' not in sync

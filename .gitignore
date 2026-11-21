@@ -18,6 +18,8 @@ desktop.ini
 *.tmp
 *.log
 *.zip
+*.bundle
+*.patch
 
 # Lua bytecode from syntax checks (luac -p writes this on some builds)
 luac.out

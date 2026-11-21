@@ -1,3 +1,9 @@
+## Unreleased — Package cleanup
+
+- Stop shipping development leftovers to players: a 2.9 MB git bundle, stale `START_HERE.txt` notes, and three Lua files no TOC loaded (`ChatMultiPost.lua`, replaced by the Composer in September; the `ChatProxy.lua` prototype; the old `locale_loader.lua`).
+- Drop `Chatify_WrathLegacy.toc`: WoW does not load that suffix, and `Chatify_Wrath.toc` already covers interface 30405.
+- The package validator now rejects Lua files that no TOC loads, development artifacts (`.bundle`, `.patch`, scripts) and a TOC count that differs from the generator; the TOC generator rejects flavor TOCs it does not produce.
+
 ## Unreleased — Quick Chat horizontal offset
 
 - Add a **Quick Button Horizontal Offset** slider (`-100–100`, default `0`) next to the vertical offset. Positive moves the stack right on screen, negative moves it left, applied after the edge gap and native-button clearance.
