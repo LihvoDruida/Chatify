@@ -2,7 +2,23 @@
 -- fixture. Only XML-created regions, fonts and WoW xpcall varargs are modelled.
 -- Geometry assertions cover Lua layout contracts, not Blizzard text rendering.
 local M = {}
+
+-- AceGUI is a packager external (.pkgmeta), so a plain source checkout has no
+-- libs/AceGUI-3.0. Look in ACE3_PATH first (an Ace3 checkout), then libs/.
+function M.locate()
+    local acePath = os.getenv('ACE3_PATH')
+    for _, root in ipairs({ acePath and (acePath .. '/AceGUI-3.0') or nil, 'libs/AceGUI-3.0' }) do
+        local fh = root and io.open(root .. '/AceGUI-3.0.lua', 'r')
+        if fh then
+            fh:close()
+            return root
+        end
+    end
+    return nil
+end
+
 function M.install(env)
+    local root = assert(M.locate(), 'AceGUI-3.0 not found; set ACE3_PATH or populate libs/')
     local unpack = unpack or table.unpack
     local baseCreateFrame = CreateFrame
     local function model(f)
@@ -44,9 +60,9 @@ function M.install(env)
         local args, n = {...}, select('#', ...)
         return savedXpcall(function() return fn(unpack(args, 1, n)) end, handler)
     end
-    assert(loadfile('libs/AceGUI-3.0/AceGUI-3.0.lua'))()
+    assert(loadfile(root .. '/AceGUI-3.0.lua'))()
     for _, name in ipairs({'Container-Frame','Container-ScrollFrame','Widget-Label','Widget-Button','Widget-EditBox','Widget-MultiLineEditBox','Widget-DropDown','Widget-DropDown-Items','Widget-CheckBox','Widget-Slider'}) do
-        assert(loadfile('libs/AceGUI-3.0/widgets/AceGUI'..name..'.lua'))()
+        assert(loadfile(root .. '/widgets/AceGUI'..name..'.lua'))()
     end
     return { errors = errors, gui = LibStub('AceGUI-3.0') }
 end

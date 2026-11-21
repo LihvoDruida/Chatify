@@ -239,6 +239,9 @@ fake.GetBottom = function() return 110 end
 ui:ClipControl(fake, scroll, true)
 check("fully offscreen control not interactive", not mouse)
 local panel = ns.SettingsIntegration.panel
+-- The full editor embeds only on a canvas of at least 810x580 UI units;
+-- smaller canvases get the native launch page (settings_responsive_probe).
+panel:SetSize(900, 650)
 panel:GetScript("OnShow")(panel)
 check("same window embeds in game settings", ui.embeddedHost == panel and ui.window:GetParent() == panel)
 check("embedded layout", ui.window:GetWidth() == 790 and ui.inspector:GetHeight() >= 130 and ui.scroll:GetHeight() >= 150)

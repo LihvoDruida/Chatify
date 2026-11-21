@@ -5,7 +5,18 @@ local env = require('wow_env')
 local fixtures = require('client_fixtures')
 local client = os.getenv('CHATIFY_SETTINGS_CLIENT') or 'forever'
 local fixture = fixtures.install(env, client)
-local ace = require('acegui_env').install(env)
+local aceEnv = require('acegui_env')
+if not aceEnv.locate() then
+    -- Same contract as roundtrip_test.lua for AceDB: optional in the source
+    -- gate, mandatory when the release job sets CHATIFY_REQUIRE_REAL_ACEGUI=1.
+    if os.getenv('CHATIFY_REQUIRE_REAL_ACEGUI') == '1' then
+        io.stderr:write('FAIL: real AceGUI-3.0 missing in mandatory release test\n')
+        os.exit(2)
+    end
+    print('OPTIONAL SKIP: AceGUI-3.0 not found; set ACE3_PATH or populate libs/.')
+    os.exit(0)
+end
+local ace = aceEnv.install(env)
 UISpecialFrames = {}
 Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
 if os.getenv('CHATIFY_SETTINGS_API') == 'legacy' then

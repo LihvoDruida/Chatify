@@ -30,6 +30,7 @@ local function check(label, condition)
 end
 if view == "embedded" then
     local panel = ns.SettingsIntegration.panel
+    panel:SetSize(900, 650) -- large enough to embed the full editor
     panel:GetScript("OnShow")(panel)
     ui:SelectPage("channels")
     check("same renderer embedded", ui.embeddedHost == panel)
