@@ -376,6 +376,9 @@ local function CreateTransferFrame()
     selectAll:SetScript("OnClick", function() edit:SetFocus(); edit:HighlightText(0, -1) end)
     f.selectAll = selectAll
     f:Hide()
+    -- Reuse one window: export and import share it, and reopening must not
+    -- stack another frame with the same global name on top of the old one.
+    transferFrame = f
     return f
 end
 
