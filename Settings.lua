@@ -424,10 +424,10 @@ end
 -- =========================================================
 function Chatify:GetOptions()
     local options = {
-        name = "Chatify", 
+        name = "Chatify",
         handler = Chatify,
         type = "group",
-        childGroups = "tab", 
+        childGroups = "tab",
         args = {
             -- HEADER
             headerInfo = {
@@ -438,15 +438,15 @@ function Chatify:GetOptions()
                        " |cff999999" .. T("Tabs | Spam Filter | Sounds | History") .. "|r\n" ..
                        GetClientHeaderLine(),
                 fontSize = "large",
-                image = "Interface\\AddOns\\Chatify\\assets\\icon", 
-                imageWidth = 64, 
+                image = "Interface\\AddOns\\Chatify\\assets\\icon",
+                imageWidth = 64,
                 imageHeight = 64,
             },
 
             headerSpacer = {
                 order = 0.5,
                 type = "description",
-                name = "\n", 
+                name = "\n",
             },
 
             -- TAB 1: GENERAL & APPEARANCE
@@ -2148,7 +2148,7 @@ function Chatify:GetOptions()
                                                 for i, word in ipairs(self.db.profile.spamKeywords or {}) do t[i] = word end
                                                 return t
                                             end,
-                                            set = function(info, key) 
+                                            set = function(info, key)
                                                 if self.db.profile.spamKeywords then
                                                     table.remove(self.db.profile.spamKeywords, key)
                                                 end
@@ -2161,10 +2161,10 @@ function Chatify:GetOptions()
                                         curList = {
                                             order = 3,
                                             type = "description",
-                                            name = function() 
+                                            name = function()
                                                 local keywords = self.db.profile.spamKeywords or {}
                                                 if #keywords == 0 then return "\n|cff888888" .. T("(Blocklist is empty)") .. "|r" end
-                                                return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ") 
+                                                return "\n|cffff0000" .. T("Blocked Words:") .. "|r " .. table.concat(keywords, ", ")
                                             end,
                                         },
                                     },
@@ -2753,7 +2753,7 @@ function Chatify:GetOptions()
             tabSetup = {
                 name = T("Setup & Reset"),
                 type = "group",
-                order = 99, 
+                order = 99,
                 args = {
                     groupTabSetup = {
                         name = T("Chat Tabs Setup"),
@@ -2791,7 +2791,7 @@ function Chatify:GetOptions()
                                 order = 4,
                                 name = T("Apply Safe Tab Setup"),
                                 type = "execute",
-                                func = "SetupDefaultTabs", 
+                                func = "SetupDefaultTabs",
                                 width = "full",
                                 confirm = true,
                                 confirmText = "Create or update chat tabs for the selected template?",
@@ -3106,13 +3106,13 @@ function Chatify:OnInitialize()
     sessionPreviousStamp = marker.lastSavedAt
     marker.sessionCount = sessionPreviousCount + 1
     marker.lastSavedAt = (type(date) == "function") and date("%Y-%m-%d %H:%M") or nil
-    
+
     -- Register Callbacks
     self.db.RegisterCallback(self, "OnProfileChanged", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileCopied", "RefreshConfig")
     self.db.RegisterCallback(self, "OnProfileReset", "RefreshConfig")
 
-    ns.db = self.db.profile 
+    ns.db = self.db.profile
     EnsureProfileTables(ns.db)
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
@@ -3139,7 +3139,7 @@ function Chatify:OnInitialize()
     self:RegisterChatCommand("chatifycompat", "PrintClientCompatibilityReport")
     self:RegisterChatCommand("chatifyexport", function() if type(ns.OpenProfileExport) == "function" then ns.OpenProfileExport() end end)
     self:RegisterChatCommand("chatifyimport", function() if type(ns.OpenProfileImport) == "function" then ns.OpenProfileImport() end end)
-    
+
     -- Runtime modules refresh themselves on enable. Avoid doing a second full
     -- style/filter pass here because Ace will immediately enable modules after
     -- initialization.

@@ -42,11 +42,6 @@ local captureRegisteredCount = 0
 local lastEntrySignature
 local lastEntryTime = 0
 
-local PLAYER_COLORS = {
-    "ff7ad7ff", "ffffd36b", "ff9dff7a", "ffff9a9a", "ffc79cff",
-    "ff7affb2", "ffffb86b", "ff9ab7ff", "ffff7adf", "ffb7ffea",
-}
-
 local function IsProtectedChatValue(value)
     if type(ns.IsProtectedChatValue) == "function" then
         local ok, protected = pcall(ns.IsProtectedChatValue, value)
@@ -265,27 +260,6 @@ local function ExtractAuthorFromText(text)
     return nil
 end
 
-local function GetNameColor(name)
-    name = NormalizeName(name)
-    if not name then
-        return "ffffffff"
-    end
-
-    local hash = 0
-    for i = 1, #name do
-        hash = (hash + name:byte(i) * i) % #PLAYER_COLORS
-    end
-    return PLAYER_COLORS[hash + 1]
-end
-
-local function ColorName(name)
-    name = NormalizeName(name)
-    if not name then
-        return ""
-    end
-    return "|c" .. GetNameColor(name) .. name .. "|r"
-end
-
 -- Leading-timestamp extraction.
 --
 -- ReadMessageHistory pulls fully rendered lines out of the chat frame via
@@ -459,31 +433,6 @@ local function BuildPlainLine(entry)
     end
 
     return string.format("[%s] %s", entry.time, text)
-end
-
-local function BuildColoredLine(entry)
-    if type(entry) == "string" then
-        return StripChatMarkup(entry) or ""
-    end
-    if type(entry) ~= "table" then
-        return ""
-    end
-
-    local text = StripChatMarkup(entry.text)
-    if not IsNonEmptyString(text) then
-        return ""
-    end
-
-    local timeText = IsNonEmptyString(entry.time)
-        and string.format("|cff888888[%s]|r ", entry.time)
-        or ""
-    local author = NormalizeName(entry.author)
-    if IsNonEmptyString(author) then
-        text = StripLeadingAuthor(text, author)
-        return string.format("%s%s: %s", timeText, ColorName(author), text)
-    end
-
-    return string.format("%s%s", timeText, text)
 end
 
 local function AddFullChatEntry(entry)
@@ -1720,10 +1669,6 @@ local function SetCopyEditText(text)
     end
 end
 
-local function ClearCopyPreview()
-    SetCopyEditText("")
-end
-
 -- Recomputes the scroll child rect from the size the EditBox has right now.
 --
 -- ScrollFrame:UpdateScrollChildRect is the only thing that tells the scroll frame
@@ -2263,7 +2208,7 @@ ReadMessageHistory = function(chatFrame, maxLines)
     if count > 0 and type(chatFrame.GetMessageInfo) == "function" then
         local first = math.max(1, count - maxLines + 1)
         for i = first, count do
-            local ok, msg, r, g, b, messageId, extraData = pcall(chatFrame.GetMessageInfo, chatFrame, i)
+            local ok, msg = pcall(chatFrame.GetMessageInfo, chatFrame, i)
             if ok then
                 AddHistoryEntry(entries, msg, nil, nil, true)
             end
@@ -2310,32 +2255,6 @@ local function GetFrameTextCopyable(frame)
     end
 
     local ok, enabled = pcall(frame.IsTextCopyable, frame)
-    if ok then
-        return enabled and true or false
-    end
-
-    return nil
-end
-
-local function GetFrameMouseClickEnabled(frame)
-    if not frame or type(frame.IsMouseClickEnabled) ~= "function" then
-        return nil
-    end
-
-    local ok, enabled = pcall(frame.IsMouseClickEnabled, frame)
-    if ok then
-        return enabled and true or false
-    end
-
-    return nil
-end
-
-local function GetFrameMouseMotionEnabled(frame)
-    if not frame or type(frame.IsMouseMotionEnabled) ~= "function" then
-        return nil
-    end
-
-    local ok, enabled = pcall(frame.IsMouseMotionEnabled, frame)
     if ok then
         return enabled and true or false
     end

@@ -61,13 +61,11 @@ local frameHistory = {}
 local targetFrameCache = {}
 local activeEventTypeMap = {}
 local savedSeeded = false
-local restoredToChatFrames = false
 local frameCaptureStatus = {}  -- [chatID] = true when its AddMessage post-hook is active
 local fallbackFrameCount = 0
 local historyCaptureEnabled = false
 local HISTORY_SCHEMA_VERSION = 4
 local HISTORY_CAPTURE_MODE = "frame-addmessage-once"
-local unpack = table.unpack or unpack
 local L = (ns.L and function(key) return ns.L(key) end) or function(key) return key end
 
 local function GetHistoryDB()
@@ -138,23 +136,6 @@ local function IsFrameAllowed(chatFrame)
         return ok and allowed == true
     end
     return NormalizeFrameID(chatFrame) ~= nil
-end
-
-local function AppendRestoredMessage(frame, text, ...)
-    if not frame then
-        return
-    end
-
-    if type(frame.BackFillMessage) == "function" then
-        local ok = pcall(frame.BackFillMessage, frame, text, ...)
-        if ok then
-            return
-        end
-    end
-
-    if type(frame.AddMessage) == "function" then
-        pcall(frame.AddMessage, frame, text, ...)
-    end
 end
 
 -- Exposed so a test - and a user running /chatifytrace after changing tabs - can
@@ -787,13 +768,6 @@ function History:OnChatEvent(event, message, author, ...)
         return
     end
 
-    local channelName, channelID
-    if event == "CHAT_MSG_CHANNEL" then
-        local languageName, channelString, target, flags, unknown, channelNumber, channelBaseName = ...
-        channelName = GetSafeText(channelBaseName) or GetSafeText(channelString) or GetSafeText(languageName)
-        channelID = tonumber(channelNumber) or tonumber(unknown)
-    end
-
     for _, chatID in ipairs(targetFrames) do
         chatID = NormalizeFrameID(chatID)
         if chatID and frameCaptureStatus[chatID] ~= true then
@@ -963,7 +937,6 @@ function History:RestoreHistory()
     -- chat frames: that creates duplicate/noisy messages and is not how
     -- Prat/Chattynator-style history viewers behave. Saved lines are shown
     -- only through the Chatify History window and its per-chat tabs.
-    restoredToChatFrames = true
 end
 
 -- =========================================================
