@@ -68,6 +68,8 @@ AddFont(ns.Lists.Fonts, "Chatify: Exo 2", ADDON_FONT_ROOT .. "Exo2-Regular.ttf",
         "EXO2",
         "Exo 2",
         ADDON_FONT_ROOT .. "Exo2.ttf",
+        -- Name saved by builds from February-June 2026 (LSM "Exo 2 (Chatify)").
+        "Exo 2 (Chatify)",
     },
 })
 AddFont(ns.Lists.Fonts, "Chatify: Exo 2 Medium", ADDON_FONT_ROOT .. "Exo2-Medium.ttf", { internal = true, family = "Exo 2", weight = "Medium", recommended = true })
@@ -804,13 +806,27 @@ RegisterChatifyMedia()
 -- =========================================================
 -- 3. MEDIA RESOLVERS
 -- =========================================================
+-- Font files that older builds shipped and that no longer exist. Keys are
+-- lower-case with backslashes; values are the current equivalent.
+local RETIRED_FONT_PATHS = {
+    ["interface\\addons\\chatify\\fonts\\exo2.ttf"] = ADDON_FONT_ROOT .. "Exo2-Regular.ttf",
+}
+local RETIRED_FONT_NAMES = {
+    ["exo 2 (chatify)"] = "Chatify: Exo 2",
+}
+
+local function RetiredFontPathReplacement(path)
+    if type(path) ~= "string" then return nil end
+    return RETIRED_FONT_PATHS[string.lower((path:gsub("/", "\\")))]
+end
+
 function ns.ResolveFontPath(fontID)
     if type(fontID) ~= "string" or fontID == "" then
         return CHATIFY_DEFAULT_FONT
     end
 
     if string.find(fontID, "\\", 1, true) or string.find(fontID, "/", 1, true) then
-        return fontID
+        return RetiredFontPathReplacement(fontID) or fontID
     end
 
     local fromLSM = LSM and LSM.Fetch and LSM:Fetch("font", fontID, true)
@@ -825,6 +841,24 @@ function ns.ResolveFontPath(fontID)
     end
 
     return CHATIFY_DEFAULT_FONT
+end
+
+-- Rewrite saved font choices that point at retired names/files, so the
+-- settings dropdown shows the font actually in use. Returns true if changed.
+function ns.MigrateRetiredFontSettings(db)
+    if type(db) ~= "table" or type(db.fontID) ~= "string" then
+        return false
+    end
+    local fontID = db.fontID
+    local replacement = RETIRED_FONT_NAMES[string.lower(fontID)]
+    if not replacement and RetiredFontPathReplacement(fontID) then
+        replacement = "Chatify: Exo 2"
+    end
+    if replacement and replacement ~= fontID then
+        db.fontID = replacement
+        return true
+    end
+    return false
 end
 
 function ns.ResolveSoundPath(soundID)

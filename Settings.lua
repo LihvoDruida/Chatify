@@ -3117,6 +3117,9 @@ function Chatify:OnInitialize()
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
     end
+    if type(ns.MigrateRetiredFontSettings) == "function" then
+        ns.MigrateRetiredFontSettings(ns.db)
+    end
     if type(ns.EnforceRetailSafeMode) == "function" then
         ns.EnforceRetailSafeMode(ns.db)
     end
@@ -3208,6 +3211,9 @@ function Chatify:RefreshConfig()
     EnsureProfileTables(ns.db)
     if type(ns.RunRetailCompatibilityMigration) == "function" then
         ns.RunRetailCompatibilityMigration(ns.db)
+    end
+    if type(ns.MigrateRetiredFontSettings) == "function" then
+        ns.MigrateRetiredFontSettings(ns.db)
     end
     RefreshRuntimeModules()
     if type(ns.SyncNativeStatusToastControl) == "function" then ns.SyncNativeStatusToastControl() end
