@@ -2565,7 +2565,7 @@ GetNativeSidebarSignature = function(sidebarFrame)
     return table.concat(key, ";")
 end
 
-GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
+GetQuickChatAnchorPlacement = function(visualFrame, panelWidth, panelHeight)
     local db = GetDB() or {}
     local sidebarFrame, hostFrame = GetMainSidebarButtonFrame()
     -- Only check the native sidebar when anchoring to its actual chat frame.
@@ -2585,7 +2585,13 @@ GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
         local left, right, top, bottom = GetFrameRect(frame)
         return { left = left, right = right, top = top, bottom = bottom }
     end
-    return ns.ResolveQuickChatPlacement({
+    -- Obstacles inside the native column: Blizzard's buttons plus Chatify's
+    -- own Settings/Copy/History toolbar (laid out before this stack).
+    local columnObstacles = sidebarFrame and CollectNativeSidebarButtonRects(sidebarFrame) or {}
+    if settingsContainer and settingsContainer.IsShown and settingsContainer:IsShown() then
+        columnObstacles[#columnObstacles + 1] = rect(settingsContainer)
+    end
+    local placement = ns.ResolveQuickChatPlacement({
         side = db.quickChatButtonSide,
         align = db.quickChatButtonAlign,
         gap = GetConfiguredButtonGap(),
@@ -2598,7 +2604,10 @@ GetQuickChatAnchorPlacement = function(visualFrame, panelWidth)
             and { rect(settingsContainer) } or nil,
         screen = rect(UIParent),
         panelWidth = panelWidth,
+        panelHeight = panelHeight,
+        columnObstacles = columnObstacles,
     })
+    return placement, sidebarFrame
 end
 
 local function ResolveClassicToolbarPlacement(sidebarFrame, hostFrame, nativeButtons, buttonWidth, buttonHeight, itemCount, spacing)
@@ -2910,7 +2919,7 @@ local function LayoutButtons()
     local totalHeight = desiredTotalHeight
     local holderHeight = totalHeight + (outerPadding * 2)
 
-    local placement = GetQuickChatAnchorPlacement(visualFrame, buttonWidth + 4)
+    local placement, placementSidebar = GetQuickChatAnchorPlacement(visualFrame, buttonWidth + 4, math.max(1, holderHeight))
     local side, vertical = placement.side, placement.align
     local isLeft = side == "LEFT"
     local horizontalAnchor = isLeft and "RIGHT" or "LEFT"
@@ -2923,10 +2932,19 @@ local function LayoutButtons()
     container:SetSize(buttonWidth + 4, math.max(1, holderHeight))
     local targetPoint = vertical == "CENTER" and horizontalAnchor or (vertical .. horizontalAnchor)
     local relativePoint = vertical == "CENTER" and visualAnchor or (vertical .. visualAnchor)
-    container:SetPoint(targetPoint, visualFrame, relativePoint, signedGap + (placement.x or 0), placement.y)
-    -- Clamping an exterior dock can push the bar back over the chat text or
-    -- Blizzard's original buttons. AUTO side selection handles tight margins;
-    -- explicit LEFT/RIGHT is respected exactly as the user requested.
+    local slot = placement.slot
+    if placement.mode == "native-column" and slot and placementSidebar then
+        -- The chosen side is off-screen: sit in a free gap of Blizzard's own
+        -- button column instead (native controls are not moved).
+        local sLeft, sRight, sTop = GetFrameRect(placementSidebar)
+        container:SetPoint("TOP", placementSidebar, "TOP", slot.x - (sLeft + sRight) * 0.5, slot.top - sTop)
+    else
+        container:SetPoint(targetPoint, visualFrame, relativePoint, signedGap + (placement.x or 0), placement.y)
+    end
+    container.__chatifyPlacementMode = placement.mode
+    -- Never use SetClampedToScreen here: it can push the bar over chat text or
+    -- Blizzard's buttons. ResolveQuickChatPlacement already keeps the stack on
+    -- screen via the native column, the opposite edge, or a minimal nudge.
     if container.SetClampedToScreen then container:SetClampedToScreen(false) end
 
     if container.SetFrameStrata then

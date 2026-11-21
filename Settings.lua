@@ -967,7 +967,7 @@ function Chatify:GetOptions()
                             quickChatButtonSide = {
                                 order = 8,
                                 name = T("Quick Button Side"),
-                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space."),
+                                desc = T("Place the buttons outside the left or right edge of the active chat frame, or automatically choose the side with more space. If the chosen side would be off-screen, the buttons move into a free spot in Blizzard's chat button column, then to the other edge."),
                                 type = "select",
                                 values = {
                                     RIGHT = T("Right"),
